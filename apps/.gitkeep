@@ -1,0 +1,5 @@
+# This file keeps the apps directory in git
+# Your apps will go here:
+# - backend (NestJS)
+# - pos-frontend (Next.js with offline support)
+# - inventory-frontend (Next.js)
