@@ -35,9 +35,9 @@ export class SyncService {
     private dataSource: DataSource,
   ) {}
 
-  async processSync(syncRequest: SyncRequestDto): Promise<SyncResponseDto> {
+  async processSync(syncRequest: SyncRequestDto, user?: any): Promise<SyncResponseDto> {
     this.logger.log(
-      `Processing sync for terminal: ${syncRequest.terminalId}`,
+      `Processing sync for terminal: ${syncRequest.terminalId} by user: ${user?.email || 'anonymous'}`,
     );
 
     const syncedAt = new Date();

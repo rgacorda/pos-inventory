@@ -3,14 +3,16 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { SyncModule } from './sync/sync.module';
 import databaseConfig from './config/database.config';
+import jwtConfig from './config/jwt.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig],
+      load: [databaseConfig, jwtConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -22,6 +24,7 @@ import databaseConfig from './config/database.config';
         return config;
       },
     }),
+    AuthModule,
     SyncModule,
   ],
   controllers: [AppController],
