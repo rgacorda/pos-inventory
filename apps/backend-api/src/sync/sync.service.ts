@@ -262,17 +262,6 @@ export class SyncService {
   ): Promise<ProductCatalogDto> {
     const products = await this.productRepository.find({
       where: { status: ProductStatus.ACTIVE },
-      select: [
-        'id',
-        'sku',
-        'name',
-        'description',
-        'category',
-        'price',
-        'taxRate',
-        'barcode',
-        'imageUrl',
-      ],
     });
 
     return {
@@ -286,7 +275,8 @@ export class SyncService {
         taxRate: Number(p.taxRate),
         barcode: p.barcode,
         imageUrl: p.imageUrl,
-        isActive: p.status === ProductStatus.ACTIVE,
+        status: p.status,
+        stockQuantity: p.stockQuantity,
       })),
       lastUpdated: new Date(),
     };

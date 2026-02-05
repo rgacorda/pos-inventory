@@ -96,7 +96,8 @@ export interface ProductDto {
   taxRate: number;
   barcode?: string;
   imageUrl?: string;
-  isActive: boolean;
+  status: string;
+  stockQuantity: number;
 }
 
 /**
