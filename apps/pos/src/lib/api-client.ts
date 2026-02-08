@@ -1,5 +1,5 @@
-import axios, { AxiosInstance } from 'axios';
-import { db, dbHelpers } from './db';
+import axios, { AxiosInstance } from "axios";
+import { db, dbHelpers } from "./db";
 import type {
   SyncRequestDto,
   SyncResponseDto,
@@ -7,7 +7,7 @@ import type {
   CreatePaymentDto,
   LoginDto,
   AuthResponseDto,
-} from '@pos/shared-types';
+} from "@pos/shared-types";
 
 class APIClient {
   private client: AxiosInstance;
@@ -15,10 +15,10 @@ class APIClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
+      baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000",
       timeout: 30000,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
@@ -30,22 +30,22 @@ class APIClient {
         }
         return config;
       },
-      (error) => Promise.reject(error)
+      (error) => Promise.reject(error),
     );
 
     // Load token from localStorage on initialization
-    if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('accessToken');
+    if (typeof window !== "undefined") {
+      this.accessToken = localStorage.getItem("accessToken");
     }
   }
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       if (token) {
-        localStorage.setItem('accessToken', token);
+        localStorage.setItem("accessToken", token);
       } else {
-        localStorage.removeItem('accessToken');
+        localStorage.removeItem("accessToken");
       }
     }
   }
@@ -55,25 +55,31 @@ class APIClient {
   }
 
   async login(credentials: LoginDto): Promise<AuthResponseDto> {
-    const response = await this.client.post<AuthResponseDto>('/auth/login', credentials);
+    const response = await this.client.post<AuthResponseDto>(
+      "/auth/login",
+      credentials,
+    );
     this.setAccessToken(response.data.accessToken);
     return response.data;
   }
 
   logout() {
     this.setAccessToken(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('user');
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("user");
     }
   }
 
   async sync(syncRequest: SyncRequestDto): Promise<SyncResponseDto> {
-    const response = await this.client.post<SyncResponseDto>('/pos/sync', syncRequest);
+    const response = await this.client.post<SyncResponseDto>(
+      "/pos/sync",
+      syncRequest,
+    );
     return response.data;
   }
 
   isOnline(): boolean {
-    if (typeof navigator === 'undefined') return true;
+    if (typeof navigator === "undefined") return true;
     return navigator.onLine;
   }
 }
@@ -108,17 +114,17 @@ export class SyncService {
 
   async performSync(): Promise<boolean> {
     if (this.isSyncing) {
-      console.log('Sync already in progress, skipping...');
+      console.log("Sync already in progress, skipping...");
       return false;
     }
 
     if (!apiClient.isOnline()) {
-      console.log('Offline, skipping sync...');
+      console.log("Offline, skipping sync...");
       return false;
     }
 
     if (!apiClient.getAccessToken()) {
-      console.log('Not authenticated, skipping sync...');
+      console.log("Not authenticated, skipping sync...");
       return false;
     }
 
@@ -127,19 +133,21 @@ export class SyncService {
     try {
       const terminalId = await dbHelpers.getTerminalId();
       if (!terminalId) {
-        throw new Error('Terminal ID not set');
+        throw new Error("Terminal ID not set");
       }
 
       // Get pending items
       const { orders, payments } = await dbHelpers.getPendingSyncItems();
 
       if (orders.length === 0 && payments.length === 0) {
-        console.log('No items to sync');
+        console.log("No items to sync");
         await this.syncProductCatalog(terminalId);
         return true;
       }
 
-      console.log(`Syncing ${orders.length} orders and ${payments.length} payments...`);
+      console.log(
+        `Syncing ${orders.length} orders and ${payments.length} payments...`,
+      );
 
       // Mark items as syncing
       await this.markItemsAsSyncing(orders, payments);
@@ -167,10 +175,10 @@ export class SyncService {
       // Update last sync time
       await dbHelpers.updateLastSyncTime(response.syncedAt);
 
-      console.log('Sync completed successfully');
+      console.log("Sync completed successfully");
       return true;
     } catch (error) {
-      console.error('Sync failed:', error);
+      console.error("Sync failed:", error);
       await this.markItemsAsError(error);
       return false;
     } finally {
@@ -194,39 +202,45 @@ export class SyncService {
 
       await dbHelpers.updateLastSyncTime(response.syncedAt);
     } catch (error) {
-      console.error('Failed to sync product catalog:', error);
+      console.error("Failed to sync product catalog:", error);
     }
   }
 
   private async markItemsAsSyncing(orders: any[], payments: any[]) {
     await Promise.all([
-      ...orders.map(order => 
-        db.orders.update(order.id!, { syncStatus: 'syncing' })
+      ...orders.map((order) =>
+        db.orders.update(order.id!, { syncStatus: "syncing" }),
       ),
-      ...payments.map(payment => 
-        db.payments.update(payment.id!, { syncStatus: 'syncing' })
+      ...payments.map((payment) =>
+        db.payments.update(payment.id!, { syncStatus: "syncing" }),
       ),
     ]);
   }
 
   private async markItemsAsError(error: any) {
-    const errorMessage = error.message || 'Sync failed';
-    
-    const syncingOrders = await db.orders.where('syncStatus').equals('syncing').toArray();
-    const syncingPayments = await db.payments.where('syncStatus').equals('syncing').toArray();
+    const errorMessage = error.message || "Sync failed";
+
+    const syncingOrders = await db.orders
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
+    const syncingPayments = await db.payments
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
 
     await Promise.all([
-      ...syncingOrders.map(order =>
+      ...syncingOrders.map((order) =>
         db.orders.update(order.id!, {
-          syncStatus: 'error',
+          syncStatus: "error",
           syncError: errorMessage,
-        })
+        }),
       ),
-      ...syncingPayments.map(payment =>
+      ...syncingPayments.map((payment) =>
         db.payments.update(payment.id!, {
-          syncStatus: 'error',
+          syncStatus: "error",
           syncError: errorMessage,
-        })
+        }),
       ),
     ]);
   }
@@ -235,20 +249,20 @@ export class SyncService {
     // Process order results
     for (const result of response.results.orders) {
       const localOrder = await db.orders
-        .where('posLocalId')
+        .where("posLocalId")
         .equals(result.posLocalId)
         .first();
 
       if (localOrder) {
-        if (result.status === 'SUCCESS' || result.status === 'DUPLICATE') {
+        if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
           await db.orders.update(localOrder.id!, {
-            syncStatus: 'synced',
+            syncStatus: "synced",
             syncError: undefined,
           });
         } else {
           await db.orders.update(localOrder.id!, {
-            syncStatus: 'error',
-            syncError: result.message || 'Sync failed',
+            syncStatus: "error",
+            syncError: result.message || "Sync failed",
           });
         }
       }
@@ -257,20 +271,20 @@ export class SyncService {
     // Process payment results
     for (const result of response.results.payments) {
       const localPayment = await db.payments
-        .where('posLocalId')
+        .where("posLocalId")
         .equals(result.posLocalId)
         .first();
 
       if (localPayment) {
-        if (result.status === 'SUCCESS' || result.status === 'DUPLICATE') {
+        if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
           await db.payments.update(localPayment.id!, {
-            syncStatus: 'synced',
+            syncStatus: "synced",
             syncError: undefined,
           });
         } else {
           await db.payments.update(localPayment.id!, {
-            syncStatus: 'error',
-            syncError: result.message || 'Sync failed',
+            syncStatus: "error",
+            syncError: result.message || "Sync failed",
           });
         }
       }
@@ -283,10 +297,10 @@ export class SyncService {
       lastSyncedAt: new Date(),
     }));
 
-    await db.transaction('rw', db.products, async () => {
+    await db.transaction("rw", db.products, async () => {
       // Clear all existing products to avoid showing stale data
       await db.products.clear();
-      
+
       // Add all products from the catalog
       for (const product of products) {
         await db.products.put(product);
@@ -313,12 +327,12 @@ export class SyncService {
   private convertLocalPaymentToDto(payment: any): CreatePaymentDto {
     return {
       posLocalId: payment.posLocalId,
-      orderId: payment.orderId,
-      orderPosLocalId: payment.orderId, // Local reference
+      orderId: payment.orderId, // posLocalId of the order
+      orderPosLocalId: payment.orderId, // Same as orderId for POS
       terminalId: payment.terminalId,
       method: payment.method,
       amount: payment.amount,
-      reference: payment.reference,
+      reference: payment.reference || payment.paymentNumber,
       processedAt: payment.processedAt,
     };
   }
