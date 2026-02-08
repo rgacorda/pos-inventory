@@ -1,108 +1,105 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useProducts } from "@/hooks/useDatabase";
-import { formatCurrency } from "@pos/shared-utils";
+import { DataTable } from "./data-table";
+import { columns } from "./columns";
+import { Search } from "lucide-react";
 
 export default function ProductsPage() {
   const products = useProducts();
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [categories, setCategories] = useState<string[]>(["All"]);
+
+  // Extract unique categories from products
+  useEffect(() => {
+    if (products && products.length > 0) {
+      const uniqueCategories = [
+        "All",
+        ...Array.from(
+          new Set(
+            products
+              .map((p) => p.category)
+              .filter((category): category is string => Boolean(category)),
+          ),
+        ),
+      ];
+      setCategories(uniqueCategories);
+    }
+  }, [products]);
+
+  // Filter products by search and category
+  const filteredProducts =
+    products?.filter((p) => {
+      const matchesCategory =
+        selectedCategory === "All" || p.category === selectedCategory;
+      const matchesSearch =
+        searchQuery === "" ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.description &&
+          p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesCategory && matchesSearch;
+    }) || [];
 
   return (
     <div className="flex flex-1 flex-col">
       <div className="border-b p-4">
-        <h1 className="text-xl font-semibold">📦 Product Catalog</h1>
+        <h1 className="text-xl font-semibold">Product Catalog</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto space-y-4">
+          {/* Search and Filter Bar */}
+          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Search Input */}
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name, SKU, or description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                />
+              </div>
+
+              {/* Category Filter */}
+              <div className="w-full md:w-48">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
+                >
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Products Table */}
           {!products ? (
             <div className="text-center text-gray-600 py-8 text-lg">
-              ⏳ Loading products...
+              Loading products...
             </div>
-          ) : products.length === 0 ? (
+          ) : filteredProducts.length === 0 ? (
             <div className="text-center text-gray-600 py-8">
-              <p className="mb-4 text-lg">📦 No products available</p>
+              <p className="mb-4 text-lg">No products found</p>
               <p className="text-sm text-gray-500">
-                Products will be synced from the backend when online
+                {products.length === 0
+                  ? "Products will be synced from the backend when online"
+                  : "Try adjusting your search or filter"}
               </p>
             </div>
           ) : (
-            <div className="bg-white border-2 border-blue-200 rounded-xl overflow-hidden shadow-lg">
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-blue-600 to-blue-700 text-white border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">
-                      SKU
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">
-                      Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold">
-                      Category
-                    </th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold">
-                      Price
-                    </th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold">
-                      Stock
-                    </th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {products.map((product) => (
-                    <tr
-                      key={product.id}
-                      className="hover:bg-blue-50 transition-colors"
-                    >
-                      <td className="px-4 py-3 text-sm font-mono text-gray-700 font-semibold">
-                        {product.sku}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-gray-800">
-                          {product.name}
-                        </div>
-                        {product.description && (
-                          <div className="text-sm text-gray-600">
-                            {product.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {product.category || "-"}
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-blue-600 text-lg">
-                        {formatCurrency(Number(product.price))}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            product.stockQuantity > 10
-                              ? "bg-green-100 text-green-700"
-                              : product.stockQuantity > 0
-                                ? "bg-yellow-100 text-yellow-700"
-                                : "bg-red-100 text-red-700"
-                          }`}
-                        >
-                          {product.stockQuantity}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            product.status === "ACTIVE"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {product.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="bg-white rounded-lg overflow-hidden shadow-sm">
+              <DataTable columns={columns} data={filteredProducts} />
             </div>
           )}
         </div>

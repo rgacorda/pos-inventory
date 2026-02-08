@@ -28,32 +28,32 @@ export function Sidebar() {
             <div
               className={`flex items-center gap-3 rounded-lg p-3 transition-colors ${
                 pathname === "/"
-                  ? "bg-blue-50 text-blue-600 font-medium"
-                  : "hover:bg-gray-100 text-gray-700"
+                  ? "border-l-4 border-gray-900 bg-gray-50 text-gray-900 font-medium"
+                  : "hover:bg-gray-100 text-gray-700 border-l-4 border-transparent"
               }`}
             >
               <ShoppingCart className="h-5 w-5" />
               <span className="text-sm">Point of Sale</span>
             </div>
           </Link>
-          <Link href="/orders">
+          <Link href="/transactions">
             <div
               className={`flex items-center gap-3 rounded-lg p-3 transition-colors ${
-                pathname === "/orders"
-                  ? "bg-blue-50 text-blue-600 font-medium"
-                  : "hover:bg-gray-100 text-gray-700"
+                pathname === "/transactions"
+                  ? "border-l-4 border-gray-900 bg-gray-50 text-gray-900 font-medium"
+                  : "hover:bg-gray-100 text-gray-700 border-l-4 border-transparent"
               }`}
             >
               <Receipt className="h-5 w-5" />
-              <span className="text-sm">Orders</span>
+              <span className="text-sm">Transactions</span>
             </div>
           </Link>
           <Link href="/products">
             <div
               className={`flex items-center gap-3 rounded-lg p-3 transition-colors ${
                 pathname === "/products"
-                  ? "bg-blue-50 text-blue-600 font-medium"
-                  : "hover:bg-gray-100 text-gray-700"
+                  ? "border-l-4 border-gray-900 bg-gray-50 text-gray-900 font-medium"
+                  : "hover:bg-gray-100 text-gray-700 border-l-4 border-transparent"
               }`}
             >
               <Package className="h-5 w-5" />
@@ -61,20 +61,18 @@ export function Sidebar() {
             </div>
           </Link>
         </div>
-
-        <Separator className="my-4" />
-
-        <div className="space-y-2">
-          <Link href="/login">
-            <div className="hover:bg-red-50 hover:text-red-600 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-gray-700 transition-colors">
-              <LogOut className="h-5 w-5" />
-              <span className="text-sm">Logout</span>
-            </div>
-          </Link>
-        </div>
       </nav>
 
+      <div className="border-t p-4">
 
+
+        <Link href="/login">
+          <div className="hover:bg-gray-100 hover:text-gray-900 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-gray-700 transition-colors">
+            <LogOut className="h-5 w-5" />
+            <span className="text-sm">Logout</span>
+          </div>
+        </Link>
+      </div>
     </div>
   );
 }

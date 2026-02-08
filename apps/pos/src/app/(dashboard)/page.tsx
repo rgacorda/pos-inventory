@@ -14,6 +14,7 @@ import {
   CreditCard,
   QrCode,
   Minus,
+  Search,
 } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
@@ -43,6 +44,7 @@ export default function Page() {
   const todaysOrders = useTodaysOrders();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [categories, setCategories] = useState<string[]>(["All"]);
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -130,11 +132,19 @@ export default function Page() {
 
   const total = subtotal + tax;
 
-  // Filter products by category
+  // Filter products by category and search
   const filteredProducts =
-    products?.filter(
-      (p) => selectedCategory === "All" || p.category === selectedCategory,
-    ) || [];
+    products?.filter((p) => {
+      const matchesCategory =
+        selectedCategory === "All" || p.category === selectedCategory;
+      const matchesSearch =
+        searchQuery === "" ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.description &&
+          p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesCategory && matchesSearch;
+    }) || [];
 
   // Process checkout
   const handleCheckout = async (paymentMethod: PaymentMethod) => {
@@ -238,11 +248,17 @@ export default function Page() {
       <div className="flex flex-1 flex-col">
         {/* Header */}
         <div className="border-b p-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold">Categories</h1>
-            <div className="flex items-center gap-2">
-              <ChevronLeft className="text-muted-foreground h-5 w-5" />
-              <ChevronRight className="text-muted-foreground h-5 w-5" />
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-xl font-semibold">Point of Sale</h1>
+            <div className="flex-1 max-w-md relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
             </div>
           </div>
         </div>
@@ -253,17 +269,17 @@ export default function Page() {
             {categories.map((category, index) => (
               <div
                 key={index}
-                className={`hover:bg-muted flex min-w-[80px] cursor-pointer flex-col items-center rounded-lg p-2 transition-colors ${
+                className={`hover:bg-gray-50 flex min-w-[80px] cursor-pointer flex-col items-center rounded-lg p-2 transition-colors ${
                   selectedCategory === category
-                    ? "bg-blue-50 ring-2 ring-blue-400"
-                    : ""
+                    ? "border-2 border-gray-900"
+                    : "border-2 border-transparent"
                 }`}
                 onClick={() => setSelectedCategory(category)}
               >
-                <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-2xl">
+                <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-2xl">
                   {categoryIcons[category] || "📦"}
                 </div>
-                <span className="text-muted-foreground text-center text-xs">
+                <span className="text-gray-700 text-center text-xs">
                   {category}
                 </span>
               </div>
@@ -290,9 +306,9 @@ export default function Page() {
                   onClick={() => addToOrder(product)}
                 >
                   <CardContent className="p-0">
-                    <div className="relative aspect-video overflow-hidden rounded-t-lg bg-gradient-to-br from-blue-100 to-purple-100">
+                    <div className="relative aspect-video overflow-hidden rounded-t-lg bg-gradient-to-br from-gray-100 to-gray-200">
                       <div className="flex items-center justify-center h-full text-6xl">
-                        {categoryIcons[product.category || "All"] || "📦"}
+                        {categoryIcons[product.category] || "📦"}
                       </div>
                     </div>
                     <div className="p-4">
@@ -301,7 +317,7 @@ export default function Page() {
                         {product.category}
                       </p>
                       <div className="flex items-center justify-between">
-                        <p className="text-lg font-bold text-blue-600">
+                        <p className="text-lg font-bold text-gray-900">
                           ${product.price.toFixed(2)}
                         </p>
                         <span className="text-xs text-gray-500">
@@ -318,8 +334,8 @@ export default function Page() {
       </div>
 
       {/* Right Sidebar - Order Summary */}
-      <div className="flex w-80 flex-col border-l">
-        <div className="border-b p-4">
+      <div className="flex w-80 flex-col border-l h-screen">
+        <div className="border-b p-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Current Order</h2>
             <div className="flex items-center gap-2">
@@ -331,73 +347,75 @@ export default function Page() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 p-4">
-          {orderItems.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              <p className="text-sm">Cart is empty</p>
-              <p className="text-xs mt-2">Add items to get started</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {orderItems.map((item, index) => (
-                <div
-                  key={`${item.product.id}-${index}`}
-                  className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50"
-                >
-                  <div className="bg-muted flex h-12 w-12 items-center justify-center rounded-lg flex-shrink-0">
-                    <span className="text-lg">
-                      {categoryIcons[item.product.category || "All"] || "📦"}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-medium truncate">
-                      {item.product.name}
-                    </h4>
-                    <p className="text-muted-foreground text-xs">
-                      ${item.product.price.toFixed(2)} × {item.quantity}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 w-6 p-0"
-                        onClick={() => updateQuantity(item.product.id!, -1)}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="text-xs font-medium w-6 text-center">
-                        {item.quantity}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-4">
+            {orderItems.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <p className="text-sm">Cart is empty</p>
+                <p className="text-xs mt-2">Add items to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {orderItems.map((item, index) => (
+                  <div
+                    key={`${item.product.id}-${index}`}
+                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50"
+                  >
+                    <div className="bg-muted flex h-12 w-12 items-center justify-center rounded-lg flex-shrink-0">
+                      <span className="text-lg">
+                        {categoryIcons[item.product.category || "All"] || "📦"}
                       </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-medium truncate">
+                        {item.product.name}
+                      </h4>
+                      <p className="text-muted-foreground text-xs">
+                        ${item.product.price.toFixed(2)} × {item.quantity}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 w-6 p-0"
+                          onClick={() => updateQuantity(item.product.id!, -1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-xs font-medium w-6 text-center">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 w-6 p-0"
+                          onClick={() => updateQuantity(item.product.id!, 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-semibold text-sm">
+                        ${(item.product.price * item.quantity).toFixed(2)}
+                      </p>
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="h-6 w-6 p-0"
-                        onClick={() => updateQuantity(item.product.id!, 1)}
+                        variant="ghost"
+                        className="h-5 w-5 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 mt-1"
+                        onClick={() => removeFromOrder(item.product.id!)}
                       >
-                        <Plus className="h-3 w-3" />
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-semibold text-sm">
-                      ${(item.product.price * item.quantity).toFixed(2)}
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-5 w-5 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 mt-1"
-                      onClick={() => removeFromOrder(item.product.id!)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </ScrollArea>
 
-        <div className="border-t p-4">
+        <div className="border-t p-4 flex-shrink-0">
           <div className="mb-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span>Subtotal</span>
@@ -463,7 +481,7 @@ export default function Page() {
           </div>
 
           {isProcessing && (
-            <p className="text-center text-sm text-blue-600 mb-2">
+            <p className="text-center text-sm text-gray-600 mb-2">
               Processing...
             </p>
           )}
