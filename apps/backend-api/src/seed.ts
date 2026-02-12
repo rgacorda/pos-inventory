@@ -5,8 +5,10 @@ import { DataSource } from 'typeorm';
 import { UserEntity } from './entities/user.entity';
 import { TerminalEntity } from './entities/terminal.entity';
 import { ProductEntity } from './entities/product.entity';
+import { OrganizationEntity } from './entities/organization.entity';
+import { SubscriptionEntity } from './entities/subscription.entity';
 import * as bcrypt from 'bcrypt';
-import { UserRole, ProductStatus } from '@pos/shared-types';
+import { UserRole, ProductStatus, SubscriptionPlan, SubscriptionStatus } from '@pos/shared-types';
 
 async function seed() {
   const logger = new Logger('Seed');
@@ -16,30 +18,220 @@ async function seed() {
   try {
     logger.log('Starting database seed...');
 
-    // Seed Users
+    // Seed Super Admin (platform owner - no organization)
     const userRepository = dataSource.getRepository(UserEntity);
-    const existingAdmin = await userRepository.findOne({ where: { email: 'admin@pos.com' } });
+    const existingSuperAdmin = await userRepository.findOne({ 
+      where: { email: 'superadmin@pos.com' } 
+    });
+
+    if (!existingSuperAdmin) {
+      const hashedPassword = await bcrypt.hash('super123', 10);
+      
+      const superAdmin = userRepository.create({
+        email: 'superadmin@pos.com',
+        name: 'Super Admin',
+        password: hashedPassword,
+        role: UserRole.SUPER_ADMIN,
+        isActive: true,
+        organizationId: null, // Super admin doesn't belong to any org
+      });
+
+      await userRepository.save(superAdmin);
+      logger.log('✅ Super Admin created');
+    } else {
+      logger.log('Super Admin already exists, skipping...');
+    }
+
+    // Seed Organizations
+    const organizationRepository = dataSource.getRepository(OrganizationEntity);
+    const subscriptionRepository = dataSource.getRepository(SubscriptionEntity);
+    
+    let org1, org2;
+    const existingOrg = await organizationRepository.findOne({ 
+      where: { slug: 'demo-store' } 
+    });
+
+    if (!existingOrg) { && org1 && org2) {
+      const terminal1 = terminalRepository.create({
+        terminalId: 'TERMINAL-001',
+        name: 'Front Counter',
+        location: 'Main Entrance',
+        organizationId: org1.id,
+        isActive: true,
+      });
+
+      const terminal2 = terminalRepository.create({
+        terminalId: 'TERMINAL-002',
+        name: 'Self-Checkout',
+        location: 'Side Entrance',
+        organizationId: org1.id,
+        isActive: true,
+      });
+
+      const terminal3 = terminalRepository.create({
+        terminalId: 'TERMINAL-003',
+        name: 'Coffee Bar',
+        location: 'Main Counter',
+        organizationId: org2.id,
+        isActive: true,
+      });
+
+      await terminalRepository.save([terminal1, terminal2, terminal3
+          taxRate: 0.08,
+          features: {
+            inventory: true,
+            multipleTerminals: true,
+            reporting: true,
+            api: false,
+          },
+        },
+      });
+
+      org2 = organizationRepository.create({
+        name: 'Coffee Shop',
+        slug: 'coffee-shop',
+        email: 'hello@coffee-shop.com',
+        description: 'Local coffee shop',
+        address: '456 Oak Avenue',
+        city: 'Los Angeles',
+        state: 'CA',
+        country: 'USA',
+        postalCode: '90001',
+        phone: '+1-555-0200',
+        settings: {
+          currency: 'USD',
+          timezone: 'America/Los_Angeles',
+          language: 'en',
+          taxRate: 0.095,
+          features: {
+            inventory: true,
+            multipleTerminals: false,
+            reporting: true,
+            api: false,
+          },
+        },
+      });
+
+      await organizationRepository.save([org1, org2]);
+      logger.log('✅ Organizations created');
+
+      // Create subscriptions for organizations
+      const subscription1 = subscriptionRepository.create({
+        organizationId: org1.id,
+        plan: SubscriptionPlan.PROFESSIONAL,
+        status: SubscriptionStatus.ACTIVE,
+        monthlyPrice: 99.00,
+        billingCycle: 'monthly',
+        limits: {
+          maxUsers: 20,
+          maxTerminals: 10,
+          maxProducts: 10000,
+          maxTransactionsPerMonth: 50000,
+          features: {
+            multipleLocations: true,
+            advancedReporting: true,
+            apiAccess: true,
+            prioritySupport: false,
+          },
+        },
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+
+      const subscription2 = subscriptionRepository.create({
+        organizationId: org2.id,
+        plan: SubscriptionPlan.BASIC,
+        status: SubscriptionStatus.TRIAL,
+        monthlyPrice: 29.00,
+        billingCycle: 'monthly',
+        limits: {
+          maxUsers: 5,
+          maxTerminals: 2,
+          maxProducts: 1000,
+          maxTransactionsPerMonth: 5000,
+          features: {
+            multipleLocations: false,
+            advancedReporting: true,
+            apiAccess: false,
+            prioritySupport: false,
+          },
+        },
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      });
+
+      await subscriptionRepository.save([subscription1, subscription2]);
+      logger.log('✅ Subscriptions created');
+    } else {
+      org1 = existingOrg;
+      org2 = await organizationRepository.findOne({ where: { slug: 'coffee-shop' } });
+      logger.log('Organizations already exist, skipping...');
+    }
+
+    // Seed Users with organization relationships
+    const existingAdmin = await userRepository.findOne({ where: { email: 'admin@demo-store.com' } });
 
     if (!existingAdmin) {
       const hashedPassword = await bcrypt.hash('admin123', 10);
       
-      const admin = userRepository.create({
-        email: 'admin@pos.com',
-        name: 'Admin User',
+      // Demo Store users
+      const admin1 = userRepository.create({
+        email: 'admin@demo-store.com',
+        name: 'John Admin',
         password: hashedPassword,
         role: UserRole.ADMIN,
+        organizationId: org1.id,
+        phone: '+1-555-0101',
         isActive: true,
       });
 
-      const cashier = userRepository.create({
-        email: 'cashier@pos.com',
-        name: 'Cashier User',
+      const manager1 = userRepository.create({
+        email: 'manager@demo-store.com',
+        name: 'Jane Manager',
+        password: await bcrypt.hash('manager123', 10),
+        role: UserRole.MANAGER,
+        organizationId: org1.id,
+        phone: '+1-555-0102',
+        isActive: true,
+      });
+
+      const cashier1 = userRepository.create({
+        email: 'cashier@demo-store.com',
+        name: 'Bob Cashier',
         password: await bcrypt.hash('cashier123', 10),
         role: UserRole.CASHIER,
+        organizationId: org1.id,
+        phone: '+1-555-0103',
         isActive: true,
       });
 
-      await userRepository.save([admin, cashier]);
+      // Coffee Shop users
+      const admin2 = userRepository.create({
+        email: 'admin@coffee-shop.com',
+        name: 'Sarah Owner',
+        password: hashedPassword,
+        role: UserRole.ADMIN,
+        organizationId: org2.id,
+        phone: '+1-555-0201',
+        isActive: true,
+      });
+
+      const cashier2 = userRepository.create({
+        email: 'cashier@coffee-shop.com',
+        name: 'Mike Barista',
+        password: await bcrypt.hash('cashier123', 10),
+        role: UserRole.CASHIER,
+        organizationId: org2.id,
+        phone: '+1-555-0202',
+        isActive: true,
+      });
+Super Admin: superadmin@pos.com / super123');
+    logger.log('\n  Demo Store:');
+    logger.log('    Admin: admin@demo-store.com / admin123');
+    logger.log('    Manager: manager@demo-store.com / manager123');
+    logger.log('    Cashier: cashier@demo-store.com / cashier123');
+    logger.log('\n  Coffee Shop:');
+    logger.log('    Admin: admin@coffee-shop.com / admin123');
+    logger.log('    Cashier: cashier@coffee-shop1, manager1, cashier1, admin2, cashier2]);
       logger.log('✅ Users created');
     } else {
       logger.log('Users already exist, skipping...');

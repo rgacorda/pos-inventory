@@ -41,12 +41,37 @@ export enum SyncStatus {
 
 /**
  * User role enum
+ * SUPER_ADMIN: Platform owner - manages all organizations and subscriptions
+ * ADMIN: Organization owner - full access to their organization
+ * MANAGER: Store manager - can manage inventory and use POS
+ * CASHIER: POS operator - can only process sales
  */
 export enum UserRole {
+  SUPER_ADMIN = "SUPER_ADMIN",
   ADMIN = "ADMIN",
   MANAGER = "MANAGER",
   CASHIER = "CASHIER",
-  INVENTORY_MANAGER = "INVENTORY_MANAGER",
+}
+
+/**
+ * Subscription plan enum
+ */
+export enum SubscriptionPlan {
+  FREE = "FREE",
+  BASIC = "BASIC",
+  PROFESSIONAL = "PROFESSIONAL",
+  ENTERPRISE = "ENTERPRISE",
+}
+
+/**
+ * Subscription status enum
+ */
+export enum SubscriptionStatus {
+  ACTIVE = "ACTIVE",
+  TRIAL = "TRIAL",
+  PAST_DUE = "PAST_DUE",
+  CANCELLED = "CANCELLED",
+  EXPIRED = "EXPIRED",
 }
 
 /**
