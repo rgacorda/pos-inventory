@@ -6,6 +6,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 
 @Entity('payments')
@@ -28,6 +30,15 @@ export class PaymentEntity {
   @Column()
   @Index()
   terminalId: string;
+
+  // Organization relationship for multi-tenancy
+  @Column()
+  @Index()
+  organizationId: string;
+
+  @ManyToOne('OrganizationEntity', 'payments')
+  @JoinColumn({ name: 'organizationId' })
+  organization: any;
 
   @Column({ type: 'enum', enum: PaymentMethod })
   method: PaymentMethod;

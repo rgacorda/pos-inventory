@@ -276,7 +276,7 @@ async function seed() {
       await productRepository.clear();
     }
 
-    if (true) {
+    if (org1) {
       const products = [
         {
           sku: 'BEV-001',
@@ -290,6 +290,7 @@ async function seed() {
           lowStockThreshold: 30,
           barcode: '049000042566',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'SNK-001',
@@ -303,6 +304,7 @@ async function seed() {
           lowStockThreshold: 50,
           barcode: '028400047647',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'FOOD-001',
@@ -316,6 +318,7 @@ async function seed() {
           lowStockThreshold: 60,
           barcode: '070662045206',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'DAIRY-001',
@@ -329,6 +332,7 @@ async function seed() {
           lowStockThreshold: 20,
           barcode: '041130007224',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'CANDY-001',
@@ -342,6 +346,7 @@ async function seed() {
           lowStockThreshold: 50,
           barcode: '040000519607',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'BEV-002',
@@ -355,6 +360,7 @@ async function seed() {
           lowStockThreshold: 25,
           barcode: '611269991116',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'SNK-002',
@@ -368,6 +374,7 @@ async function seed() {
           lowStockThreshold: 40,
           barcode: '038000845505',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'BREAD-001',
@@ -381,6 +388,7 @@ async function seed() {
           lowStockThreshold: 10,
           barcode: '007287505013',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'COFFEE-001',
@@ -394,6 +402,7 @@ async function seed() {
           lowStockThreshold: 100,
           barcode: '123456789012',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
         {
           sku: 'ICE-001',
@@ -407,6 +416,7 @@ async function seed() {
           lowStockThreshold: 20,
           barcode: '041130404023',
           status: ProductStatus.ACTIVE,
+          organizationId: org1.id,
         },
       ];
 

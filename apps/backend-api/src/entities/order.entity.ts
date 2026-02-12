@@ -7,6 +7,8 @@ import {
   UpdateDateColumn,
   OneToMany,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { OrderItemEntity } from './order-item.entity';
 
@@ -29,6 +31,15 @@ export class OrderEntity {
 
   @Column()
   cashierId: string;
+
+  // Organization relationship for multi-tenancy
+  @Column()
+  @Index()
+  organizationId: string;
+
+  @ManyToOne('OrganizationEntity', 'orders')
+  @JoinColumn({ name: 'organizationId' })
+  organization: any;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   subtotal: number;

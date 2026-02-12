@@ -6,6 +6,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 
 @Entity('products')
@@ -50,6 +52,15 @@ export class ProductEntity {
 
   @Column({ type: 'enum', enum: ProductStatus, default: ProductStatus.ACTIVE })
   status: ProductStatus;
+
+  // Organization relationship for multi-tenancy
+  @Column()
+  @Index()
+  organizationId: string;
+
+  @ManyToOne('OrganizationEntity', 'products')
+  @JoinColumn({ name: 'organizationId' })
+  organization: any;
 
   @CreateDateColumn()
   createdAt: Date;
