@@ -35,7 +35,10 @@ export class SyncService {
     private dataSource: DataSource,
   ) {}
 
-  async processSync(syncRequest: SyncRequestDto, user?: any): Promise<SyncResponseDto> {
+  async processSync(
+    syncRequest: SyncRequestDto,
+    user?: any,
+  ): Promise<SyncResponseDto> {
     this.logger.log(
       `Processing sync for terminal: ${syncRequest.terminalId} by user: ${user?.email || 'anonymous'}`,
     );
@@ -46,13 +49,13 @@ export class SyncService {
 
     // Process orders
     for (const orderDto of syncRequest.orders) {
-      const result = await this.processOrder(orderDto);
+      const result = await this.processOrder(orderDto, user);
       orderResults.push(result);
     }
 
     // Process payments
     for (const paymentDto of syncRequest.payments) {
-      const result = await this.processPayment(paymentDto);
+      const result = await this.processPayment(paymentDto, user);
       paymentResults.push(result);
     }
 
@@ -60,7 +63,7 @@ export class SyncService {
     await this.updateTerminalSync(syncRequest.terminalId, syncedAt);
 
     // Get product catalog if requested or if it's been a while
-    const catalog = await this.getProductCatalog(syncRequest.lastSyncAt);
+    const catalog = await this.getProductCatalog(syncRequest.lastSyncAt, user);
 
     return {
       status: SyncStatus.SUCCESS,
@@ -75,6 +78,7 @@ export class SyncService {
 
   private async processOrder(
     orderDto: CreateOrderDto,
+    user?: any,
   ): Promise<SyncResultDto> {
     try {
       // Check for duplicate using posLocalId (idempotent)
@@ -107,6 +111,7 @@ export class SyncService {
           posLocalId: orderDto.posLocalId,
           terminalId: orderDto.terminalId,
           cashierId: orderDto.cashierId,
+          organizationId: user?.organizationId,
           subtotal: orderDto.subtotal,
           taxAmount: orderDto.taxAmount,
           discountAmount: orderDto.discountAmount,
@@ -177,6 +182,7 @@ export class SyncService {
 
   private async processPayment(
     paymentDto: CreatePaymentDto,
+    user?: any,
   ): Promise<SyncResultDto> {
     try {
       // Check for duplicate using posLocalId (idempotent)
@@ -219,6 +225,7 @@ export class SyncService {
         posLocalId: paymentDto.posLocalId,
         orderId,
         terminalId: paymentDto.terminalId,
+        organizationId: user?.organizationId,
         method: paymentDto.method,
         amount: paymentDto.amount,
         status: PaymentStatus.COMPLETED,
@@ -259,10 +266,20 @@ export class SyncService {
 
   private async getProductCatalog(
     lastSyncAt?: Date,
+    user?: any,
   ): Promise<ProductCatalogDto> {
-    const products = await this.productRepository.find({
-      where: { status: ProductStatus.ACTIVE },
-    });
+    const queryBuilder = this.productRepository
+      .createQueryBuilder('product')
+      .where('product.status = :status', { status: ProductStatus.ACTIVE });
+
+    // Filter by organization for non-super-admins
+    if (user?.organizationId) {
+      queryBuilder.andWhere('product.organizationId = :orgId', {
+        orgId: user.organizationId,
+      });
+    }
+
+    const products = await queryBuilder.getMany();
 
     return {
       products: products.map((p) => ({

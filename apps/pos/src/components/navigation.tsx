@@ -13,12 +13,17 @@ export function Navigation() {
   const isOnline = useOnlineStatus();
   const pendingCount = usePendingSyncCount();
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [organizationName, setOrganizationName] = useState<string>('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const user = localStorage.getItem('user');
+      const orgName = localStorage.getItem('organizationName');
       if (user) {
         setCurrentUser(JSON.parse(user));
+      }
+      if (orgName) {
+        setOrganizationName(orgName);
       }
     }
   }, []);
@@ -27,6 +32,8 @@ export function Navigation() {
     apiClient.logout();
     if (typeof window !== 'undefined') {
       localStorage.removeItem('user');
+      localStorage.removeItem('organizationId');
+      localStorage.removeItem('organizationName');
     }
     router.push('/login');
   };
@@ -40,7 +47,12 @@ export function Navigation() {
   return (
     <nav className="bg-gradient-to-r from-blue-600 to-blue-700 border-b border-blue-800 shadow-lg">
       <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
+        <div div className="flex flex-col">
+              <h1 className="text-xl font-bold text-white">🏪 AR-POS</h1>
+              {organizationName && (
+                <p className="text-xs text-blue-200">{organizationName}</p>
+              )}
+            </div
           <div className="flex items-center gap-8">
             <h1 className="text-xl font-bold text-white">🏪 AR-POS</h1>
             <div className="flex gap-4">
@@ -58,8 +70,9 @@ export function Navigation() {
                   {item.label}
                 </Link>
               ))}
-            </div>
-          </div>
+            </div>flex flex-col items-end text-sm text-blue-100">
+                <div className="font-medium">👤 {currentUser.name || currentUser.email?.split('@')[0]}</div>
+                <div className="text-xs text-blue-200">{currentUser.role}</div>
           
           <div className="flex items-center gap-3">
             {currentUser && (

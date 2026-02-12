@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { apiClient, syncService } from "@/lib/api-client";
+import { UserRole } from "@pos/shared-types";
 
 export function LoginForm({
   className,
@@ -38,9 +39,34 @@ export function LoginForm({
     try {
       const response = await apiClient.login({ email, password });
 
+      // Block SUPER_ADMIN from accessing POS
+      if (response.user.role === UserRole.SUPER_ADMIN) {
+        setError(
+          "Super Admins cannot access the POS system. Please use the Admin Portal.",
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate organization (all non-super-admin users must have an organization)
+      if (!response.user.organizationId) {
+        setError(
+          "User is not associated with any organization. Please contact support.",
+        );
+        setIsLoading(false);
+        return;
+      }
+
       // Store user info
       if (typeof window !== "undefined") {
         localStorage.setItem("user", JSON.stringify(response.user));
+        localStorage.setItem("organizationId", response.user.organizationId);
+        if (response.user.organizationName) {
+          localStorage.setItem(
+            "organizationName",
+            response.user.organizationName,
+          );
+        }
       }
 
       // Start auto-sync

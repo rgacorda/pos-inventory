@@ -119,6 +119,8 @@ export interface AuthResponseDto {
     email: string;
     name: string;
     role: string;
+    organizationId: string | null;
+    organizationName?: string;
   };
 }
 

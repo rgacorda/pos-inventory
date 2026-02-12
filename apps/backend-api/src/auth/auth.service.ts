@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserEntity } from '../entities/user.entity';
+import { OrganizationEntity } from '../entities/organization.entity';
 import type { AuthResponseDto, LoginDto } from '@pos/shared-types';
 
 @Injectable()
@@ -11,12 +12,18 @@ export class AuthService {
   constructor(
     @InjectRepository(UserEntity)
     private userRepository: Repository<UserEntity>,
+    @InjectRepository(OrganizationEntity)
+    private organizationRepository: Repository<OrganizationEntity>,
     private jwtService: JwtService,
   ) {}
 
-  async validateUser(email: string, password: string): Promise<UserEntity | null> {
+  async validateUser(
+    email: string,
+    password: string,
+  ): Promise<UserEntity | null> {
     const user = await this.userRepository.findOne({
       where: { email, isActive: true },
+      relations: ['organization'],
     });
 
     if (!user) {
@@ -38,10 +45,15 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Update last login timestamp
+    user.lastLoginAt = new Date();
+    await this.userRepository.save(user);
+
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      organizationId: user.organizationId,
       terminalId: loginDto.terminalId || user.terminalId,
     };
 
@@ -54,6 +66,8 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        organizationId: user.organizationId,
+        organizationName: user.organization?.name,
       },
     };
   }
