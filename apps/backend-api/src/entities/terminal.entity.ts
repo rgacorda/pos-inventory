@@ -8,7 +8,6 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { OrganizationEntity } from './organization.entity';
 
 @Entity('terminals')
 export class TerminalEntity {
@@ -29,9 +28,9 @@ export class TerminalEntity {
   @Index()
   organizationId: string;
 
-  @ManyToOne(() => OrganizationEntity, (organization) => organization.terminals)
+  @ManyToOne('OrganizationEntity', 'terminals')
   @JoinColumn({ name: 'organizationId' })
-  organization: OrganizationEntity;
+  organization: any;
 
   @Column({ type: 'timestamp', nullable: true })
   lastSyncAt: Date;

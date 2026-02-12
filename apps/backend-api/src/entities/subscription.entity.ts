@@ -8,7 +8,6 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { OrganizationEntity } from './organization.entity';
 
 @Entity('subscriptions')
 export class SubscriptionEntity {
@@ -18,12 +17,9 @@ export class SubscriptionEntity {
   @Column()
   organizationId: string;
 
-  @OneToOne(
-    () => OrganizationEntity,
-    (organization) => organization.subscription,
-  )
+  @OneToOne('OrganizationEntity', 'subscription')
   @JoinColumn({ name: 'organizationId' })
-  organization: OrganizationEntity;
+  organization: any;
 
   @Column({
     type: 'enum',

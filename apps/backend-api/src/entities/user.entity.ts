@@ -9,7 +9,6 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { OrganizationEntity } from './organization.entity';
 
 @Entity('users')
 export class UserEntity {
@@ -34,11 +33,9 @@ export class UserEntity {
   @Index()
   organizationId: string;
 
-  @ManyToOne(() => OrganizationEntity, (organization) => organization.users, {
-    nullable: true,
-  })
+  @ManyToOne('OrganizationEntity', 'users', { nullable: true })
   @JoinColumn({ name: 'organizationId' })
-  organization: OrganizationEntity;
+  organization: any;
 
   @Column({ nullable: true })
   terminalId: string;

@@ -8,9 +8,6 @@ import {
   OneToOne,
   Index,
 } from 'typeorm';
-import { UserEntity } from './user.entity';
-import { SubscriptionEntity } from './subscription.entity';
-import { TerminalEntity } from './terminal.entity';
 
 @Entity('organizations')
 export class OrganizationEntity {
@@ -76,17 +73,14 @@ export class OrganizationEntity {
   @Column({ default: true })
   isActive: boolean;
 
-  @OneToOne(
-    () => SubscriptionEntity,
-    (subscription) => subscription.organization,
-  )
-  subscription: SubscriptionEntity;
+  @OneToOne('SubscriptionEntity', 'organization')
+  subscription: any;
 
-  @OneToMany(() => UserEntity, (user) => user.organization)
-  users: UserEntity[];
+  @OneToMany('UserEntity', 'organization')
+  users: any[];
 
-  @OneToMany(() => TerminalEntity, (terminal) => terminal.organization)
-  terminals: TerminalEntity[];
+  @OneToMany('TerminalEntity', 'organization')
+  terminals: any[];
 
   @CreateDateColumn()
   createdAt: Date;

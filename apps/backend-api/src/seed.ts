@@ -8,7 +8,12 @@ import { ProductEntity } from './entities/product.entity';
 import { OrganizationEntity } from './entities/organization.entity';
 import { SubscriptionEntity } from './entities/subscription.entity';
 import * as bcrypt from 'bcrypt';
-import { UserRole, ProductStatus, SubscriptionPlan, SubscriptionStatus } from '@pos/shared-types';
+import {
+  UserRole,
+  ProductStatus,
+  SubscriptionPlan,
+  SubscriptionStatus,
+} from '@pos/shared-types';
 
 async function seed() {
   const logger = new Logger('Seed');
@@ -20,20 +25,19 @@ async function seed() {
 
     // Seed Super Admin (platform owner - no organization)
     const userRepository = dataSource.getRepository(UserEntity);
-    const existingSuperAdmin = await userRepository.findOne({ 
-      where: { email: 'superadmin@pos.com' } 
+    const existingSuperAdmin = await userRepository.findOne({
+      where: { email: 'superadmin@pos.com' },
     });
 
     if (!existingSuperAdmin) {
       const hashedPassword = await bcrypt.hash('super123', 10);
-      
+
       const superAdmin = userRepository.create({
         email: 'superadmin@pos.com',
         name: 'Super Admin',
         password: hashedPassword,
         role: UserRole.SUPER_ADMIN,
         isActive: true,
-        organizationId: null, // Super admin doesn't belong to any org
       });
 
       await userRepository.save(superAdmin);
@@ -45,38 +49,28 @@ async function seed() {
     // Seed Organizations
     const organizationRepository = dataSource.getRepository(OrganizationEntity);
     const subscriptionRepository = dataSource.getRepository(SubscriptionEntity);
-    
-    let org1, org2;
-    const existingOrg = await organizationRepository.findOne({ 
-      where: { slug: 'demo-store' } 
+
+    let org1: any, org2: any;
+    const existingOrg = await organizationRepository.findOne({
+      where: { slug: 'demo-store' },
     });
 
-    if (!existingOrg) { && org1 && org2) {
-      const terminal1 = terminalRepository.create({
-        terminalId: 'TERMINAL-001',
-        name: 'Front Counter',
-        location: 'Main Entrance',
-        organizationId: org1.id,
-        isActive: true,
-      });
-
-      const terminal2 = terminalRepository.create({
-        terminalId: 'TERMINAL-002',
-        name: 'Self-Checkout',
-        location: 'Side Entrance',
-        organizationId: org1.id,
-        isActive: true,
-      });
-
-      const terminal3 = terminalRepository.create({
-        terminalId: 'TERMINAL-003',
-        name: 'Coffee Bar',
-        location: 'Main Counter',
-        organizationId: org2.id,
-        isActive: true,
-      });
-
-      await terminalRepository.save([terminal1, terminal2, terminal3
+    if (!existingOrg) {
+      org1 = organizationRepository.create({
+        name: 'Demo Store',
+        slug: 'demo-store',
+        email: 'contact@demo-store.com',
+        description: 'Demo convenience store for testing',
+        address: '123 Main Street',
+        city: 'New York',
+        state: 'NY',
+        country: 'USA',
+        postalCode: '10001',
+        phone: '+1-555-0100',
+        settings: {
+          currency: 'USD',
+          timezone: 'America/New_York',
+          language: 'en',
           taxRate: 0.08,
           features: {
             inventory: true,
@@ -120,7 +114,7 @@ async function seed() {
         organizationId: org1.id,
         plan: SubscriptionPlan.PROFESSIONAL,
         status: SubscriptionStatus.ACTIVE,
-        monthlyPrice: 99.00,
+        monthlyPrice: 99.0,
         billingCycle: 'monthly',
         limits: {
           maxUsers: 20,
@@ -142,7 +136,7 @@ async function seed() {
         organizationId: org2.id,
         plan: SubscriptionPlan.BASIC,
         status: SubscriptionStatus.TRIAL,
-        monthlyPrice: 29.00,
+        monthlyPrice: 29.0,
         billingCycle: 'monthly',
         limits: {
           maxUsers: 5,
@@ -163,16 +157,20 @@ async function seed() {
       logger.log('✅ Subscriptions created');
     } else {
       org1 = existingOrg;
-      org2 = await organizationRepository.findOne({ where: { slug: 'coffee-shop' } });
+      org2 = await organizationRepository.findOne({
+        where: { slug: 'coffee-shop' },
+      });
       logger.log('Organizations already exist, skipping...');
     }
 
     // Seed Users with organization relationships
-    const existingAdmin = await userRepository.findOne({ where: { email: 'admin@demo-store.com' } });
+    const existingAdmin = await userRepository.findOne({
+      where: { email: 'admin@demo-store.com' },
+    });
 
-    if (!existingAdmin) {
+    if (!existingAdmin && org1 && org2) {
       const hashedPassword = await bcrypt.hash('admin123', 10);
-      
+
       // Demo Store users
       const admin1 = userRepository.create({
         email: 'admin@demo-store.com',
@@ -224,14 +222,8 @@ async function seed() {
         phone: '+1-555-0202',
         isActive: true,
       });
-Super Admin: superadmin@pos.com / super123');
-    logger.log('\n  Demo Store:');
-    logger.log('    Admin: admin@demo-store.com / admin123');
-    logger.log('    Manager: manager@demo-store.com / manager123');
-    logger.log('    Cashier: cashier@demo-store.com / cashier123');
-    logger.log('\n  Coffee Shop:');
-    logger.log('    Admin: admin@coffee-shop.com / admin123');
-    logger.log('    Cashier: cashier@coffee-shop1, manager1, cashier1, admin2, cashier2]);
+
+      await userRepository.save([admin1, manager1, cashier1, admin2, cashier2]);
       logger.log('✅ Users created');
     } else {
       logger.log('Users already exist, skipping...');
@@ -239,13 +231,16 @@ Super Admin: superadmin@pos.com / super123');
 
     // Seed Terminals
     const terminalRepository = dataSource.getRepository(TerminalEntity);
-    const existingTerminal = await terminalRepository.findOne({ where: { terminalId: 'TERMINAL-001' } });
+    const existingTerminal = await terminalRepository.findOne({
+      where: { terminalId: 'TERMINAL-001' },
+    });
 
-    if (!existingTerminal) {
+    if (!existingTerminal && org1 && org2) {
       const terminal1 = terminalRepository.create({
         terminalId: 'TERMINAL-001',
         name: 'Front Counter',
         location: 'Main Entrance',
+        organizationId: org1.id,
         isActive: true,
       });
 
@@ -253,10 +248,19 @@ Super Admin: superadmin@pos.com / super123');
         terminalId: 'TERMINAL-002',
         name: 'Self-Checkout',
         location: 'Side Entrance',
+        organizationId: org1.id,
         isActive: true,
       });
 
-      await terminalRepository.save([terminal1, terminal2]);
+      const terminal3 = terminalRepository.create({
+        terminalId: 'TERMINAL-003',
+        name: 'Coffee Bar',
+        location: 'Main Counter',
+        organizationId: org2.id,
+        isActive: true,
+      });
+
+      await terminalRepository.save([terminal1, terminal2, terminal3]);
       logger.log('✅ Terminals created');
     } else {
       logger.log('Terminals already exist, skipping...');
@@ -280,7 +284,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Refreshing cola drink',
           category: 'Beverages',
           price: 2.49,
-          cost: 1.20,
+          cost: 1.2,
           taxRate: 0.08,
           stockQuantity: 150,
           lowStockThreshold: 30,
@@ -293,7 +297,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Original potato chips 150g',
           category: 'Snacks',
           price: 3.99,
-          cost: 2.00,
+          cost: 2.0,
           taxRate: 0.08,
           stockQuantity: 200,
           lowStockThreshold: 50,
@@ -306,7 +310,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Instant ramen cup',
           category: 'Food',
           price: 1.99,
-          cost: 0.80,
+          cost: 0.8,
           taxRate: 0.08,
           stockQuantity: 300,
           lowStockThreshold: 60,
@@ -319,8 +323,8 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Fresh whole milk',
           category: 'Dairy',
           price: 4.49,
-          cost: 2.50,
-          taxRate: 0.00,
+          cost: 2.5,
+          taxRate: 0.0,
           stockQuantity: 80,
           lowStockThreshold: 20,
           barcode: '041130007224',
@@ -332,7 +336,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Chocolate candy bar',
           category: 'Candy',
           price: 1.49,
-          cost: 0.60,
+          cost: 0.6,
           taxRate: 0.08,
           stockQuantity: 250,
           lowStockThreshold: 50,
@@ -345,7 +349,7 @@ Super Admin: superadmin@pos.com / super123');
           description: '250ml energy drink',
           category: 'Beverages',
           price: 3.49,
-          cost: 1.80,
+          cost: 1.8,
           taxRate: 0.08,
           stockQuantity: 120,
           lowStockThreshold: 25,
@@ -358,7 +362,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Stackable potato chips',
           category: 'Snacks',
           price: 2.99,
-          cost: 1.50,
+          cost: 1.5,
           taxRate: 0.08,
           stockQuantity: 180,
           lowStockThreshold: 40,
@@ -371,8 +375,8 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Fresh sliced bread',
           category: 'Bakery',
           price: 2.99,
-          cost: 1.20,
-          taxRate: 0.00,
+          cost: 1.2,
+          taxRate: 0.0,
           stockQuantity: 50,
           lowStockThreshold: 10,
           barcode: '007287505013',
@@ -384,7 +388,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Fresh brewed coffee 16oz',
           category: 'Hot Beverages',
           price: 2.49,
-          cost: 0.50,
+          cost: 0.5,
           taxRate: 0.08,
           stockQuantity: 500,
           lowStockThreshold: 100,
@@ -397,7 +401,7 @@ Super Admin: superadmin@pos.com / super123');
           description: 'Vanilla ice cream sandwich',
           category: 'Frozen',
           price: 1.99,
-          cost: 0.80,
+          cost: 0.8,
           taxRate: 0.08,
           stockQuantity: 100,
           lowStockThreshold: 20,
@@ -414,8 +418,14 @@ Super Admin: superadmin@pos.com / super123');
 
     logger.log('🎉 Database seed completed successfully!');
     logger.log('\n📝 Default Credentials:');
-    logger.log('  Admin: admin@pos.com / admin123');
-    logger.log('  Cashier: cashier@pos.com / cashier123');
+    logger.log('  Super Admin: superadmin@pos.com / super123');
+    logger.log('\n  Demo Store:');
+    logger.log('    Admin: admin@demo-store.com / admin123');
+    logger.log('    Manager: manager@demo-store.com / manager123');
+    logger.log('    Cashier: cashier@demo-store.com / cashier123');
+    logger.log('\n  Coffee Shop:');
+    logger.log('    Admin: admin@coffee-shop.com / admin123');
+    logger.log('    Cashier: cashier@coffee-shop.com / cashier123');
   } catch (error) {
     logger.error('❌ Seed failed:', error);
     throw error;
