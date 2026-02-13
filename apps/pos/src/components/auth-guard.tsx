@@ -15,6 +15,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const token = apiClient.getAccessToken();
     const userStr = localStorage.getItem("user");
 
+    // If logged in and on login page, redirect to dashboard
+    if (token && pathname === "/login") {
+      router.push("/");
+      return;
+    }
+
     // If not on login page and no token, redirect to login
     if (!token && pathname !== "/login") {
       router.push("/login");

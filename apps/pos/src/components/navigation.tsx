@@ -30,12 +30,8 @@ export function Navigation() {
 
   const handleLogout = () => {
     apiClient.logout();
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("user");
-      localStorage.removeItem("organizationId");
-      localStorage.removeItem("organizationName");
-    }
-    router.push("/login");
+    // Use window.location for hard redirect to trigger middleware and prevent back navigation
+    window.location.href = "/login";
   };
 
   const navItems = [

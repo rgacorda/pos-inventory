@@ -26,7 +26,7 @@ export function LoginForm({
   ...props
 }: React.ComponentProps<"div">) {
   const router = useRouter();
-  const [email, setEmail] = useState("cashier@pos.com");
+  const [email, setEmail] = useState("cashier@demo-store.com");
   const [password, setPassword] = useState("cashier123");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -72,8 +72,8 @@ export function LoginForm({
       // Start auto-sync
       syncService.startAutoSync(60000);
 
-      // Redirect to home
-      router.push("/");
+      // Redirect to home (use window.location for hard redirect to trigger middleware)
+      window.location.href = "/";
     } catch (err: any) {
       console.error("Login failed:", err);
       setError(
@@ -105,7 +105,7 @@ export function LoginForm({
                 <Input
                   id="email"
                   type="email"
-                  placeholder="cashier@pos.com"
+                  placeholder="cashier@demo-store.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -128,7 +128,7 @@ export function LoginForm({
                   {isLoading ? "Logging in..." : "Login"}
                 </Button>
                 <FieldDescription className="text-center text-xs text-gray-500 mt-2">
-                  Default: cashier@pos.com / cashier123
+                  Default: cashier@demo-store.com / cashier123
                 </FieldDescription>
               </Field>
             </FieldGroup>

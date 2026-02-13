@@ -1,0 +1,292 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { apiClient } from "@/lib/api-client";
+import { Search, Filter, Eye, ShoppingCart } from "lucide-react";
+import { toast } from "sonner";
+
+export default function OrdersPage() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  const loadOrders = async () => {
+    try {
+      const data = await apiClient.getOrders();
+      setOrders(data);
+    } catch (error) {
+      console.error("Failed to load orders:", error);
+      toast.error("Failed to load orders");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const viewOrderDetails = (order: any) => {
+    setSelectedOrder(order);
+    setShowDetailsModal(true);
+  };
+
+  const filteredOrders = orders.filter((order) => {
+    const matchesSearch =
+      order.id?.toString().includes(searchQuery) ||
+      order.terminal?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.cashier?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesStatus =
+      statusFilter === "ALL" || order.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  return (
+    <div className="px-4 lg:px-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>All Orders</CardTitle>
+              <CardDescription>
+                Complete list of orders from all terminals
+              </CardDescription>
+            </div>
+            <Button variant="outline" onClick={loadOrders}>
+              <Filter className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 pt-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search by order ID, terminal, or cashier..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Status</SelectItem>
+                <SelectItem value="COMPLETED">Completed</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="CANCELLED">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-muted-foreground">Loading orders...</div>
+            </div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
+              <div className="text-muted-foreground">No orders found</div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order ID</TableHead>
+                  <TableHead>Terminal</TableHead>
+                  <TableHead>Cashier</TableHead>
+                  <TableHead>Items</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-medium">#{order.id}</TableCell>
+                    <TableCell>{order.terminal?.name || "N/A"}</TableCell>
+                    <TableCell>{order.cashier?.name || "N/A"}</TableCell>
+                    <TableCell>{order.items?.length || 0}</TableCell>
+                    <TableCell className="font-semibold">
+                      ${order.totalAmount?.toFixed(2) || "0.00"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          order.status === "COMPLETED"
+                            ? "default"
+                            : order.status === "PENDING"
+                              ? "secondary"
+                              : "destructive"
+                        }
+                      >
+                        {order.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {new Date(order.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => viewOrderDetails(order)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Order Details Modal */}
+      <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Order Details - #{selectedOrder?.id}</DialogTitle>
+            <DialogDescription>
+              Complete order information and items
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedOrder && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <Badge className="mt-1">{selectedOrder.status}</Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Terminal</p>
+                  <p className="font-medium">
+                    {selectedOrder.terminal?.name || "N/A"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Cashier</p>
+                  <p className="font-medium">
+                    {selectedOrder.cashier?.name || "N/A"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date & Time</p>
+                  <p className="font-medium">
+                    {new Date(selectedOrder.createdAt).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Order Items</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Subtotal</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedOrder.items?.map((item: any, index: number) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">
+                              {item.product?.name || "N/A"}
+                            </p>
+                            {item.product?.sku && (
+                              <p className="text-xs text-muted-foreground">
+                                SKU: {item.product.sku}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.quantity}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ${item.unitPrice?.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ${(item.quantity * item.unitPrice).toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal:</span>
+                  <span className="font-medium">
+                    ${selectedOrder.subtotalAmount?.toFixed(2) || "0.00"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Tax:</span>
+                  <span className="font-medium">
+                    ${selectedOrder.taxAmount?.toFixed(2) || "0.00"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-lg font-semibold border-t pt-2">
+                  <span>Total:</span>
+                  <span>
+                    ${selectedOrder.totalAmount?.toFixed(2) || "0.00"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

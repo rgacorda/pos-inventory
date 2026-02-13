@@ -33,6 +33,30 @@ class APIClient {
       (error) => Promise.reject(error),
     );
 
+    // Response interceptor to handle errors
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          // Unauthorized - clear token and redirect to login
+          this.logout();
+          if (
+            typeof window !== "undefined" &&
+            window.location.pathname !== "/login"
+          ) {
+            window.location.href = "/login";
+          }
+        }
+        console.error("API Error:", {
+          url: error.config?.url,
+          method: error.config?.method,
+          status: error.response?.status,
+          message: error.response?.data?.message || error.message,
+        });
+        return Promise.reject(error);
+      },
+    );
+
     // Load token from localStorage on initialization
     if (typeof window !== "undefined") {
       this.accessToken = localStorage.getItem("accessToken");
@@ -44,8 +68,13 @@ class APIClient {
     if (typeof window !== "undefined") {
       if (token) {
         localStorage.setItem("accessToken", token);
+        // Set cookie for middleware access
+        document.cookie = `accessToken=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
       } else {
         localStorage.removeItem("accessToken");
+        // Remove cookie
+        document.cookie =
+          "accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       }
     }
   }
@@ -67,6 +96,11 @@ class APIClient {
     this.setAccessToken(null);
     if (typeof window !== "undefined") {
       localStorage.removeItem("user");
+      localStorage.removeItem("organizationId");
+      localStorage.removeItem("organizationName");
+      // Clear cookie
+      document.cookie =
+        "accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     }
   }
 
