@@ -222,12 +222,12 @@ export default function OrdersPage() {
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={
+                        className={
                           order.status === "COMPLETED"
-                            ? "default"
+                            ? "bg-green-600 hover:bg-green-700"
                             : order.status === "PENDING"
-                              ? "secondary"
-                              : "destructive"
+                              ? "bg-yellow-600 hover:bg-yellow-700"
+                              : "bg-red-600 hover:bg-red-700"
                         }
                       >
                         {order.status}
@@ -268,7 +268,17 @@ export default function OrdersPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
-                  <Badge className="mt-1">{selectedOrder.status}</Badge>
+                  <Badge
+                    className={
+                      selectedOrder.status === "COMPLETED"
+                        ? "mt-1 bg-green-600 hover:bg-green-700"
+                        : selectedOrder.status === "PENDING"
+                          ? "mt-1 bg-yellow-600 hover:bg-yellow-700"
+                          : "mt-1 bg-red-600 hover:bg-red-700"
+                    }
+                  >
+                    {selectedOrder.status}
+                  </Badge>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Terminal</p>
