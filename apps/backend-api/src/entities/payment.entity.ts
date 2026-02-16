@@ -23,13 +23,21 @@ export class PaymentEntity {
   @Index()
   posLocalId: string;
 
-  @Column()
+  @Column({ nullable: true })
   @Index()
   orderId: string;
 
-  @Column()
+  @ManyToOne('OrderEntity', 'payments')
+  @JoinColumn({ name: 'orderId' })
+  order: any;
+
+  @Column({ nullable: true })
   @Index()
   terminalId: string;
+
+  @ManyToOne('TerminalEntity', 'payments')
+  @JoinColumn({ name: 'terminalId' })
+  terminal: any;
 
   // Organization relationship for multi-tenancy
   @Column()

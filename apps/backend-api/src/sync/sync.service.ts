@@ -18,6 +18,7 @@ import { OrderItemEntity } from '../entities/order-item.entity';
 import { PaymentEntity } from '../entities/payment.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { TerminalEntity } from '../entities/terminal.entity';
+import { UserEntity } from '../entities/user.entity';
 
 @Injectable()
 export class SyncService {
@@ -32,6 +33,8 @@ export class SyncService {
     private productRepository: Repository<ProductEntity>,
     @InjectRepository(TerminalEntity)
     private terminalRepository: Repository<TerminalEntity>,
+    @InjectRepository(UserEntity)
+    private userRepository: Repository<UserEntity>,
     private dataSource: DataSource,
   ) {}
 
@@ -102,6 +105,25 @@ export class SyncService {
       await queryRunner.startTransaction();
 
       try {
+        // Look up terminal UUID from terminalId string
+        const terminal = await queryRunner.manager.findOne(TerminalEntity, {
+          where: { terminalId: orderDto.terminalId },
+        });
+        if (!terminal) {
+          throw new Error(`Terminal not found: ${orderDto.terminalId}`);
+        }
+
+        // Look up cashier UUID from cashierId (if it's not already a UUID)
+        let cashierUuid = orderDto.cashierId;
+        if (orderDto.cashierId && !this.isUUID(orderDto.cashierId)) {
+          const cashier = await queryRunner.manager.findOne(UserEntity, {
+            where: { email: orderDto.cashierId },
+          });
+          if (cashier) {
+            cashierUuid = cashier.id;
+          }
+        }
+
         // Generate order number
         const orderNumber = await this.generateOrderNumber();
 
@@ -109,8 +131,8 @@ export class SyncService {
         const order = this.orderRepository.create({
           orderNumber,
           posLocalId: orderDto.posLocalId,
-          terminalId: orderDto.terminalId,
-          cashierId: orderDto.cashierId,
+          terminalId: terminal.id,
+          cashierId: cashierUuid,
           organizationId: user?.organizationId,
           subtotal: orderDto.subtotal,
           taxAmount: orderDto.taxAmount,
@@ -216,6 +238,14 @@ export class SyncService {
         throw new Error('Order not found for payment');
       }
 
+      // Look up terminal UUID from terminalId string
+      const terminal = await this.terminalRepository.findOne({
+        where: { terminalId: paymentDto.terminalId },
+      });
+      if (!terminal) {
+        throw new Error(`Terminal not found: ${paymentDto.terminalId}`);
+      }
+
       // Generate payment number
       const paymentNumber = await this.generatePaymentNumber();
 
@@ -224,7 +254,7 @@ export class SyncService {
         paymentNumber,
         posLocalId: paymentDto.posLocalId,
         orderId,
-        terminalId: paymentDto.terminalId,
+        terminalId: terminal.id,
         organizationId: user?.organizationId,
         method: paymentDto.method,
         amount: paymentDto.amount,
@@ -315,5 +345,11 @@ export class SyncService {
       .toString()
       .padStart(3, '0');
     return `PAY-${timestamp}${random}`;
+  }
+
+  private isUUID(value: string): boolean {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(value);
   }
 }

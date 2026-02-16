@@ -22,6 +22,10 @@ export class OrderItemEntity {
   @Column()
   productId: string;
 
+  @ManyToOne('ProductEntity', 'orderItems')
+  @JoinColumn({ name: 'productId' })
+  product: any;
+
   @Column()
   sku: string;
 

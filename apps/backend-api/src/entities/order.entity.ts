@@ -25,12 +25,20 @@ export class OrderEntity {
   @Index()
   posLocalId: string;
 
-  @Column()
+  @Column({ nullable: true })
   @Index()
   terminalId: string;
 
-  @Column()
+  @ManyToOne('TerminalEntity', 'orders')
+  @JoinColumn({ name: 'terminalId' })
+  terminal: any;
+
+  @Column({ nullable: true })
   cashierId: string;
+
+  @ManyToOne('UserEntity', 'orders')
+  @JoinColumn({ name: 'cashierId' })
+  cashier: any;
 
   // Organization relationship for multi-tenancy
   @Column()

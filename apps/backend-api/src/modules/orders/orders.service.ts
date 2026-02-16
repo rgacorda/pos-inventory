@@ -83,6 +83,9 @@ export class OrdersService {
     const query = this.ordersRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('order.terminal', 'terminal')
+      .leftJoinAndSelect('order.cashier', 'cashier')
       .orderBy('order.createdAt', 'DESC');
 
     // Filter by organization for non-super-admins

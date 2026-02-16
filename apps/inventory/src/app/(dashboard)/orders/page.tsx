@@ -255,7 +255,7 @@ export default function OrdersPage() {
 
       {/* Order Details Modal */}
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order Details - #{selectedOrder?.id}</DialogTitle>
             <DialogDescription>
