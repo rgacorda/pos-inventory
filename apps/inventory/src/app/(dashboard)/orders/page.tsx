@@ -33,9 +33,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { apiClient } from "@/lib/api-client";
-import { Search, Filter, Eye, ShoppingCart } from "lucide-react";
+import {
+  Search,
+  Filter,
+  Eye,
+  ShoppingCart,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 import { toast } from "sonner";
+import { format } from "date-fns";
+import type { DateRange } from "react-day-picker";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -44,6 +58,7 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   useEffect(() => {
     loadOrders();
@@ -75,7 +90,19 @@ export default function OrdersPage() {
     const matchesStatus =
       statusFilter === "ALL" || order.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
+    const matchesDateRange =
+      !dateRange?.from ||
+      !dateRange?.to ||
+      (() => {
+        const orderDate = new Date(order.createdAt);
+        const from = new Date(dateRange.from);
+        const to = new Date(dateRange.to);
+        from.setHours(0, 0, 0, 0);
+        to.setHours(23, 59, 59, 999);
+        return orderDate >= from && orderDate <= to;
+      })();
+
+    return matchesSearch && matchesStatus && matchesDateRange;
   });
 
   return (
@@ -105,6 +132,47 @@ export default function OrdersPage() {
                 className="pl-8"
               />
             </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-[260px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "MMM dd, yyyy")} -{" "}
+                        {format(dateRange.to, "MMM dd, yyyy")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "MMM dd, yyyy")
+                    )
+                  ) : (
+                    <span>Pick a date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+            {dateRange && (
+              <Button
+                variant="ghost"
+                onClick={() => setDateRange(undefined)}
+                size="sm"
+              >
+                Clear
+              </Button>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by status" />
@@ -150,7 +218,7 @@ export default function OrdersPage() {
                     <TableCell>{order.cashier?.name || "N/A"}</TableCell>
                     <TableCell>{order.items?.length || 0}</TableCell>
                     <TableCell className="font-semibold">
-                      ${order.totalAmount?.toFixed(2) || "0.00"}
+                      ${Number(order.totalAmount || 0).toFixed(2)}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -252,10 +320,14 @@ export default function OrdersPage() {
                           {item.quantity}
                         </TableCell>
                         <TableCell className="text-right">
-                          ${item.unitPrice?.toFixed(2)}
+                          ${Number(item.unitPrice || 0).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ${(item.quantity * item.unitPrice).toFixed(2)}
+                          $
+                          {(
+                            Number(item.quantity || 0) *
+                            Number(item.unitPrice || 0)
+                          ).toFixed(2)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -267,19 +339,19 @@ export default function OrdersPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal:</span>
                   <span className="font-medium">
-                    ${selectedOrder.subtotalAmount?.toFixed(2) || "0.00"}
+                    ${Number(selectedOrder.subtotalAmount || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Tax:</span>
                   <span className="font-medium">
-                    ${selectedOrder.taxAmount?.toFixed(2) || "0.00"}
+                    ${Number(selectedOrder.taxAmount || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-semibold border-t pt-2">
                   <span>Total:</span>
                   <span>
-                    ${selectedOrder.totalAmount?.toFixed(2) || "0.00"}
+                    ${Number(selectedOrder.totalAmount || 0).toFixed(2)}
                   </span>
                 </div>
               </div>

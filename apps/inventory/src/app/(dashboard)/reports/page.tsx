@@ -122,7 +122,7 @@ export default function ReportsPage() {
         new Date(order.createdAt).toLocaleDateString(),
         order.id,
         order.items?.length || 0,
-        order.totalAmount?.toFixed(2) || "0.00",
+        Number(order.totalAmount || 0).toFixed(2),
         order.status,
       ]);
 
@@ -206,7 +206,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  ${stats.totalRevenue.toFixed(2)}
+                  ${Number(stats.totalRevenue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   For selected period
@@ -238,7 +238,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  ${stats.averageOrderValue.toFixed(2)}
+                  ${Number(stats.averageOrderValue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">Per transaction</p>
               </CardContent>
@@ -288,7 +288,7 @@ export default function ReportsPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">
-                          ${item.totalRevenue.toFixed(2)}
+                          ${Number(item.totalRevenue || 0).toFixed(2)}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {item.totalQuantity} units sold
@@ -333,7 +333,7 @@ export default function ReportsPage() {
                         </TableCell>
                         <TableCell>{order.items?.length || 0}</TableCell>
                         <TableCell className="text-right font-semibold">
-                          ${order.totalAmount?.toFixed(2) || "0.00"}
+                          ${Number(order.totalAmount || 0).toFixed(2)}
                         </TableCell>
                         <TableCell>
                           <Badge
