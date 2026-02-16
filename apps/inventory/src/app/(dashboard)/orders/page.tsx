@@ -339,7 +339,7 @@ export default function OrdersPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal:</span>
                   <span className="font-medium">
-                    ${Number(selectedOrder.subtotalAmount || 0).toFixed(2)}
+                    ${Number(selectedOrder.subtotal || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
