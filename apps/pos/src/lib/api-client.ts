@@ -112,6 +112,22 @@ class APIClient {
     return response.data;
   }
 
+  async checkSyncRequest(
+    terminalId: string,
+  ): Promise<{ syncRequested: boolean }> {
+    const response = await this.client.get<{ syncRequested: boolean }>(
+      `/terminals/check-sync/${terminalId}`,
+    );
+    return response.data;
+  }
+
+  async clearSyncRequest(terminalId: string): Promise<{ success: boolean }> {
+    const response = await this.client.post<{ success: boolean }>(
+      `/terminals/clear-sync/${terminalId}`,
+    );
+    return response.data;
+  }
+
   isOnline(): boolean {
     if (typeof navigator === "undefined") return true;
     return navigator.onLine;
@@ -127,6 +143,8 @@ export class SyncService {
   private retryInterval: NodeJS.Timeout | null = null;
   private isRetryActive = false;
   private syncRequestCheckInterval: NodeJS.Timeout | null = null;
+  private lastSyncRequestCheck = 0;
+  private hasPendingItems = false;
 
   async startAutoSync(intervalMs: number = 60000) {
     if (this.syncInterval) {
@@ -195,7 +213,8 @@ export class SyncService {
   }
 
   private async startSyncRequestMonitoring() {
-    // Check for manual sync requests from admin every 30 seconds
+    // Adaptive polling: check more frequently when there are pending items,
+    // less frequently when everything is synced
     const checkForSyncRequest = async () => {
       try {
         const terminalId = localStorage.getItem("terminalId");
@@ -203,11 +222,28 @@ export class SyncService {
           return; // No terminal configured
         }
 
-        const response = await apiClient.get<{ syncRequested: boolean }>(
-          `/terminals/check-sync/${terminalId}`,
-        );
+        // First, check if we have pending items locally (fast, no network)
+        const counts = await dbHelpers.getFailedItemsCount();
+        this.hasPendingItems = counts.total > 0;
 
-        if (response.data.syncRequested && !this.isSyncing) {
+        const now = Date.now();
+        const timeSinceLastCheck = now - this.lastSyncRequestCheck;
+
+        // Adaptive polling strategy:
+        // - If we have pending items: check backend every 30s (admin might want recent data synced)
+        // - If no pending items: check backend every 5 minutes (idle state, reduce load)
+        const checkInterval = this.hasPendingItems ? 30000 : 300000; // 30s vs 5min
+
+        // Skip backend check if we checked recently and no pending items
+        if (!this.hasPendingItems && timeSinceLastCheck < checkInterval) {
+          return; // Skip this check cycle
+        }
+
+        // Make network request to check sync flag
+        this.lastSyncRequestCheck = now;
+        const response = await apiClient.checkSyncRequest(terminalId);
+
+        if (response.syncRequested && !this.isSyncing) {
           console.log("Sync requested by admin, performing immediate sync...");
           await this.performSync();
         }
@@ -220,8 +256,8 @@ export class SyncService {
     // Check immediately
     await checkForSyncRequest();
 
-    // Then check every 30 seconds
-    this.syncRequestCheckInterval = setInterval(checkForSyncRequest, 30000);
+    // Run check cycle every 10 seconds (actual backend polling uses adaptive intervals)
+    this.syncRequestCheckInterval = setInterval(checkForSyncRequest, 10000);
   }
 
   private stopSyncRequestMonitoring() {
@@ -287,6 +323,7 @@ export class SyncService {
 
       if (orders.length === 0 && payments.length === 0) {
         console.log("No items to sync");
+        this.hasPendingItems = false; // Update flag for adaptive polling
         await this.syncProductCatalog(terminalId);
         return true;
       }
@@ -323,11 +360,14 @@ export class SyncService {
 
       // Clear sync request flag if it was set
       try {
-        await apiClient.post(`/terminals/clear-sync/${terminalId}`);
+        await apiClient.clearSyncRequest(terminalId);
       } catch (error) {
         // Non-critical error - log but don't fail the sync
         console.error("Failed to clear sync request flag:", error);
       }
+
+      // Update flag for adaptive polling (all items synced successfully)
+      this.hasPendingItems = false;
 
       console.log("Sync completed successfully");
       return true;
