@@ -64,4 +64,20 @@ export class TerminalsController {
   async sync(@Param('id') id: string, @CurrentUser() user: any) {
     return this.terminalsService.syncTerminal(id, user);
   }
+
+  @Get('check-sync/:terminalId')
+  async checkSync(
+    @Param('terminalId') terminalId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.terminalsService.checkSyncRequest(terminalId, user);
+  }
+
+  @Post('clear-sync/:terminalId')
+  async clearSync(
+    @Param('terminalId') terminalId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.terminalsService.clearSyncRequest(terminalId, user);
+  }
 }

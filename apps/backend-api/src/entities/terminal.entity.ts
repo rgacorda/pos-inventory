@@ -35,6 +35,10 @@ export class TerminalEntity {
   @Column({ type: 'timestamp', nullable: true })
   lastSyncAt: Date;
 
+  @Column({ default: false })
+  @Index() // Index for faster sync status checks
+  syncRequested: boolean;
+
   @Column({ default: true })
   isActive: boolean;
 

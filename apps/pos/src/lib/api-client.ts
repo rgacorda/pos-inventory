@@ -126,6 +126,7 @@ export class SyncService {
   private syncInterval: NodeJS.Timeout | null = null;
   private retryInterval: NodeJS.Timeout | null = null;
   private isRetryActive = false;
+  private syncRequestCheckInterval: NodeJS.Timeout | null = null;
 
   async startAutoSync(intervalMs: number = 60000) {
     if (this.syncInterval) {
@@ -142,6 +143,9 @@ export class SyncService {
 
     // Start monitoring for failed syncs
     this.startRetryMonitoring();
+
+    // Start monitoring for manual sync requests from admin
+    this.startSyncRequestMonitoring();
   }
 
   stopAutoSync() {
@@ -150,6 +154,7 @@ export class SyncService {
       this.syncInterval = null;
     }
     this.stopRetryMonitoring();
+    this.stopSyncRequestMonitoring();
   }
 
   private async startRetryMonitoring() {
@@ -187,6 +192,43 @@ export class SyncService {
       this.retryInterval = null;
     }
     this.stopAutoRetry();
+  }
+
+  private async startSyncRequestMonitoring() {
+    // Check for manual sync requests from admin every 30 seconds
+    const checkForSyncRequest = async () => {
+      try {
+        const terminalId = localStorage.getItem("terminalId");
+        if (!terminalId) {
+          return; // No terminal configured
+        }
+
+        const response = await apiClient.get<{ syncRequested: boolean }>(
+          `/terminals/check-sync/${terminalId}`,
+        );
+
+        if (response.data.syncRequested && !this.isSyncing) {
+          console.log("Sync requested by admin, performing immediate sync...");
+          await this.performSync();
+        }
+      } catch (error) {
+        // Silently fail - don't disrupt normal operations if backend unavailable
+        console.error("Error checking for sync request:", error);
+      }
+    };
+
+    // Check immediately
+    await checkForSyncRequest();
+
+    // Then check every 30 seconds
+    this.syncRequestCheckInterval = setInterval(checkForSyncRequest, 30000);
+  }
+
+  private stopSyncRequestMonitoring() {
+    if (this.syncRequestCheckInterval) {
+      clearInterval(this.syncRequestCheckInterval);
+      this.syncRequestCheckInterval = null;
+    }
   }
 
   private autoRetryInterval: NodeJS.Timeout | null = null;
@@ -278,6 +320,14 @@ export class SyncService {
 
       // Update last sync time
       await dbHelpers.updateLastSyncTime(response.syncedAt);
+
+      // Clear sync request flag if it was set
+      try {
+        await apiClient.post(`/terminals/clear-sync/${terminalId}`);
+      } catch (error) {
+        // Non-critical error - log but don't fail the sync
+        console.error("Failed to clear sync request flag:", error);
+      }
 
       console.log("Sync completed successfully");
       return true;

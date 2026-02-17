@@ -12,6 +12,13 @@ import { UserRole } from '@pos/shared-types';
 
 @Injectable()
 export class TerminalsService {
+  // In-memory cache for sync status checks (reduces DB load)
+  private syncStatusCache = new Map<
+    string,
+    { syncRequested: boolean; timestamp: number }
+  >();
+  private readonly CACHE_TTL = 10000; // 10 seconds cache
+
   constructor(
     @InjectRepository(TerminalEntity)
     private terminalsRepository: Repository<TerminalEntity>,
@@ -102,7 +109,99 @@ export class TerminalsService {
 
   async syncTerminal(id: string, requestingUser: any) {
     const terminal = await this.findOne(id, requestingUser);
-    terminal.lastSyncAt = new Date();
+    // Set flag to request sync from the POS terminal
+    terminal.syncRequested = true;
+
+    // Invalidate cache for this terminal
+    const cacheKey = `${terminal.terminalId}-${terminal.organizationId}`;
+    this.syncStatusCache.delete(cacheKey);
+
     return this.terminalsRepository.save(terminal);
+  }
+
+  async checkSyncRequest(terminalId: string, requestingUser: any) {
+    // Check cache first (only cache negative results to avoid delaying sync triggers)
+    const cacheKey = `${terminalId}-${requestingUser.organizationId}`;
+    const cached = this.syncStatusCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      // Only use cache if sync is NOT requested (false)
+      // Always check DB if cache says sync IS requested (true) to avoid stale data
+      if (!cached.syncRequested) {
+        return { syncRequested: false };
+      }
+    }
+
+    // Optimized query: only select needed fields
+    const terminal = await this.terminalsRepository.findOne({
+      where: { terminalId },
+      select: ['id', 'syncRequested', 'organizationId'],
+    });
+
+    if (!terminal) {
+      throw new NotFoundException('Terminal not found');
+    }
+
+    // Check tenant access
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      if (terminal.organizationId !== requestingUser.organizationId) {
+        throw new ForbiddenException('Access denied');
+      }
+    }
+
+    // Update cache
+    this.syncStatusCache.set(cacheKey, {
+      syncRequested: terminal.syncRequested,
+      timestamp: Date.now(),
+    });
+
+    // Clean old cache entries (simple garbage collection)
+    if (this.syncStatusCache.size > 1000) {
+      const now = Date.now();
+      for (const [key, value] of this.syncStatusCache.entries()) {
+        if (now - value.timestamp > this.CACHE_TTL * 2) {
+          this.syncStatusCache.delete(key);
+        }
+      }
+    }
+
+    return { syncRequested: terminal.syncRequested };
+  }
+
+  async clearSyncRequest(terminalId: string, requestingUser: any) {
+    // Optimized query: only select needed fields
+    const terminal = await this.terminalsRepository.findOne({
+      where: { terminalId },
+      select: [
+        'id',
+        'terminalId',
+        'syncRequested',
+        'lastSyncAt',
+        'organizationId',
+      ],
+    });
+
+    if (!terminal) {
+      throw new NotFoundException('Terminal not found');
+    }
+
+    // Check tenant access
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      if (terminal.organizationId !== requestingUser.organizationId) {
+        throw new ForbiddenException('Access denied');
+      }
+    }
+
+    // Optimized update: only update changed fields
+    await this.terminalsRepository.update(
+      { id: terminal.id },
+      { syncRequested: false, lastSyncAt: new Date() },
+    );
+
+    // Invalidate cache for this terminal
+    const cacheKey = `${terminalId}-${requestingUser.organizationId}`;
+    this.syncStatusCache.delete(cacheKey);
+
+    return { success: true };
   }
 }

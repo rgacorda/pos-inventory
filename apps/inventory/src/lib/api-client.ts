@@ -167,6 +167,36 @@ class APIClient {
     const response = await this.client.get("/payments/stats");
     return response.data;
   }
+
+  // Terminals API
+  async getTerminals() {
+    const response = await this.client.get("/terminals");
+    return response.data;
+  }
+
+  async getTerminal(id: string) {
+    const response = await this.client.get(`/terminals/${id}`);
+    return response.data;
+  }
+
+  async createTerminal(data: any) {
+    const response = await this.client.post("/terminals", data);
+    return response.data;
+  }
+
+  async updateTerminal(id: string, data: any) {
+    const response = await this.client.put(`/terminals/${id}`, data);
+    return response.data;
+  }
+
+  async deleteTerminal(id: string) {
+    await this.client.delete(`/terminals/${id}`);
+  }
+
+  async syncTerminal(id: string) {
+    const response = await this.client.post(`/terminals/${id}/sync`);
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

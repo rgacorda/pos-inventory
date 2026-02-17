@@ -10,6 +10,7 @@ import {
   IconShoppingCart,
   IconUsers,
   IconHelp,
+  IconDeviceDesktop,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -51,6 +52,11 @@ const data = {
       title: "Users",
       url: "/users",
       icon: IconUsers,
+    },
+    {
+      title: "Terminals",
+      url: "/terminals",
+      icon: IconDeviceDesktop,
     },
     {
       title: "Reports",
