@@ -226,6 +226,85 @@ class APIClient {
     );
     return response.data;
   }
+
+  // Inventory Deliveries API
+  async getInventoryDeliveries(filters?: any) {
+    const response = await this.client.get("/inventory-deliveries", {
+      params: filters,
+    });
+    return response.data;
+  }
+
+  async getInventoryDelivery(id: string) {
+    const response = await this.client.get(`/inventory-deliveries/${id}`);
+    return response.data;
+  }
+
+  async createInventoryDelivery(data: any) {
+    const response = await this.client.post("/inventory-deliveries", data);
+    return response.data;
+  }
+
+  async updateInventoryDelivery(id: string, data: any) {
+    const response = await this.client.put(`/inventory-deliveries/${id}`, data);
+    return response.data;
+  }
+
+  async deleteInventoryDelivery(id: string) {
+    await this.client.delete(`/inventory-deliveries/${id}`);
+  }
+
+  async getInventoryDeliveryStats(filters?: any) {
+    const response = await this.client.get("/inventory-deliveries/stats", {
+      params: filters,
+    });
+    return response.data;
+  }
+
+  // Expenses API
+  async getExpenses(filters?: any) {
+    const response = await this.client.get("/expenses", { params: filters });
+    return response.data;
+  }
+
+  async getExpense(id: string) {
+    const response = await this.client.get(`/expenses/${id}`);
+    return response.data;
+  }
+
+  async createExpense(data: any) {
+    const response = await this.client.post("/expenses", data);
+    return response.data;
+  }
+
+  async updateExpense(id: string, data: any) {
+    const response = await this.client.put(`/expenses/${id}`, data);
+    return response.data;
+  }
+
+  async deleteExpense(id: string) {
+    await this.client.delete(`/expenses/${id}`);
+  }
+
+  async getExpenseStats(filters?: any) {
+    const response = await this.client.get("/expenses/stats", {
+      params: filters,
+    });
+    return response.data;
+  }
+
+  // Financials API
+  async getProfitLoss(startDate: string, endDate: string) {
+    const response = await this.client.get("/financials/profit-loss", {
+      params: { startDate, endDate },
+    });
+    return response.data;
+  }
+
+  async getFinancialSummary() {
+    const response = await this.client.get("/financials/summary");
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

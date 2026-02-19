@@ -12,6 +12,9 @@ import {
   IconHelp,
   IconDeviceDesktop,
   IconBuilding,
+  IconTruck,
+  IconReceipt,
+  IconReportMoney,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -35,40 +38,80 @@ const data = {
   },
   navMain: [
     {
-      title: "Dashboard",
-      url: "/",
-      icon: IconDashboard,
+      groupLabel: "Overview",
+      items: [
+        {
+          title: "Dashboard",
+          url: "/",
+          icon: IconDashboard,
+        },
+      ],
     },
     {
-      title: "Products",
-      url: "/products",
-      icon: IconPackage,
+      groupLabel: "Inventory",
+      items: [
+        {
+          title: "Products",
+          url: "/products",
+          icon: IconPackage,
+        },
+        {
+          title: "Orders",
+          url: "/orders",
+          icon: IconShoppingCart,
+        },
+        {
+          title: "Deliveries",
+          url: "/deliveries",
+          icon: IconTruck,
+        },
+      ],
     },
     {
-      title: "Orders",
-      url: "/orders",
-      icon: IconShoppingCart,
+      groupLabel: "Financials",
+      items: [
+        {
+          title: "Expenses",
+          url: "/expenses",
+          icon: IconReceipt,
+        },
+        {
+          title: "Financials",
+          url: "/financials",
+          icon: IconReportMoney,
+        },
+      ],
     },
     {
-      title: "Users",
-      url: "/users",
-      icon: IconUsers,
+      groupLabel: "Administration",
+      items: [
+        {
+          title: "Users",
+          url: "/users",
+          icon: IconUsers,
+        },
+        {
+          title: "Organization",
+          url: "/organization",
+          icon: IconBuilding,
+          requiredRole: "ADMIN", // Only visible to ADMIN (for their own org)
+        },
+        {
+          title: "Terminals",
+          url: "/terminals",
+          icon: IconDeviceDesktop,
+        },
+      ],
     },
     {
-      title: "Organization",
-      url: "/organization",
-      icon: IconBuilding,
-      requiredRole: "ADMIN", // Only visible to ADMIN (for their own org)
-    },
-    {
-      title: "Terminals",
-      url: "/terminals",
-      icon: IconDeviceDesktop,
-    },
-    {
-      title: "Reports",
-      url: "/reports",
-      icon: IconChartBar,
+      groupLabel: "Analytics",
+      items: [
+        {
+          title: "Reports",
+          url: "/reports",
+          icon: IconChartBar,
+        },
+      ],
     },
   ],
   navSecondary: [
@@ -103,12 +146,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }, []);
 
   // Filter navigation items based on user role
-  const filteredNavMain = data.navMain.filter((item: any) => {
-    if (item.requiredRole) {
-      return currentUser?.role === item.requiredRole;
-    }
-    return true;
-  });
+  const filteredNavMain = data.navMain
+    .map((group: any) => ({
+      ...group,
+      items: group.items.filter((item: any) => {
+        if (item.requiredRole) {
+          return currentUser?.role === item.requiredRole;
+        }
+        return true;
+      }),
+    }))
+    .filter((group: any) => group.items.length > 0);
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
