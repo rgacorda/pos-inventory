@@ -39,6 +39,9 @@ export class Expense {
   @Column({ type: 'varchar', length: 100, nullable: true })
   referenceNumber: string; // Invoice/bill number
 
+  @Column({ type: 'text', nullable: true })
+  receiptImageUrl: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

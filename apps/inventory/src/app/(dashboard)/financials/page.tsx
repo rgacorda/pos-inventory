@@ -250,7 +250,9 @@ export default function FinancialsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(data.cogs.total + data.operatingExpenses.total)}
+              {formatCurrency(
+                Number(data.cogs.total) + Number(data.operatingExpenses.total),
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               COGS + Operating
@@ -392,8 +394,9 @@ export default function FinancialsPage() {
                   className="h-full bg-blue-500"
                   style={{
                     width: `${
-                      (data.cogs.total /
-                        (data.cogs.total + data.operatingExpenses.total)) *
+                      (Number(data.cogs.total) /
+                        (Number(data.cogs.total) +
+                          Number(data.operatingExpenses.total))) *
                       100
                     }%`,
                   }}
@@ -411,8 +414,9 @@ export default function FinancialsPage() {
                   className="h-full bg-orange-500"
                   style={{
                     width: `${
-                      (data.operatingExpenses.total /
-                        (data.cogs.total + data.operatingExpenses.total)) *
+                      (Number(data.operatingExpenses.total) /
+                        (Number(data.cogs.total) +
+                          Number(data.operatingExpenses.total))) *
                       100
                     }%`,
                   }}

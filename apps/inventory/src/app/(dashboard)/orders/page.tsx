@@ -59,6 +59,8 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     loadOrders();
@@ -104,6 +106,16 @@ export default function OrdersPage() {
 
     return matchesSearch && matchesStatus && matchesDateRange;
   });
+
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
+  const paginatedOrders = filteredOrders.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, dateRange]);
 
   return (
     <div className="px-4 lg:px-6">
@@ -187,68 +199,127 @@ export default function OrdersPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-muted-foreground">Loading orders...</div>
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
-              <div className="text-muted-foreground">No orders found</div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order ID</TableHead>
-                  <TableHead>Terminal</TableHead>
-                  <TableHead>Cashier</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">#{order.id}</TableCell>
-                    <TableCell>{order.terminal?.name || "N/A"}</TableCell>
-                    <TableCell>{order.cashier?.name || "N/A"}</TableCell>
-                    <TableCell>{order.items?.length || 0}</TableCell>
-                    <TableCell className="font-semibold">
-                      ${Number(order.totalAmount || 0).toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={
-                          order.status === "COMPLETED"
-                            ? "bg-green-600 hover:bg-green-700"
-                            : order.status === "PENDING"
-                              ? "bg-yellow-600 hover:bg-yellow-700"
-                              : "bg-red-600 hover:bg-red-700"
-                        }
-                      >
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(order.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => viewOrderDetails(order)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+          <div className="max-h-[600px] overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-muted-foreground">Loading orders...</div>
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
+                <div className="text-muted-foreground">No orders found</div>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Terminal</TableHead>
+                    <TableHead>Cashier</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="font-medium">#{order.id}</TableCell>
+                      <TableCell>{order.terminal?.name || "N/A"}</TableCell>
+                      <TableCell>{order.cashier?.name || "N/A"}</TableCell>
+                      <TableCell>{order.items?.length || 0}</TableCell>
+                      <TableCell className="font-semibold">
+                        ${Number(order.totalAmount || 0).toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={
+                            order.status === "COMPLETED"
+                              ? "bg-green-600 hover:bg-green-700"
+                              : order.status === "PENDING"
+                                ? "bg-yellow-600 hover:bg-yellow-700"
+                                : "bg-red-600 hover:bg-red-700"
+                          }
+                        >
+                          {order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => viewOrderDetails(order)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, filteredOrders.length)} of{" "}
+                {filteredOrders.length} results
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={
+                          currentPage === pageNum ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

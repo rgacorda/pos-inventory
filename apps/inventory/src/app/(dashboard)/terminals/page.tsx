@@ -59,6 +59,8 @@ export default function TerminalsPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedTerminal, setSelectedTerminal] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [formData, setFormData] = useState({
     terminalId: "",
     name: "",
@@ -198,6 +200,16 @@ export default function TerminalsPage() {
       terminal.location?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  const totalPages = Math.ceil(filteredTerminals.length / itemsPerPage);
+  const paginatedTerminals = filteredTerminals.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   return (
     <div className="px-4 lg:px-6">
       <Card>
@@ -230,97 +242,158 @@ export default function TerminalsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-muted-foreground">Loading terminals...</div>
-            </div>
-          ) : filteredTerminals.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Monitor className="h-12 w-12 text-muted-foreground mb-4" />
-              <div className="text-muted-foreground">No terminals found</div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Terminal ID</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Last Sync</TableHead>
-                  <TableHead>Status</TableHead>
-                  {currentUser?.role === "ADMIN" && (
-                    <TableHead className="text-right">Actions</TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTerminals.map((terminal) => (
-                  <TableRow key={terminal.id}>
-                    <TableCell className="font-medium">
-                      {terminal.terminalId}
-                    </TableCell>
-                    <TableCell>{terminal.name}</TableCell>
-                    <TableCell>
-                      {terminal.location ? (
-                        <div className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3 text-muted-foreground" />
-                          {terminal.location}
-                        </div>
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {terminal.lastSyncAt
-                        ? new Date(terminal.lastSyncAt).toLocaleString()
-                        : "Never"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={
-                          terminal.isActive
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "bg-gray-600 hover:bg-gray-700"
-                        }
-                      >
-                        {terminal.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                    </TableCell>
+          <div className="max-h-[600px] overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-muted-foreground">
+                  Loading terminals...
+                </div>
+              </div>
+            ) : filteredTerminals.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Monitor className="h-12 w-12 text-muted-foreground mb-4" />
+                <div className="text-muted-foreground">No terminals found</div>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Terminal ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Last Sync</TableHead>
+                    <TableHead>Status</TableHead>
                     {currentUser?.role === "ADMIN" && (
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleSyncTerminal(terminal)}
-                            disabled={syncingTerminals.has(terminal.id)}
-                            title="Sync terminal"
-                          >
-                            <RefreshCw
-                              className={`h-4 w-4 ${syncingTerminals.has(terminal.id) ? "animate-spin" : ""}`}
-                            />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEditTerminal(terminal)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteTerminal(terminal)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                      <TableHead className="text-right">Actions</TableHead>
                     )}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedTerminals.map((terminal) => (
+                    <TableRow key={terminal.id}>
+                      <TableCell className="font-medium">
+                        {terminal.terminalId}
+                      </TableCell>
+                      <TableCell>{terminal.name}</TableCell>
+                      <TableCell>
+                        {terminal.location ? (
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-muted-foreground" />
+                            {terminal.location}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {terminal.lastSyncAt
+                          ? new Date(terminal.lastSyncAt).toLocaleString()
+                          : "Never"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={
+                            terminal.isActive
+                              ? "bg-green-600 hover:bg-green-700"
+                              : "bg-gray-600 hover:bg-gray-700"
+                          }
+                        >
+                          {terminal.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      {currentUser?.role === "ADMIN" && (
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleSyncTerminal(terminal)}
+                              disabled={syncingTerminals.has(terminal.id)}
+                              title="Sync terminal"
+                            >
+                              <RefreshCw
+                                className={`h-4 w-4 ${syncingTerminals.has(terminal.id) ? "animate-spin" : ""}`}
+                              />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEditTerminal(terminal)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteTerminal(terminal)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, filteredTerminals.length)}{" "}
+                of {filteredTerminals.length} results
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={
+                          currentPage === pageNum ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

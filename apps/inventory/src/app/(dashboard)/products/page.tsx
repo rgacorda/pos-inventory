@@ -57,6 +57,8 @@ export default function ProductsPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [formData, setFormData] = useState({
     sku: "",
     name: "",
@@ -207,6 +209,17 @@ export default function ProductsPage() {
       p.category?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   return (
     <div className="px-4 lg:px-6">
       <Card>
@@ -237,566 +250,635 @@ export default function ProductsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-muted-foreground">Loading products...</div>
-            </div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Package className="h-12 w-12 text-muted-foreground mb-4" />
-              <div className="text-muted-foreground">No products found</div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell className="font-medium">
-                      {product.name}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {product.sku}
-                    </TableCell>
-                    <TableCell>{product.category || "N/A"}</TableCell>
-                    <TableCell className="font-semibold">
-                      ${Number(product.price).toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`font-medium ${
-                          product.stockQuantity > 10
-                            ? "text-green-600"
-                            : product.stockQuantity > 0
-                              ? "text-yellow-600"
-                              : "text-red-600"
-                        }`}
-                      >
-                        {product.stockQuantity}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          product.status === "ACTIVE" ? "default" : "secondary"
-                        }
-                      >
-                        {product.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEditProduct(product)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteProduct(product)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {/* Add Product Dialog */}
-                      <Dialog
-                        open={showAddDialog}
-                        onOpenChange={setShowAddDialog}
-                      >
-                        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                          <DialogHeader>
-                            <DialogTitle>Add New Product</DialogTitle>
-                            <DialogDescription>
-                              Add a new product to your inventory
-                            </DialogDescription>
-                          </DialogHeader>
-                          <form onSubmit={handleSubmitAdd}>
-                            <div className="grid gap-4 py-4">
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="sku">SKU *</Label>
-                                  <Input
-                                    id="sku"
-                                    value={formData.sku}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        sku: e.target.value,
-                                      })
-                                    }
-                                    placeholder="PROD-001"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="barcode">Barcode</Label>
-                                  <Input
-                                    id="barcode"
-                                    value={formData.barcode}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        barcode: e.target.value,
-                                      })
-                                    }
-                                    placeholder="123456789012"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="name">Product Name *</Label>
-                                <Input
-                                  id="name"
-                                  value={formData.name}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      name: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Coca-Cola 500ml"
-                                  required
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="description">Description</Label>
-                                <Input
-                                  id="description"
-                                  value={formData.description}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      description: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Refreshing cola drink"
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="category">Category</Label>
-                                <Input
-                                  id="category"
-                                  value={formData.category}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      category: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Beverages"
-                                />
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="price">Price *</Label>
-                                  <Input
-                                    id="price"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.price}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        price: e.target.value,
-                                      })
-                                    }
-                                    placeholder="2.49"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="cost">Cost</Label>
-                                  <Input
-                                    id="cost"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.cost}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        cost: e.target.value,
-                                      })
-                                    }
-                                    placeholder="1.20"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="stockQuantity">
-                                    Stock Quantity *
-                                  </Label>
-                                  <Input
-                                    id="stockQuantity"
-                                    type="number"
-                                    value={formData.stockQuantity}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        stockQuantity: e.target.value,
-                                      })
-                                    }
-                                    placeholder="100"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="lowStockThreshold">
-                                    Low Stock Alert
-                                  </Label>
-                                  <Input
-                                    id="lowStockThreshold"
-                                    type="number"
-                                    value={formData.lowStockThreshold}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        lowStockThreshold: e.target.value,
-                                      })
-                                    }
-                                    placeholder="10"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="taxRate">Tax Rate</Label>
-                                  <Input
-                                    id="taxRate"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.taxRate}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        taxRate: e.target.value,
-                                      })
-                                    }
-                                    placeholder="0.08"
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="status">Status</Label>
-                                  <Select
-                                    value={formData.status}
-                                    onValueChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        status: value,
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="ACTIVE">
-                                        Active
-                                      </SelectItem>
-                                      <SelectItem value="INACTIVE">
-                                        Inactive
-                                      </SelectItem>
-                                      <SelectItem value="OUT_OF_STOCK">
-                                        Out of Stock
-                                      </SelectItem>
-                                      <SelectItem value="DISCONTINUED">
-                                        Discontinued
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setShowAddDialog(false)}
-                              >
-                                Cancel
-                              </Button>
-                              <Button type="submit" disabled={isSaving}>
-                                {isSaving ? "Adding..." : "Add Product"}
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
-
-                      {/* Edit Product Dialog */}
-                      <Dialog
-                        open={showEditDialog}
-                        onOpenChange={setShowEditDialog}
-                      >
-                        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                          <DialogHeader>
-                            <DialogTitle>Edit Product</DialogTitle>
-                            <DialogDescription>
-                              Update product information
-                            </DialogDescription>
-                          </DialogHeader>
-                          <form onSubmit={handleSubmitEdit}>
-                            <div className="grid gap-4 py-4">
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-sku">SKU *</Label>
-                                  <Input
-                                    id="edit-sku"
-                                    value={formData.sku}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        sku: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-barcode">Barcode</Label>
-                                  <Input
-                                    id="edit-barcode"
-                                    value={formData.barcode}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        barcode: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-name">
-                                  Product Name *
-                                </Label>
-                                <Input
-                                  id="edit-name"
-                                  value={formData.name}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      name: e.target.value,
-                                    })
-                                  }
-                                  required
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-description">
-                                  Description
-                                </Label>
-                                <Input
-                                  id="edit-description"
-                                  value={formData.description}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      description: e.target.value,
-                                    })
-                                  }
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-category">Category</Label>
-                                <Input
-                                  id="edit-category"
-                                  value={formData.category}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      category: e.target.value,
-                                    })
-                                  }
-                                />
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-price">Price *</Label>
-                                  <Input
-                                    id="edit-price"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.price}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        price: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-cost">Cost</Label>
-                                  <Input
-                                    id="edit-cost"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.cost}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        cost: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-stockQuantity">
-                                    Stock Quantity *
-                                  </Label>
-                                  <Input
-                                    id="edit-stockQuantity"
-                                    type="number"
-                                    value={formData.stockQuantity}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        stockQuantity: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-lowStockThreshold">
-                                    Low Stock Alert
-                                  </Label>
-                                  <Input
-                                    id="edit-lowStockThreshold"
-                                    type="number"
-                                    value={formData.lowStockThreshold}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        lowStockThreshold: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-taxRate">Tax Rate</Label>
-                                  <Input
-                                    id="edit-taxRate"
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.taxRate}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        taxRate: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-status">Status</Label>
-                                  <Select
-                                    value={formData.status}
-                                    onValueChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        status: value,
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="ACTIVE">
-                                        Active
-                                      </SelectItem>
-                                      <SelectItem value="INACTIVE">
-                                        Inactive
-                                      </SelectItem>
-                                      <SelectItem value="OUT_OF_STOCK">
-                                        Out of Stock
-                                      </SelectItem>
-                                      <SelectItem value="DISCONTINUED">
-                                        Discontinued
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                            </div>
-                            <DialogFooter>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setShowEditDialog(false)}
-                              >
-                                Cancel
-                              </Button>
-                              <Button type="submit" disabled={isSaving}>
-                                {isSaving ? "Updating..." : "Update Product"}
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
-
-                      {/* Delete Confirmation Dialog */}
-                      <AlertDialog
-                        open={showDeleteDialog}
-                        onOpenChange={setShowDeleteDialog}
-                      >
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete{" "}
-                              <span className="font-semibold">
-                                {selectedProduct?.name}
-                              </span>
-                              . This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={confirmDelete}>
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
+          <div className="max-h-[600px] overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-muted-foreground">Loading products...</div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Package className="h-12 w-12 text-muted-foreground mb-4" />
+                <div className="text-muted-foreground">No products found</div>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell className="font-medium">
+                        {product.name}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {product.sku}
+                      </TableCell>
+                      <TableCell>{product.category || "N/A"}</TableCell>
+                      <TableCell className="font-semibold">
+                        ${Number(product.price).toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`font-medium ${
+                            product.stockQuantity > 10
+                              ? "text-green-600"
+                              : product.stockQuantity > 0
+                                ? "text-yellow-600"
+                                : "text-red-600"
+                          }`}
+                        >
+                          {product.stockQuantity}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            product.status === "ACTIVE"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {product.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEditProduct(product)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteProduct(product)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        {/* Add Product Dialog */}
+                        <Dialog
+                          open={showAddDialog}
+                          onOpenChange={setShowAddDialog}
+                        >
+                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Add New Product</DialogTitle>
+                              <DialogDescription>
+                                Add a new product to your inventory
+                              </DialogDescription>
+                            </DialogHeader>
+                            <form onSubmit={handleSubmitAdd}>
+                              <div className="grid gap-4 py-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="sku">SKU *</Label>
+                                    <Input
+                                      id="sku"
+                                      value={formData.sku}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          sku: e.target.value,
+                                        })
+                                      }
+                                      placeholder="PROD-001"
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="barcode">Barcode</Label>
+                                    <Input
+                                      id="barcode"
+                                      value={formData.barcode}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          barcode: e.target.value,
+                                        })
+                                      }
+                                      placeholder="123456789012"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="name">Product Name *</Label>
+                                  <Input
+                                    id="name"
+                                    value={formData.name}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        name: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Coca-Cola 500ml"
+                                    required
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="description">
+                                    Description
+                                  </Label>
+                                  <Input
+                                    id="description"
+                                    value={formData.description}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        description: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Refreshing cola drink"
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="category">Category</Label>
+                                  <Input
+                                    id="category"
+                                    value={formData.category}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        category: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Beverages"
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="price">Price *</Label>
+                                    <Input
+                                      id="price"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.price}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          price: e.target.value,
+                                        })
+                                      }
+                                      placeholder="2.49"
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="cost">Cost</Label>
+                                    <Input
+                                      id="cost"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.cost}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          cost: e.target.value,
+                                        })
+                                      }
+                                      placeholder="1.20"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="stockQuantity">
+                                      Stock Quantity *
+                                    </Label>
+                                    <Input
+                                      id="stockQuantity"
+                                      type="number"
+                                      value={formData.stockQuantity}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          stockQuantity: e.target.value,
+                                        })
+                                      }
+                                      placeholder="100"
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="lowStockThreshold">
+                                      Low Stock Alert
+                                    </Label>
+                                    <Input
+                                      id="lowStockThreshold"
+                                      type="number"
+                                      value={formData.lowStockThreshold}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          lowStockThreshold: e.target.value,
+                                        })
+                                      }
+                                      placeholder="10"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="taxRate">Tax Rate</Label>
+                                    <Input
+                                      id="taxRate"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.taxRate}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          taxRate: e.target.value,
+                                        })
+                                      }
+                                      placeholder="0.08"
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="status">Status</Label>
+                                    <Select
+                                      value={formData.status}
+                                      onValueChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          status: value,
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="ACTIVE">
+                                          Active
+                                        </SelectItem>
+                                        <SelectItem value="INACTIVE">
+                                          Inactive
+                                        </SelectItem>
+                                        <SelectItem value="OUT_OF_STOCK">
+                                          Out of Stock
+                                        </SelectItem>
+                                        <SelectItem value="DISCONTINUED">
+                                          Discontinued
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => setShowAddDialog(false)}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button type="submit" disabled={isSaving}>
+                                  {isSaving ? "Adding..." : "Add Product"}
+                                </Button>
+                              </DialogFooter>
+                            </form>
+                          </DialogContent>
+                        </Dialog>
+
+                        {/* Edit Product Dialog */}
+                        <Dialog
+                          open={showEditDialog}
+                          onOpenChange={setShowEditDialog}
+                        >
+                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Edit Product</DialogTitle>
+                              <DialogDescription>
+                                Update product information
+                              </DialogDescription>
+                            </DialogHeader>
+                            <form onSubmit={handleSubmitEdit}>
+                              <div className="grid gap-4 py-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-sku">SKU *</Label>
+                                    <Input
+                                      id="edit-sku"
+                                      value={formData.sku}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          sku: e.target.value,
+                                        })
+                                      }
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-barcode">
+                                      Barcode
+                                    </Label>
+                                    <Input
+                                      id="edit-barcode"
+                                      value={formData.barcode}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          barcode: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="edit-name">
+                                    Product Name *
+                                  </Label>
+                                  <Input
+                                    id="edit-name"
+                                    value={formData.name}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        name: e.target.value,
+                                      })
+                                    }
+                                    required
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="edit-description">
+                                    Description
+                                  </Label>
+                                  <Input
+                                    id="edit-description"
+                                    value={formData.description}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        description: e.target.value,
+                                      })
+                                    }
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="edit-category">
+                                    Category
+                                  </Label>
+                                  <Input
+                                    id="edit-category"
+                                    value={formData.category}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        category: e.target.value,
+                                      })
+                                    }
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-price">Price *</Label>
+                                    <Input
+                                      id="edit-price"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.price}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          price: e.target.value,
+                                        })
+                                      }
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-cost">Cost</Label>
+                                    <Input
+                                      id="edit-cost"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.cost}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          cost: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-stockQuantity">
+                                      Stock Quantity *
+                                    </Label>
+                                    <Input
+                                      id="edit-stockQuantity"
+                                      type="number"
+                                      value={formData.stockQuantity}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          stockQuantity: e.target.value,
+                                        })
+                                      }
+                                      required
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-lowStockThreshold">
+                                      Low Stock Alert
+                                    </Label>
+                                    <Input
+                                      id="edit-lowStockThreshold"
+                                      type="number"
+                                      value={formData.lowStockThreshold}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          lowStockThreshold: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-taxRate">
+                                      Tax Rate
+                                    </Label>
+                                    <Input
+                                      id="edit-taxRate"
+                                      type="number"
+                                      step="0.01"
+                                      value={formData.taxRate}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          taxRate: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-status">Status</Label>
+                                    <Select
+                                      value={formData.status}
+                                      onValueChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          status: value,
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="ACTIVE">
+                                          Active
+                                        </SelectItem>
+                                        <SelectItem value="INACTIVE">
+                                          Inactive
+                                        </SelectItem>
+                                        <SelectItem value="OUT_OF_STOCK">
+                                          Out of Stock
+                                        </SelectItem>
+                                        <SelectItem value="DISCONTINUED">
+                                          Discontinued
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => setShowEditDialog(false)}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button type="submit" disabled={isSaving}>
+                                  {isSaving ? "Updating..." : "Update Product"}
+                                </Button>
+                              </DialogFooter>
+                            </form>
+                          </DialogContent>
+                        </Dialog>
+
+                        {/* Delete Confirmation Dialog */}
+                        <AlertDialog
+                          open={showDeleteDialog}
+                          onOpenChange={setShowDeleteDialog}
+                        >
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently delete{" "}
+                                <span className="font-semibold">
+                                  {selectedProduct?.name}
+                                </span>
+                                . This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={confirmDelete}>
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, filteredProducts.length)}{" "}
+                of {filteredProducts.length} results
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={
+                          currentPage === pageNum ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

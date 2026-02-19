@@ -62,6 +62,7 @@ interface InventoryDelivery {
   status: "PENDING" | "RECEIVED" | "CANCELLED";
   notes?: string;
   invoiceNumber?: string;
+  receiptImageUrl?: string;
   createdAt: string;
 }
 
@@ -75,6 +76,11 @@ export default function InventoryDeliveriesPage() {
   const [selectedDelivery, setSelectedDelivery] =
     useState<InventoryDelivery | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date>(new Date());
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const [formData, setFormData] = useState({
     supplier: "",
@@ -103,11 +109,21 @@ export default function InventoryDeliveriesPage() {
 
   async function handleCreate() {
     try {
+      setUploading(true);
+      let receiptImageUrl = "";
+
+      // Upload receipt if file is selected
+      if (selectedFile) {
+        const uploadResult = await apiClient.uploadReceipt(selectedFile);
+        receiptImageUrl = uploadResult.url;
+      }
+
       await apiClient.createInventoryDelivery({
         ...formData,
         deliveryDate: deliveryDate.toISOString(),
         totalCost: parseFloat(formData.totalCost),
         items: [], // Can be expanded later to include line items
+        receiptImageUrl,
       });
       toast.success("Delivery created successfully");
       setIsAddDialogOpen(false);
@@ -116,6 +132,8 @@ export default function InventoryDeliveriesPage() {
     } catch (error) {
       console.error("Error creating delivery:", error);
       toast.error("Failed to create delivery");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -123,10 +141,20 @@ export default function InventoryDeliveriesPage() {
     if (!selectedDelivery) return;
 
     try {
+      setUploading(true);
+      let receiptImageUrl = selectedDelivery.receiptImageUrl || "";
+
+      // Upload new receipt if file is selected
+      if (selectedFile) {
+        const uploadResult = await apiClient.uploadReceipt(selectedFile);
+        receiptImageUrl = uploadResult.url;
+      }
+
       await apiClient.updateInventoryDelivery(selectedDelivery.id, {
         ...formData,
         deliveryDate: deliveryDate.toISOString(),
         totalCost: parseFloat(formData.totalCost),
+        receiptImageUrl,
       });
       toast.success("Delivery updated successfully");
       setIsEditDialogOpen(false);
@@ -135,6 +163,8 @@ export default function InventoryDeliveriesPage() {
     } catch (error) {
       console.error("Error updating delivery:", error);
       toast.error("Failed to update delivery");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -161,6 +191,30 @@ export default function InventoryDeliveriesPage() {
     });
     setDeliveryDate(new Date());
     setSelectedDelivery(null);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      // Create preview for images
+      if (file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPreviewUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setPreviewUrl(null);
+      }
+    }
+  }
+
+  function clearFile() {
+    setSelectedFile(null);
+    setPreviewUrl(null);
   }
 
   function openEditDialog(delivery: InventoryDelivery) {
@@ -173,6 +227,12 @@ export default function InventoryDeliveriesPage() {
       notes: delivery.notes || "",
     });
     setDeliveryDate(new Date(delivery.deliveryDate));
+    // Set preview if there's an existing receipt
+    if (delivery.receiptImageUrl) {
+      const baseUrl =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+      setPreviewUrl(baseUrl + delivery.receiptImageUrl);
+    }
     setIsEditDialogOpen(true);
   }
 
@@ -184,6 +244,16 @@ export default function InventoryDeliveriesPage() {
       statusFilter === "ALL" || delivery.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const totalPages = Math.ceil(filteredDeliveries.length / itemsPerPage);
+  const paginatedDeliveries = filteredDeliveries.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive"> = {
@@ -238,59 +308,136 @@ export default function InventoryDeliveriesPage() {
       </div>
 
       <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Supplier</TableHead>
-              <TableHead>Invoice #</TableHead>
-              <TableHead>Delivery Date</TableHead>
-              <TableHead>Total Cost</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredDeliveries.length === 0 ? (
+        <div className="max-h-[600px] overflow-auto">
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <IconPackage className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
-                  <p className="text-muted-foreground">No deliveries found</p>
-                </TableCell>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Invoice #</TableHead>
+                <TableHead>Delivery Date</TableHead>
+                <TableHead>Total Cost</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Receipt</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              filteredDeliveries.map((delivery) => (
-                <TableRow key={delivery.id}>
-                  <TableCell className="font-medium">
-                    {delivery.supplier}
-                  </TableCell>
-                  <TableCell>{delivery.invoiceNumber || "—"}</TableCell>
-                  <TableCell>
-                    {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
-                  </TableCell>
-                  <TableCell>${delivery.totalCost.toFixed(2)}</TableCell>
-                  <TableCell>{getStatusBadge(delivery.status)}</TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEditDialog(delivery)}
-                    >
-                      <IconEdit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(delivery.id)}
-                    >
-                      <IconTrash className="h-4 w-4" />
-                    </Button>
+            </TableHeader>
+            <TableBody>
+              {paginatedDeliveries.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <IconPackage className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
+                    <p className="text-muted-foreground">No deliveries found</p>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                paginatedDeliveries.map((delivery) => (
+                  <TableRow key={delivery.id}>
+                    <TableCell className="font-medium">
+                      {delivery.supplier}
+                    </TableCell>
+                    <TableCell>{delivery.invoiceNumber || "—"}</TableCell>
+                    <TableCell>
+                      {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
+                    </TableCell>
+                    <TableCell>
+                      ${Number(delivery.totalCost).toFixed(2)}
+                    </TableCell>
+                    <TableCell>{getStatusBadge(delivery.status)}</TableCell>
+                    <TableCell>
+                      {delivery.receiptImageUrl ? (
+                        <a
+                          href={
+                            (process.env.NEXT_PUBLIC_API_URL ||
+                              "http://localhost:3000") +
+                            delivery.receiptImageUrl
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline text-sm"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(delivery)}
+                      >
+                        <IconEdit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(delivery.id)}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+            {Math.min(currentPage * itemsPerPage, filteredDeliveries.length)} of{" "}
+            {filteredDeliveries.length} results
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={currentPage === pageNum ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className="w-8"
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Add Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -380,12 +527,40 @@ export default function InventoryDeliveriesPage() {
                 rows={3}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Receipt Image</Label>
+              <Input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileSelect}
+              />
+              {previewUrl && (
+                <div className="mt-2 relative">
+                  <img
+                    src={previewUrl}
+                    alt="Receipt preview"
+                    className="max-h-40 rounded border"
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={clearFile}
+                    className="absolute top-2 right-2"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate}>Create Delivery</Button>
+            <Button onClick={handleCreate} disabled={uploading}>
+              {uploading ? "Uploading..." : "Create Delivery"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -472,6 +647,32 @@ export default function InventoryDeliveriesPage() {
                 rows={3}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Receipt Image</Label>
+              <Input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={handleFileSelect}
+              />
+              {previewUrl && (
+                <div className="mt-2 relative">
+                  <img
+                    src={previewUrl}
+                    alt="Receipt preview"
+                    className="max-h-40 rounded border"
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={clearFile}
+                    className="absolute top-2 right-2"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -480,7 +681,9 @@ export default function InventoryDeliveriesPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleUpdate}>Update Delivery</Button>
+            <Button onClick={handleUpdate} disabled={uploading}>
+              {uploading ? "Updating..." : "Update Delivery"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

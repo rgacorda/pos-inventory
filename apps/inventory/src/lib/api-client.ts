@@ -305,6 +305,19 @@ class APIClient {
     const response = await this.client.get("/financials/summary");
     return response.data;
   }
+
+  // Upload API
+  async uploadReceipt(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await this.client.post("/upload/receipt", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

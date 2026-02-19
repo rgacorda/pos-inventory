@@ -14,6 +14,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { InventoryDeliveriesModule } from './modules/inventory-deliveries/inventory-deliveries.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FinancialsModule } from './modules/financials/financials.module';
+import { UploadModule } from './modules/upload/upload.module';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 
@@ -44,6 +45,7 @@ import jwtConfig from './config/jwt.config';
     InventoryDeliveriesModule,
     ExpensesModule,
     FinancialsModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [AppService],

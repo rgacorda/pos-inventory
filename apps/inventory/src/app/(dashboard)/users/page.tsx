@@ -58,6 +58,8 @@ export default function UsersPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -199,6 +201,16 @@ export default function UsersPage() {
       u.role?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
   return (
     <div className="px-4 lg:px-6">
       <Card>
@@ -231,413 +243,480 @@ export default function UsersPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-muted-foreground">Loading users...</div>
-            </div>
-          ) : filteredUsers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <UsersIcon className="h-12 w-12 text-muted-foreground mb-4" />
-              <div className="text-muted-foreground">No users found</div>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Login</TableHead>
-                  {currentUser?.role === "ADMIN" && (
-                    <TableHead className="text-right">Actions</TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          user.role === "ADMIN"
-                            ? "default"
-                            : user.role === "MANAGER"
-                              ? "secondary"
-                              : "outline"
-                        }
-                      >
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{user.phone || "—"}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={user.isActive ? "default" : "destructive"}
-                      >
-                        {user.isActive ? "Active" : "Inactive"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {user.lastLoginAt
-                        ? new Date(user.lastLoginAt).toLocaleDateString()
-                        : "Never"}
-                    </TableCell>
+          <div className="max-h-[600px] overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-muted-foreground">Loading users...</div>
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <UsersIcon className="h-12 w-12 text-muted-foreground mb-4" />
+                <div className="text-muted-foreground">No users found</div>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Login</TableHead>
                     {currentUser?.role === "ADMIN" && (
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEditUser(user)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteUser(user)}
-                            disabled={user.id === currentUser?.id}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-
-                        {/* Add User Dialog */}
-                        <Dialog
-                          open={showAddDialog}
-                          onOpenChange={setShowAddDialog}
-                        >
-                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Add New User</DialogTitle>
-                              <DialogDescription>
-                                Add a new team member to your organization
-                              </DialogDescription>
-                            </DialogHeader>
-                            <form onSubmit={handleSubmitAdd}>
-                              <div className="grid gap-4 py-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="name">Full Name *</Label>
-                                  <Input
-                                    id="name"
-                                    value={formData.name}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        name: e.target.value,
-                                      })
-                                    }
-                                    placeholder="John Doe"
-                                    required
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="email">Email *</Label>
-                                  <Input
-                                    id="email"
-                                    type="email"
-                                    value={formData.email}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        email: e.target.value,
-                                      })
-                                    }
-                                    placeholder="john@example.com"
-                                    required
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="password">Password *</Label>
-                                  <Input
-                                    id="password"
-                                    type="password"
-                                    value={formData.password}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        password: e.target.value,
-                                      })
-                                    }
-                                    placeholder="••••••••"
-                                    required
-                                  />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="role">Role *</Label>
-                                    <Select
-                                      value={formData.role}
-                                      onValueChange={(value) =>
-                                        setFormData({
-                                          ...formData,
-                                          role: value,
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="ADMIN">
-                                          Admin
-                                        </SelectItem>
-                                        <SelectItem value="MANAGER">
-                                          Manager
-                                        </SelectItem>
-                                        <SelectItem value="CASHIER">
-                                          Cashier
-                                        </SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="phone">Phone</Label>
-                                    <Input
-                                      id="phone"
-                                      type="tel"
-                                      value={formData.phone}
-                                      onChange={(e) =>
-                                        setFormData({
-                                          ...formData,
-                                          phone: e.target.value,
-                                        })
-                                      }
-                                      placeholder="+1-555-0123"
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="status">Status</Label>
-                                  <Select
-                                    value={
-                                      formData.isActive ? "active" : "inactive"
-                                    }
-                                    onValueChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        isActive: value === "active",
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="active">
-                                        Active
-                                      </SelectItem>
-                                      <SelectItem value="inactive">
-                                        Inactive
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setShowAddDialog(false)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button type="submit" disabled={isSaving}>
-                                  {isSaving ? "Adding..." : "Add User"}
-                                </Button>
-                              </DialogFooter>
-                            </form>
-                          </DialogContent>
-                        </Dialog>
-
-                        {/* Edit User Dialog */}
-                        <Dialog
-                          open={showEditDialog}
-                          onOpenChange={setShowEditDialog}
-                        >
-                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Edit User</DialogTitle>
-                              <DialogDescription>
-                                Update user information
-                              </DialogDescription>
-                            </DialogHeader>
-                            <form onSubmit={handleSubmitEdit}>
-                              <div className="grid gap-4 py-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-name">Full Name *</Label>
-                                  <Input
-                                    id="edit-name"
-                                    value={formData.name}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        name: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-email">Email *</Label>
-                                  <Input
-                                    id="edit-email"
-                                    type="email"
-                                    value={formData.email}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        email: e.target.value,
-                                      })
-                                    }
-                                    required
-                                  />
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-password">
-                                    Password
-                                  </Label>
-                                  <Input
-                                    id="edit-password"
-                                    type="password"
-                                    value={formData.password}
-                                    onChange={(e) =>
-                                      setFormData({
-                                        ...formData,
-                                        password: e.target.value,
-                                      })
-                                    }
-                                    placeholder="Leave blank to keep current password"
-                                  />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="edit-role">Role *</Label>
-                                    <Select
-                                      value={formData.role}
-                                      onValueChange={(value) =>
-                                        setFormData({
-                                          ...formData,
-                                          role: value,
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="ADMIN">
-                                          Admin
-                                        </SelectItem>
-                                        <SelectItem value="MANAGER">
-                                          Manager
-                                        </SelectItem>
-                                        <SelectItem value="CASHIER">
-                                          Cashier
-                                        </SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="edit-phone">Phone</Label>
-                                    <Input
-                                      id="edit-phone"
-                                      type="tel"
-                                      value={formData.phone}
-                                      onChange={(e) =>
-                                        setFormData({
-                                          ...formData,
-                                          phone: e.target.value,
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-status">Status</Label>
-                                  <Select
-                                    value={
-                                      formData.isActive ? "active" : "inactive"
-                                    }
-                                    onValueChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        isActive: value === "active",
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="active">
-                                        Active
-                                      </SelectItem>
-                                      <SelectItem value="inactive">
-                                        Inactive
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setShowEditDialog(false)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button type="submit" disabled={isSaving}>
-                                  {isSaving ? "Updating..." : "Update User"}
-                                </Button>
-                              </DialogFooter>
-                            </form>
-                          </DialogContent>
-                        </Dialog>
-
-                        {/* Delete Confirmation Dialog */}
-                        <AlertDialog
-                          open={showDeleteDialog}
-                          onOpenChange={setShowDeleteDialog}
-                        >
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete{" "}
-                                <span className="font-semibold">
-                                  {selectedUser?.name}
-                                </span>
-                                . This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={confirmDelete}>
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
+                      <TableHead className="text-right">Actions</TableHead>
                     )}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedUsers.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">{user.name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            user.role === "ADMIN"
+                              ? "default"
+                              : user.role === "MANAGER"
+                                ? "secondary"
+                                : "outline"
+                          }
+                        >
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{user.phone || "—"}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={user.isActive ? "default" : "destructive"}
+                        >
+                          {user.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {user.lastLoginAt
+                          ? new Date(user.lastLoginAt).toLocaleDateString()
+                          : "Never"}
+                      </TableCell>
+                      {currentUser?.role === "ADMIN" && (
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEditUser(user)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteUser(user)}
+                              disabled={user.id === currentUser?.id}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+
+                          {/* Add User Dialog */}
+                          <Dialog
+                            open={showAddDialog}
+                            onOpenChange={setShowAddDialog}
+                          >
+                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle>Add New User</DialogTitle>
+                                <DialogDescription>
+                                  Add a new team member to your organization
+                                </DialogDescription>
+                              </DialogHeader>
+                              <form onSubmit={handleSubmitAdd}>
+                                <div className="grid gap-4 py-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="name">Full Name *</Label>
+                                    <Input
+                                      id="name"
+                                      value={formData.name}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          name: e.target.value,
+                                        })
+                                      }
+                                      placeholder="John Doe"
+                                      required
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="email">Email *</Label>
+                                    <Input
+                                      id="email"
+                                      type="email"
+                                      value={formData.email}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          email: e.target.value,
+                                        })
+                                      }
+                                      placeholder="john@example.com"
+                                      required
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="password">Password *</Label>
+                                    <Input
+                                      id="password"
+                                      type="password"
+                                      value={formData.password}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          password: e.target.value,
+                                        })
+                                      }
+                                      placeholder="••••••••"
+                                      required
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="role">Role *</Label>
+                                      <Select
+                                        value={formData.role}
+                                        onValueChange={(value) =>
+                                          setFormData({
+                                            ...formData,
+                                            role: value,
+                                          })
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="ADMIN">
+                                            Admin
+                                          </SelectItem>
+                                          <SelectItem value="MANAGER">
+                                            Manager
+                                          </SelectItem>
+                                          <SelectItem value="CASHIER">
+                                            Cashier
+                                          </SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="phone">Phone</Label>
+                                      <Input
+                                        id="phone"
+                                        type="tel"
+                                        value={formData.phone}
+                                        onChange={(e) =>
+                                          setFormData({
+                                            ...formData,
+                                            phone: e.target.value,
+                                          })
+                                        }
+                                        placeholder="+1-555-0123"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="status">Status</Label>
+                                    <Select
+                                      value={
+                                        formData.isActive
+                                          ? "active"
+                                          : "inactive"
+                                      }
+                                      onValueChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          isActive: value === "active",
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="active">
+                                          Active
+                                        </SelectItem>
+                                        <SelectItem value="inactive">
+                                          Inactive
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setShowAddDialog(false)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button type="submit" disabled={isSaving}>
+                                    {isSaving ? "Adding..." : "Add User"}
+                                  </Button>
+                                </DialogFooter>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
+
+                          {/* Edit User Dialog */}
+                          <Dialog
+                            open={showEditDialog}
+                            onOpenChange={setShowEditDialog}
+                          >
+                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle>Edit User</DialogTitle>
+                                <DialogDescription>
+                                  Update user information
+                                </DialogDescription>
+                              </DialogHeader>
+                              <form onSubmit={handleSubmitEdit}>
+                                <div className="grid gap-4 py-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-name">
+                                      Full Name *
+                                    </Label>
+                                    <Input
+                                      id="edit-name"
+                                      value={formData.name}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          name: e.target.value,
+                                        })
+                                      }
+                                      required
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-email">Email *</Label>
+                                    <Input
+                                      id="edit-email"
+                                      type="email"
+                                      value={formData.email}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          email: e.target.value,
+                                        })
+                                      }
+                                      required
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-password">
+                                      Password
+                                    </Label>
+                                    <Input
+                                      id="edit-password"
+                                      type="password"
+                                      value={formData.password}
+                                      onChange={(e) =>
+                                        setFormData({
+                                          ...formData,
+                                          password: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Leave blank to keep current password"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <Label htmlFor="edit-role">Role *</Label>
+                                      <Select
+                                        value={formData.role}
+                                        onValueChange={(value) =>
+                                          setFormData({
+                                            ...formData,
+                                            role: value,
+                                          })
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="ADMIN">
+                                            Admin
+                                          </SelectItem>
+                                          <SelectItem value="MANAGER">
+                                            Manager
+                                          </SelectItem>
+                                          <SelectItem value="CASHIER">
+                                            Cashier
+                                          </SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="edit-phone">Phone</Label>
+                                      <Input
+                                        id="edit-phone"
+                                        type="tel"
+                                        value={formData.phone}
+                                        onChange={(e) =>
+                                          setFormData({
+                                            ...formData,
+                                            phone: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-status">Status</Label>
+                                    <Select
+                                      value={
+                                        formData.isActive
+                                          ? "active"
+                                          : "inactive"
+                                      }
+                                      onValueChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          isActive: value === "active",
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="active">
+                                          Active
+                                        </SelectItem>
+                                        <SelectItem value="inactive">
+                                          Inactive
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setShowEditDialog(false)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button type="submit" disabled={isSaving}>
+                                    {isSaving ? "Updating..." : "Update User"}
+                                  </Button>
+                                </DialogFooter>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
+
+                          {/* Delete Confirmation Dialog */}
+                          <AlertDialog
+                            open={showDeleteDialog}
+                            onOpenChange={setShowDeleteDialog}
+                          >
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Are you sure?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently delete{" "}
+                                  <span className="font-semibold">
+                                    {selectedUser?.name}
+                                  </span>
+                                  . This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={confirmDelete}>
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-sm text-muted-foreground">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                {Math.min(currentPage * itemsPerPage, filteredUsers.length)} of{" "}
+                {filteredUsers.length} results
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={
+                          currentPage === pageNum ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -43,6 +43,9 @@ export class InventoryDelivery {
   @Column({ type: 'varchar', length: 255, nullable: true })
   invoiceNumber: string;
 
+  @Column({ type: 'text', nullable: true })
+  receiptImageUrl: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
