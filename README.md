@@ -151,34 +151,54 @@ npm run dev:inventory  # Inventory → http://localhost:3002
 
 **Tech**
 
-- Next.js 16
-- Online-only
-- shadcn/ui + Radix UI
+- Next.js 16.1.6 (App Router, Turbopack)
+- Online-only dashboard
+- shadcn/ui + Radix UI components
+- Recharts for analytics
 - Role-based access (ADMIN, MANAGER only)
+- Monochrome design system
 
 **Features**
 
-- Product management (CRUD)
-- User management (ADMIN only)
-- Order views & reports
-- Organization dashboard
-- Real-time statistics
+- **Dashboard**: Statistics cards (products, users, orders, revenue), quick actions
+- **Products Management**: Full CRUD, category filters, stock tracking, SKU/barcode, tax rates
+- **Users Management**: Full CRUD (ADMIN only), role-based filtering, status badges
+- **Orders Management**: Data table with pagination, date range filters, order details, search
+- **Reports & Analytics**: 5 comprehensive tabs
+  - Overview: Sales trends (area chart), recent orders
+  - Products: Top 10 products (ranked list + bar chart)
+  - Performance: Cashier and terminal performance tables
+  - Payments: Payment method breakdown (pie chart + list)
+  - Patterns: Hourly sales analysis, peak hours identification
+- **Terminals Management**: Register/manage POS terminals, sync status, manual sync trigger
+- **Organization Settings**: View/edit organization details (ADMIN only)
 
 **Responsibilities**
 
-- Product catalog management
-- Stock control
-- Price updates
-- User/team management
-- Sales reports & analytics
-- Organization settings
+- Product catalog management (categories, pricing, stock)
+- Stock control (quantity tracking, low stock indicators)
+- Price updates (base price + tax rate configuration)
+- User/team management (roles, permissions, status)
+- Comprehensive analytics (sales trends, product performance, cashier metrics)
+- Terminal registration & sync coordination
+- Organization details management
 
 **Access Control**
 
-- ADMIN: Full CRUD access
-- MANAGER: Read-only access
-- CASHIER: Blocked (403)
-- SUPER_ADMIN: Blocked (use Admin Portal)
+- ADMIN: Full CRUD access, organization settings, user management
+- MANAGER: Read-only access to products/orders/reports
+- CASHIER: Blocked (403) - POS only
+- SUPER_ADMIN: Blocked (use separate Admin Portal at super.pos.com)
+
+**Pages**
+
+- `/` - Dashboard with statistics
+- `/products` - Product catalog management
+- `/users` - User management (ADMIN only)
+- `/orders` - Order history & details
+- `/reports` - 5-tab analytics dashboard
+- `/terminals` - Terminal management & sync
+- `/organization` - Organization settings (ADMIN only)
 
 ---
 

@@ -1,11 +1,15 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import { db, dbHelpers, LocalOrder } from '@/lib/db';
-import { CartItem } from './cart';
-import { calculateLineSubtotal, calculateTax, calculateOrderTotal } from '@pos/shared-utils';
-import { PaymentMethod, OrderStatus, PaymentStatus } from '@pos/shared-types';
+import { useState } from "react";
+import { v4 as uuidv4 } from "uuid";
+import { db, dbHelpers, LocalOrder } from "@/lib/db";
+import { CartItem } from "./cart";
+import {
+  calculateLineSubtotal,
+  calculateTax,
+  calculateOrderTotal,
+} from "@pos/shared-utils";
+import { PaymentMethod, OrderStatus, PaymentStatus } from "@pos/shared-types";
 
 interface CheckoutModalProps {
   items: CartItem[];
@@ -13,16 +17,27 @@ interface CheckoutModalProps {
   onComplete: () => void;
 }
 
-export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+export function CheckoutModal({
+  items,
+  onClose,
+  onComplete,
+}: CheckoutModalProps) {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    PaymentMethod.CASH,
+  );
   const [isProcessing, setIsProcessing] = useState(false);
 
   const subtotal = items.reduce((sum, item) => {
-    return sum + calculateLineSubtotal(item.quantity, Number(item.product.price));
+    return (
+      sum + calculateLineSubtotal(item.quantity, Number(item.product.price))
+    );
   }, 0);
 
   const taxAmount = items.reduce((sum, item) => {
-    const lineSubtotal = calculateLineSubtotal(item.quantity, Number(item.product.price));
+    const lineSubtotal = calculateLineSubtotal(
+      item.quantity,
+      Number(item.product.price),
+    );
     return sum + calculateTax(lineSubtotal, Number(item.product.taxRate));
   }, 0);
 
@@ -33,19 +48,25 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
     try {
       const terminalId = await dbHelpers.getTerminalId();
       if (!terminalId) {
-        alert('Terminal ID not set. Please configure terminal first.');
+        alert("Terminal ID not set. Please configure terminal first.");
         return;
       }
 
       const posLocalId = uuidv4();
       const now = new Date();
 
+      // Get cashier ID from localStorage (set during login)
+      const cashierId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("userId") || "default-cashier"
+          : "default-cashier";
+
       // Create order
-      const order: Omit<LocalOrder, 'id'> = {
+      const order: Omit<LocalOrder, "id"> = {
         orderNumber: `ORD-${Date.now()}`,
         posLocalId,
         terminalId,
-        cashierId: 'default-cashier', // TODO: Get from auth
+        cashierId,
         subtotal,
         taxAmount,
         discountAmount: 0,
@@ -53,7 +74,7 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
         status: OrderStatus.COMPLETED,
         completedAt: now,
         syncedAt: undefined,
-        items: items.map(item => ({
+        items: items.map((item) => ({
           id: uuidv4(),
           orderId: posLocalId,
           productId: item.product.id,
@@ -63,14 +84,20 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
           unitPrice: Number(item.product.price),
           taxRate: Number(item.product.taxRate),
           discountAmount: 0,
-          subtotal: calculateLineSubtotal(item.quantity, Number(item.product.price)),
+          subtotal: calculateLineSubtotal(
+            item.quantity,
+            Number(item.product.price),
+          ),
           total: calculateOrderTotal(
             calculateLineSubtotal(item.quantity, Number(item.product.price)),
-            calculateTax(calculateLineSubtotal(item.quantity, Number(item.product.price)), Number(item.product.taxRate)),
-            0
+            calculateTax(
+              calculateLineSubtotal(item.quantity, Number(item.product.price)),
+              Number(item.product.taxRate),
+            ),
+            0,
           ),
         })),
-        syncStatus: 'pending',
+        syncStatus: "pending",
         localCreatedAt: now,
         localUpdatedAt: now,
       };
@@ -90,17 +117,17 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
         reference: undefined,
         processedAt: now,
         syncedAt: undefined,
-        syncStatus: 'pending',
+        syncStatus: "pending",
         localCreatedAt: now,
         localUpdatedAt: now,
       });
 
-      alert('Order completed successfully!');
+      alert("Order completed successfully!");
       onComplete();
       onClose();
     } catch (error) {
-      console.error('Checkout failed:', error);
-      alert('Failed to complete order. Please try again.');
+      console.error("Checkout failed:", error);
+      alert("Failed to complete order. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -115,11 +142,15 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
           <div className="bg-gradient-to-br from-blue-50 to-green-50 p-4 rounded-xl border-2 border-blue-200">
             <div className="flex justify-between mb-2">
               <span className="text-gray-700">Subtotal:</span>
-              <span className="font-semibold text-gray-800">${subtotal.toFixed(2)}</span>
+              <span className="font-semibold text-gray-800">
+                ${subtotal.toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between mb-2">
               <span className="text-gray-700">Tax:</span>
-              <span className="font-semibold text-gray-800">${taxAmount.toFixed(2)}</span>
+              <span className="font-semibold text-gray-800">
+                ${taxAmount.toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between text-2xl font-bold border-t-2 border-green-300 pt-2 mt-2">
               <span className="text-gray-800">Total:</span>
@@ -128,15 +159,21 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700">Payment Method</label>
+            <label className="block text-sm font-medium mb-2 text-gray-700">
+              Payment Method
+            </label>
             <select
               value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+              onChange={(e) =>
+                setPaymentMethod(e.target.value as PaymentMethod)
+              }
               className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value={PaymentMethod.CASH}>Cash</option>
               <option value={PaymentMethod.CARD}>Card</option>
-              <option value={PaymentMethod.DIGITAL_WALLET}>Digital Wallet</option>
+              <option value={PaymentMethod.DIGITAL_WALLET}>
+                Digital Wallet
+              </option>
               <option value={PaymentMethod.STORE_CREDIT}>Store Credit</option>
             </select>
           </div>
@@ -155,7 +192,7 @@ export function CheckoutModal({ items, onClose, onComplete }: CheckoutModalProps
             disabled={isProcessing}
             className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 disabled:opacity-50 font-bold shadow-lg"
           >
-            {isProcessing ? '⏳ Processing...' : '✓ Complete Order'}
+            {isProcessing ? "⏳ Processing..." : "✓ Complete Order"}
           </button>
         </div>
       </div>
