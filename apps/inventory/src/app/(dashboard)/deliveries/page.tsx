@@ -5,6 +5,13 @@ import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
   Table,
   TableBody,
   TableCell,
@@ -274,116 +281,120 @@ export default function InventoryDeliveriesPage() {
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Inventory Deliveries</h1>
-          <p className="text-muted-foreground mt-1">
-            Track your inventory purchases and deliveries
-          </p>
-        </div>
-        <Button onClick={() => setIsAddDialogOpen(true)}>
-          <IconPlus className="mr-2 h-4 w-4" />
-          Add Delivery
-        </Button>
-      </div>
-
-      <div className="flex gap-4">
-        <Input
-          placeholder="Search by supplier or invoice..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-sm"
-        />
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Status</SelectItem>
-            <SelectItem value="RECEIVED">Received</SelectItem>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="rounded-md border">
-        <div className="max-h-[600px] overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Invoice #</TableHead>
-                <TableHead>Delivery Date</TableHead>
-                <TableHead>Total Cost</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Receipt</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedDeliveries.length === 0 ? (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Inventory Deliveries</CardTitle>
+              <CardDescription>
+                Track your inventory purchases and deliveries
+              </CardDescription>
+            </div>
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <IconPlus className="mr-2 h-4 w-4" />
+              Add Delivery
+            </Button>
+          </div>
+          <div className="flex items-center gap-4 pt-4">
+            <Input
+              placeholder="Search by supplier or invoice..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Status</SelectItem>
+                <SelectItem value="RECEIVED">Received</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="CANCELLED">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="max-h-[600px] overflow-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    <IconPackage className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">No deliveries found</p>
-                  </TableCell>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead>Delivery Date</TableHead>
+                  <TableHead>Total Cost</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Receipt</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                paginatedDeliveries.map((delivery) => (
-                  <TableRow key={delivery.id}>
-                    <TableCell className="font-medium">
-                      {delivery.supplier}
-                    </TableCell>
-                    <TableCell>{delivery.invoiceNumber || "—"}</TableCell>
-                    <TableCell>
-                      {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
-                    </TableCell>
-                    <TableCell>
-                      ${Number(delivery.totalCost).toFixed(2)}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(delivery.status)}</TableCell>
-                    <TableCell>
-                      {delivery.receiptImageUrl ? (
-                        <a
-                          href={
-                            (process.env.NEXT_PUBLIC_API_URL ||
-                              "http://localhost:3000") +
-                            delivery.receiptImageUrl
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-sm"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditDialog(delivery)}
-                      >
-                        <IconEdit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(delivery.id)}
-                      >
-                        <IconTrash className="h-4 w-4" />
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {paginatedDeliveries.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <IconPackage className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">
+                        No deliveries found
+                      </p>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+                ) : (
+                  paginatedDeliveries.map((delivery) => (
+                    <TableRow key={delivery.id}>
+                      <TableCell className="font-medium">
+                        {delivery.supplier}
+                      </TableCell>
+                      <TableCell>{delivery.invoiceNumber || "—"}</TableCell>
+                      <TableCell>
+                        {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell>
+                        ${Number(delivery.totalCost).toFixed(2)}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(delivery.status)}</TableCell>
+                      <TableCell>
+                        {delivery.receiptImageUrl ? (
+                          <a
+                            href={
+                              (process.env.NEXT_PUBLIC_API_URL ||
+                                "http://localhost:3000") +
+                              delivery.receiptImageUrl
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-sm"
+                          >
+                            View
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(delivery)}
+                        >
+                          <IconEdit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(delivery.id)}
+                        >
+                          <IconTrash className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Pagination */}
       {totalPages > 1 && (

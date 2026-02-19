@@ -173,7 +173,7 @@ export default function OrganizationPage() {
 
   if (!organization) {
     return (
-      <div className="flex flex-1 flex-col gap-4 p-4">
+      <div className="px-4 lg:px-6 space-y-6">
         <div className="flex h-[400px] flex-col items-center justify-center gap-2">
           <Building2 className="h-12 w-12 text-muted-foreground" />
           <p className="text-muted-foreground">Organization not found</p>
@@ -183,13 +183,11 @@ export default function OrganizationPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4">
+    <div className="px-4 lg:px-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            Organization Settings
-          </h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold">Organization Settings</h1>
+          <p className="text-muted-foreground mt-1">
             Manage your organization information
           </p>
         </div>

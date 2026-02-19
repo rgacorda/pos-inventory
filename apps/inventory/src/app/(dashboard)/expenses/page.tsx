@@ -5,6 +5,13 @@ import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
   Table,
   TableBody,
   TableCell,
@@ -294,141 +301,145 @@ export default function ExpensesPage() {
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Expenses</h1>
-          <p className="text-muted-foreground mt-1">
-            Track utilities, wages, and operating expenses
-          </p>
-        </div>
-        <Button onClick={() => setIsAddDialogOpen(true)}>
-          <IconPlus className="mr-2 h-4 w-4" />
-          Add Expense
-        </Button>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border p-4">
-          <h3 className="text-sm font-medium text-muted-foreground">
-            Total Expenses
-          </h3>
-          <p className="text-2xl font-bold mt-2">
-            ${getTotalExpenses().toFixed(2)}
-          </p>
-        </div>
-        <div className="rounded-lg border p-4">
-          <h3 className="text-sm font-medium text-muted-foreground">
-            Total Entries
-          </h3>
-          <p className="text-2xl font-bold mt-2">{filteredExpenses.length}</p>
-        </div>
-      </div>
-
-      <div className="flex gap-4">
-        <Input
-          placeholder="Search by recipient, description..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-sm"
-        />
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Filter by type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Types</SelectItem>
-            {EXPENSE_TYPES.map((type) => (
-              <SelectItem key={type.value} value={type.value}>
-                {type.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="rounded-md border">
-        <div className="max-h-[600px] overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Recipient/Vendor</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Receipt</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedExpenses.length === 0 ? (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Expenses</CardTitle>
+              <CardDescription>
+                Track utilities, wages, and operating expenses
+              </CardDescription>
+            </div>
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <IconPlus className="mr-2 h-4 w-4" />
+              Add Expense
+            </Button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3 pt-4">
+            <div className="rounded-lg border p-4">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Total Expenses
+              </h3>
+              <p className="text-2xl font-bold mt-2">
+                ${getTotalExpenses().toFixed(2)}
+              </p>
+            </div>
+            <div className="rounded-lg border p-4">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Total Entries
+              </h3>
+              <p className="text-2xl font-bold mt-2">
+                {filteredExpenses.length}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 pt-4">
+            <Input
+              placeholder="Search by recipient, description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Filter by type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Types</SelectItem>
+                {EXPENSE_TYPES.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    {type.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="max-h-[600px] overflow-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    <IconReceipt className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">No expenses found</p>
-                  </TableCell>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Recipient/Vendor</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Receipt</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                paginatedExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell>
-                      <Badge className={getTypeColor(expense.type)}>
-                        {
-                          EXPENSE_TYPES.find((t) => t.value === expense.type)
-                            ?.label
-                        }
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {expense.recipient || "—"}
-                    </TableCell>
-                    <TableCell>
-                      {format(new Date(expense.expenseDate), "MMM d, yyyy")}
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      ${Number(expense.amount).toFixed(2)}
-                    </TableCell>
-                    <TableCell>{expense.referenceNumber || "—"}</TableCell>
-                    <TableCell>
-                      {expense.receiptImageUrl ? (
-                        <a
-                          href={
-                            (process.env.NEXT_PUBLIC_API_URL ||
-                              "http://localhost:3000") + expense.receiptImageUrl
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-sm"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEditDialog(expense)}
-                      >
-                        <IconEdit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(expense.id)}
-                      >
-                        <IconTrash className="h-4 w-4" />
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {paginatedExpenses.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <IconReceipt className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">No expenses found</p>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+                ) : (
+                  paginatedExpenses.map((expense) => (
+                    <TableRow key={expense.id}>
+                      <TableCell>
+                        <Badge className={getTypeColor(expense.type)}>
+                          {
+                            EXPENSE_TYPES.find((t) => t.value === expense.type)
+                              ?.label
+                          }
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {expense.recipient || "—"}
+                      </TableCell>
+                      <TableCell>
+                        {format(new Date(expense.expenseDate), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="font-semibold">
+                        ${Number(expense.amount).toFixed(2)}
+                      </TableCell>
+                      <TableCell>{expense.referenceNumber || "—"}</TableCell>
+                      <TableCell>
+                        {expense.receiptImageUrl ? (
+                          <a
+                            href={
+                              (process.env.NEXT_PUBLIC_API_URL ||
+                                "http://localhost:3000") +
+                              expense.receiptImageUrl
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-sm"
+                          >
+                            View
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(expense)}
+                        >
+                          <IconEdit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(expense.id)}
+                        >
+                          <IconTrash className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Pagination */}
       {totalPages > 1 && (
