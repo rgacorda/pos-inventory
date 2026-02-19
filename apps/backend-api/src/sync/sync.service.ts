@@ -222,21 +222,21 @@ export class SyncService {
         };
       }
 
-      // Find order by server ID or posLocalId
-      let orderId = paymentDto.orderId;
-      if (!orderId && paymentDto.orderPosLocalId) {
-        const order = await this.orderRepository.findOne({
-          where: { posLocalId: paymentDto.orderPosLocalId },
-        });
-        if (!order) {
-          throw new Error('Order not found for payment');
-        }
-        orderId = order.id;
+      // Find order by posLocalId (payments always reference orders by posLocalId)
+      const order = await this.orderRepository.findOne({
+        where: { posLocalId: paymentDto.orderPosLocalId },
+      });
+
+      if (!order) {
+        this.logger.error(
+          `Order not found for payment ${paymentDto.posLocalId}. Looking for order with posLocalId: ${paymentDto.orderPosLocalId}`,
+        );
+        throw new Error(
+          `Order not found with posLocalId: ${paymentDto.orderPosLocalId}`,
+        );
       }
 
-      if (!orderId) {
-        throw new Error('Order not found for payment');
-      }
+      const orderId = order.id;
 
       // Look up terminal UUID from terminalId string
       const terminal = await this.terminalRepository.findOne({

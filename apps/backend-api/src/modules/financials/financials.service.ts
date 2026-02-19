@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { Expense } from '../../entities/expense.entity';
+import { OrderStatus } from '@pos/shared-types';
 
 @Injectable()
 export class FinancialsService {
+  private readonly logger = new Logger(FinancialsService.name);
+
   constructor(
     @InjectRepository(OrderEntity)
     private readonly orderRepository: Repository<OrderEntity>,
@@ -21,16 +24,46 @@ export class FinancialsService {
     startDate: string,
     endDate: string,
   ) {
-    // Get revenue from completed orders
+    this.logger.log(
+      `Calculating P&L for org ${organizationId} from ${startDate} to ${endDate}`,
+    );
+
+    // Debug: Check all orders for this organization
+    const allOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.organizationId = :organizationId', { organizationId })
+      .getMany();
+
+    this.logger.log(
+      `Total orders in org: ${allOrders.length}. Statuses: ${Array.from(new Set(allOrders.map((o) => o.status))).join(', ')}`,
+    );
+
+    if (allOrders.length > 0) {
+      this.logger.log(
+        `Sample order dates: ${allOrders
+          .slice(0, 3)
+          .map((o) => `${o.createdAt} (${o.status})`)
+          .join(', ')}`,
+      );
+    }
+
+    // Get revenue from completed and synced orders
+    // SYNCED orders are sales from POS that have been synchronized - they are completed sales
     const orders = await this.orderRepository
       .createQueryBuilder('order')
       .where('order.organizationId = :organizationId', { organizationId })
-      .andWhere('order.status = :status', { status: 'COMPLETED' })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED],
+      })
       .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
         endDate,
       })
       .getMany();
+
+    this.logger.log(
+      `Found ${orders.length} completed/synced orders in date range. Total amounts: ${orders.map((o) => o.totalAmount).join(', ')}`,
+    );
 
     const revenue = orders.reduce(
       (sum, order) => sum + Number(order.totalAmount),
