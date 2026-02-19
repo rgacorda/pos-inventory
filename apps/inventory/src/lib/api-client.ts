@@ -197,6 +197,35 @@ class APIClient {
     const response = await this.client.post(`/terminals/${id}/sync`);
     return response.data;
   }
+
+  // Organization API (for ADMIN to manage their own org)
+  async getMyOrganization() {
+    // Get organization ID from localStorage
+    const organizationId =
+      typeof window !== "undefined"
+        ? localStorage.getItem("organizationId")
+        : null;
+    if (!organizationId) {
+      throw new Error("Organization ID not found");
+    }
+    const response = await this.client.get(`/organizations/${organizationId}`);
+    return response.data;
+  }
+
+  async updateMyOrganization(data: any) {
+    const organizationId =
+      typeof window !== "undefined"
+        ? localStorage.getItem("organizationId")
+        : null;
+    if (!organizationId) {
+      throw new Error("Organization ID not found");
+    }
+    const response = await this.client.put(
+      `/organizations/${organizationId}`,
+      data,
+    );
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

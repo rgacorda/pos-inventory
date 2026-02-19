@@ -11,6 +11,7 @@ import {
   IconUsers,
   IconHelp,
   IconDeviceDesktop,
+  IconBuilding,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -54,6 +55,12 @@ const data = {
       icon: IconUsers,
     },
     {
+      title: "Organization",
+      url: "/organization",
+      icon: IconBuilding,
+      requiredRole: "ADMIN", // Only visible to ADMIN (for their own org)
+    },
+    {
       title: "Terminals",
       url: "/terminals",
       icon: IconDeviceDesktop,
@@ -95,6 +102,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, []);
 
+  // Filter navigation items based on user role
+  const filteredNavMain = data.navMain.filter((item: any) => {
+    if (item.requiredRole) {
+      return currentUser?.role === item.requiredRole;
+    }
+    return true;
+  });
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -115,7 +130,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavMain items={filteredNavMain} />
         {/* <NavSecondary items={data.navSecondary} className="mt-auto" /> */}
       </SidebarContent>
       <SidebarFooter>
