@@ -11,6 +11,11 @@ const routeTitles: { [key: string]: string } = {
   "/users": "Users",
   "/orders": "Orders",
   "/reports": "Reports",
+  "/deliveries": "Deliveries",
+  "/expenses": "Expenses",
+  "/financials": "Financials",
+  "/organization": "Organization",
+  "/terminals": "Terminals",
 };
 
 export function SiteHeader() {
