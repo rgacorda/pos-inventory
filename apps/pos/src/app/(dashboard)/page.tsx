@@ -1,19 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { toast } from "sonner";
 import {
-  Plus,
-  Trash2,
-  CreditCard,
-  QrCode,
-  Minus,
-  Search,
-} from "lucide-react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "sonner";
+import { Plus, Trash2, CreditCard, QrCode, Minus, Search } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
@@ -23,19 +30,6 @@ interface OrderItem {
   product: LocalProduct;
   quantity: number;
 }
-
-// Category mapping with emojis
-const categoryIcons: Record<string, string> = {
-  Beverages: "🥤",
-  Snacks: "🍿",
-  Food: "🍜",
-  Dairy: "🥛",
-  Candy: "🍬",
-  Frozen: "🍦",
-  Bakery: "🍞",
-  "Hot Beverages": "☕",
-  All: "🏪",
-};
 
 export default function Page() {
   const products = useProducts();
@@ -48,6 +42,7 @@ export default function Page() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const cartEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize terminal ID and extract categories
   useEffect(() => {
@@ -71,6 +66,13 @@ export default function Page() {
       setCategories(uniqueCategories);
     }
   }, [products]);
+
+  // Auto-scroll to latest item in cart
+  useEffect(() => {
+    if (orderItems.length > 0) {
+      cartEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [orderItems]);
 
   // Add product to order
   const addToOrder = (product: LocalProduct) => {
@@ -263,70 +265,69 @@ export default function Page() {
 
         {/* Categories */}
         <div className="border-b p-4">
-          <div className="flex gap-4 overflow-x-auto">
-            {categories.map((category, index) => (
-              <div
-                key={index}
-                className={`hover:bg-gray-50 flex min-w-[80px] cursor-pointer flex-col items-center rounded-lg p-2 transition-colors ${
-                  selectedCategory === category
-                    ? "border-2 border-gray-900"
-                    : "border-2 border-transparent"
-                }`}
-                onClick={() => setSelectedCategory(category)}
-              >
-                <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-2xl">
-                  {categoryIcons[category] || "📦"}
-                </div>
-                <span className="text-gray-700 text-center text-xs">
-                  {category}
-                </span>
-              </div>
-            ))}
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium">Category:</label>
+            <Select
+              value={selectedCategory}
+              onValueChange={setSelectedCategory}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Select category" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
-        {/* Menu Items Grid */}
+        {/* Menu Items Table */}
         <div className="flex-1 overflow-auto p-6">
           {!products ? (
             <div className="text-center text-gray-600 py-8 text-lg">
-              ⏳ Loading products...
+              Loading products...
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="text-center text-gray-600 py-8 text-lg">
-              📭 No products available in this category
+              No products available in this category
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {filteredProducts.map((product) => (
-                <Card
-                  key={product.id}
-                  className="cursor-pointer transition-shadow hover:shadow-lg"
-                  onClick={() => addToOrder(product)}
-                >
-                  <CardContent className="p-0">
-                    <div className="relative aspect-video overflow-hidden rounded-t-lg bg-gradient-to-br from-gray-100 to-gray-200">
-                      <div className="flex items-center justify-center h-full text-6xl">
-                        {categoryIcons[product.category ?? "All"] || "📦"}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <h3 className="mb-1 font-semibold">{product.name}</h3>
-                      <p className="text-muted-foreground mb-2 text-sm">
-                        {product.category}
-                      </p>
-                      <div className="flex items-center justify-between">
-                        <p className="text-lg font-bold text-gray-900">
-                          ${product.price.toFixed(2)}
-                        </p>
-                        <span className="text-xs text-gray-500">
-                          Stock: {product.stockQuantity}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product Name</TableHead>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead className="text-right">Stock</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredProducts.map((product) => (
+                  <TableRow
+                    key={product.id}
+                    className="cursor-pointer hover:bg-gray-50"
+                    onClick={() => addToOrder(product)}
+                  >
+                    <TableCell className="font-medium">
+                      {product.name}
+                    </TableCell>
+                    <TableCell>{product.sku}</TableCell>
+                    <TableCell>{product.category}</TableCell>
+                    <TableCell className="text-right">
+                      ${product.price.toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {product.stockQuantity}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </div>
       </div>
@@ -346,24 +347,19 @@ export default function Page() {
         </div>
 
         <ScrollArea className="flex-1 min-h-0">
-          <div className="p-4">
+          <div className="p-2">
             {orderItems.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
                 <p className="text-sm">Cart is empty</p>
                 <p className="text-xs mt-2">Add items to get started</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1.5">
                 {orderItems.map((item, index) => (
                   <div
                     key={`${item.product.id}-${index}`}
-                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50"
+                    className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-gray-50"
                   >
-                    <div className="bg-muted flex h-12 w-12 items-center justify-center rounded-lg flex-shrink-0">
-                      <span className="text-lg">
-                        {categoryIcons[item.product.category || "All"] || "📦"}
-                      </span>
-                    </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-medium truncate">
                         {item.product.name}
@@ -408,6 +404,7 @@ export default function Page() {
                     </div>
                   </div>
                 ))}
+                <div ref={cartEndRef} />
               </div>
             )}
           </div>

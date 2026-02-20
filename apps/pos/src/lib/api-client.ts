@@ -128,6 +128,11 @@ class APIClient {
     return response.data;
   }
 
+  async getTerminals(): Promise<any[]> {
+    const response = await this.client.get<any[]>("/terminals");
+    return response.data;
+  }
+
   isOnline(): boolean {
     if (typeof navigator === "undefined") return true;
     return navigator.onLine;

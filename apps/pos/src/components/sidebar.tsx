@@ -4,6 +4,23 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   ShoppingCart,
   Package,
@@ -11,11 +28,12 @@ import {
   LogOut,
   RefreshCw,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useState, useEffect } from "react";
 import { dbHelpers } from "@/lib/db";
-import { syncService } from "@/lib/api-client";
+import { syncService, apiClient } from "@/lib/api-client";
 import { toast } from "sonner";
 
 export function Sidebar() {
@@ -27,6 +45,11 @@ export function Sidebar() {
     total: 0,
   });
   const [isRetrying, setIsRetrying] = useState(false);
+  const [terminalId, setTerminalId] = useState<string>("");
+  const [newTerminalId, setNewTerminalId] = useState<string>("");
+  const [isTerminalDialogOpen, setIsTerminalDialogOpen] = useState(false);
+  const [availableTerminals, setAvailableTerminals] = useState<any[]>([]);
+  const [isLoadingTerminals, setIsLoadingTerminals] = useState(false);
 
   const todaysSales =
     todaysOrders?.reduce((sum, order) => sum + (order.totalAmount || 0), 0) ||
@@ -44,6 +67,37 @@ export function Sidebar() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Load terminal ID on mount
+  useEffect(() => {
+    const loadTerminalId = async () => {
+      const id = await dbHelpers.getTerminalId();
+      setTerminalId(id || "Not Set");
+      setNewTerminalId(id || "");
+    };
+    loadTerminalId();
+  }, []);
+
+  // Fetch available terminals when dialog opens
+  useEffect(() => {
+    if (isTerminalDialogOpen) {
+      const fetchTerminals = async () => {
+        setIsLoadingTerminals(true);
+        try {
+          const terminals = await apiClient.getTerminals();
+          setAvailableTerminals(terminals);
+        } catch (error) {
+          console.error("Failed to fetch terminals:", error);
+          toast.error("Failed to load terminals", {
+            description: "Unable to fetch available terminals from server.",
+          });
+        } finally {
+          setIsLoadingTerminals(false);
+        }
+      };
+      fetchTerminals();
+    }
+  }, [isTerminalDialogOpen]);
 
   const handleRetrySync = async () => {
     setIsRetrying(true);
@@ -70,11 +124,110 @@ export function Sidebar() {
     }
   };
 
+  const handleSaveTerminalId = async () => {
+    if (!newTerminalId.trim()) {
+      toast.error("Terminal ID Required", {
+        description: "Please enter a valid terminal ID.",
+      });
+      return;
+    }
+    try {
+      await dbHelpers.setTerminalId(newTerminalId.trim());
+      setTerminalId(newTerminalId.trim());
+      setIsTerminalDialogOpen(false);
+      toast.success("Terminal ID Updated", {
+        description: `Terminal ID set to: ${newTerminalId.trim()}`,
+      });
+    } catch (error) {
+      toast.error("Update Failed", {
+        description: "Unable to update terminal ID.",
+      });
+    }
+  };
+
   return (
     <div className="flex w-64 flex-col border-r bg-white">
       <div className="border-b p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-gray-800">🏪 AR-POS</h2>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex-1 min-w-0">
+            <p className="text-gray-500 mb-0.5">Terminal:</p>
+            <p className="text-gray-900 font-mono font-medium truncate">
+              {terminalId}
+            </p>
+          </div>
+          <Dialog
+            open={isTerminalDialogOpen}
+            onOpenChange={setIsTerminalDialogOpen}
+          >
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 ml-2 flex-shrink-0"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Set Terminal ID</DialogTitle>
+                <DialogDescription>
+                  Select a registered terminal for this device.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                {isLoadingTerminals ? (
+                  <div className="text-center text-gray-500 py-4">
+                    Loading terminals...
+                  </div>
+                ) : availableTerminals.length === 0 ? (
+                  <div className="text-center text-gray-500 py-4">
+                    <p className="text-sm mb-2">No terminals registered</p>
+                    <p className="text-xs">
+                      Please contact administrator to register terminals
+                    </p>
+                  </div>
+                ) : (
+                  <Select
+                    value={newTerminalId}
+                    onValueChange={setNewTerminalId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a terminal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableTerminals.map((terminal) => (
+                        <SelectItem
+                          key={terminal.id}
+                          value={terminal.terminalId}
+                        >
+                          {terminal.terminalId}
+                          {terminal.location && ` - ${terminal.location}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTerminalDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveTerminalId}
+                  disabled={!newTerminalId || availableTerminals.length === 0}
+                >
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
