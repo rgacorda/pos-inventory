@@ -28,6 +28,12 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import {
   Area,
   AreaChart,
   Bar,
@@ -62,12 +68,10 @@ import { format, parseISO, startOfDay, eachDayOfInterval } from "date-fns";
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
-  const [dateRange, setDateRange] = useState({
-    start: new Date(new Date().setDate(new Date().getDate() - 30))
-      .toISOString()
-      .split("T")[0],
-    end: new Date().toISOString().split("T")[0],
-  });
+  const [startDate, setStartDate] = useState<Date>(
+    new Date(new Date().setDate(new Date().getDate() - 30)),
+  );
+  const [endDate, setEndDate] = useState<Date>(new Date());
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalOrders: 0,
@@ -85,7 +89,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadReportData();
-  }, [dateRange]);
+  }, [startDate, endDate]);
 
   const loadReportData = async () => {
     setLoading(true);
@@ -99,9 +103,7 @@ export default function ReportsPage() {
       // Filter orders by date range
       const filteredOrders = orders.filter((order: any) => {
         const orderDate = new Date(order.createdAt);
-        const start = new Date(dateRange.start);
-        const end = new Date(dateRange.end);
-        return orderDate >= start && orderDate <= end;
+        return orderDate >= startDate && orderDate <= endDate;
       });
 
       // Calculate stats
@@ -152,8 +154,6 @@ export default function ReportsPage() {
       setRecentOrders(filteredOrders.slice(0, 10));
 
       // Calculate sales trend (daily)
-      const startDate = new Date(dateRange.start);
-      const endDate = new Date(dateRange.end);
       const datesInRange = eachDayOfInterval({
         start: startDate,
         end: endDate,
@@ -228,9 +228,7 @@ export default function ReportsPage() {
       // Calculate payment methods breakdown
       const filteredPayments = payments.filter((payment: any) => {
         const paymentDate = new Date(payment.createdAt);
-        const start = new Date(dateRange.start);
-        const end = new Date(dateRange.end);
-        return paymentDate >= start && paymentDate <= end;
+        return paymentDate >= startDate && paymentDate <= endDate;
       });
 
       const paymentMethodStats: { [key: string]: number } = {};
@@ -282,7 +280,7 @@ export default function ReportsPage() {
 
       // Add report header
       csvContent += `Sales Report\n`;
-      csvContent += `Period: ${dateRange.start} to ${dateRange.end}\n`;
+      csvContent += `Period: ${format(startDate, "yyyy-MM-dd")} to ${format(endDate, "yyyy-MM-dd")}\n`;
       csvContent += `Generated: ${new Date().toLocaleString()}\n\n`;
 
       // Add summary stats
@@ -331,7 +329,7 @@ export default function ReportsPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `comprehensive-sales-report-${dateRange.start}-to-${dateRange.end}.csv`;
+      a.download = `comprehensive-sales-report-${format(startDate, "yyyy-MM-dd")}-to-${format(endDate, "yyyy-MM-dd")}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
 
@@ -366,23 +364,41 @@ export default function ReportsPage() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 pt-4">
             <Calendar className="h-5 w-5 text-muted-foreground" />
-            <Input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) =>
-                setDateRange({ ...dateRange, start: e.target.value })
-              }
-              className="w-full sm:w-auto"
-            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto justify-start"
+                >
+                  {format(startDate, "PPP")}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <CalendarComponent
+                  mode="single"
+                  selected={startDate}
+                  onSelect={(date) => date && setStartDate(date)}
+                />
+              </PopoverContent>
+            </Popover>
             <span className="hidden sm:inline">to</span>
-            <Input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) =>
-                setDateRange({ ...dateRange, end: e.target.value })
-              }
-              className="w-full sm:w-auto"
-            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto justify-start"
+                >
+                  {format(endDate, "PPP")}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <CalendarComponent
+                  mode="single"
+                  selected={endDate}
+                  onSelect={(date) => date && setEndDate(date)}
+                />
+              </PopoverContent>
+            </Popover>
             <Button onClick={loadReportData} disabled={loading}>
               Apply
             </Button>
