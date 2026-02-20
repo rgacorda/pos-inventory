@@ -2,8 +2,17 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -42,6 +51,8 @@ export default function Page() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showCashDialog, setShowCashDialog] = useState(false);
+  const [cashReceived, setCashReceived] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize terminal ID and extract categories
@@ -145,7 +156,24 @@ export default function Page() {
           p.description.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchesCategory && matchesSearch;
     }) || [];
+  // Open cash dialog or process other payments
+  const handlePaymentClick = (paymentMethod: PaymentMethod) => {
+    if (paymentMethod === PaymentMethod.CASH) {
+      setShowCashDialog(true);
+      setCashReceived("");
+    } else {
+      handleCheckout(paymentMethod);
+    }
+  };
 
+  // Quick cash amount buttons
+  const handleQuickAmount = (amount: number) => {
+    setCashReceived(amount.toString());
+  };
+
+  // Calculate change
+  const cashAmount = parseFloat(cashReceived) || 0;
+  const change = cashAmount - total;
   // Process checkout
   const handleCheckout = async (paymentMethod: PaymentMethod) => {
     if (orderItems.length === 0) return;
@@ -227,11 +255,19 @@ export default function Page() {
 
       // Clear cart after successful order
       clearCart();
+      setShowCashDialog(false);
+      setCashReceived("");
 
       // Show success feedback
-      toast.success("Order Completed", {
-        description: `Total: $${total.toFixed(2)}`,
-      });
+      if (paymentMethod === PaymentMethod.CASH && change > 0) {
+        toast.success("Order Completed", {
+          description: `Change: $${change.toFixed(2)}`,
+        });
+      } else {
+        toast.success("Order Completed", {
+          description: `Total: $${total.toFixed(2)}`,
+        });
+      }
     } catch (error) {
       console.error("Checkout failed:", error);
       toast.error("Checkout Failed", {
@@ -435,7 +471,7 @@ export default function Page() {
                   ? "ring-2 ring-green-500"
                   : ""
               }`}
-              onClick={() => handleCheckout(PaymentMethod.CASH)}
+              onClick={() => handlePaymentClick(PaymentMethod.CASH)}
               disabled={orderItems.length === 0 || isProcessing}
             >
               <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-green-100">
@@ -450,7 +486,7 @@ export default function Page() {
                   ? "ring-2 ring-blue-500"
                   : ""
               }`}
-              onClick={() => handleCheckout(PaymentMethod.CARD)}
+              onClick={() => handlePaymentClick(PaymentMethod.CARD)}
               disabled={orderItems.length === 0 || isProcessing}
             >
               <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
@@ -465,7 +501,7 @@ export default function Page() {
                   ? "ring-2 ring-purple-500"
                   : ""
               }`}
-              onClick={() => handleCheckout(PaymentMethod.DIGITAL_WALLET)}
+              onClick={() => handlePaymentClick(PaymentMethod.DIGITAL_WALLET)}
               disabled={orderItems.length === 0 || isProcessing}
             >
               <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
@@ -482,6 +518,102 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      {/* Cash Payment Dialog */}
+      <Dialog open={showCashDialog} onOpenChange={setShowCashDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cash Payment</DialogTitle>
+            <DialogDescription>
+              Enter amount received from customer
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Total:</span>
+                <span className="font-semibold text-lg">
+                  ${total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <div>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={cashReceived}
+                onChange={(e) => setCashReceived(e.target.value)}
+                className="text-right text-2xl font-semibold h-14"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && cashAmount >= total) {
+                    handleCheckout(PaymentMethod.CASH);
+                  }
+                }}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => handleQuickAmount(Math.ceil(total))}
+                className="h-12"
+              >
+                ${Math.ceil(total)}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleQuickAmount(Math.ceil(total / 10) * 10)}
+                className="h-12"
+              >
+                ${Math.ceil(total / 10) * 10}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleQuickAmount(Math.ceil(total / 50) * 50)}
+                className="h-12"
+              >
+                ${Math.ceil(total / 50) * 50}
+              </Button>
+            </div>
+            {cashAmount >= total && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-green-800 font-medium">Change:</span>
+                  <span className="text-green-900 font-bold text-2xl">
+                    ${change.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+            {cashAmount > 0 && cashAmount < total && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 text-sm text-center">
+                  Insufficient amount. Need ${(total - cashAmount).toFixed(2)}{" "}
+                  more
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCashDialog(false);
+                setCashReceived("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => handleCheckout(PaymentMethod.CASH)}
+              disabled={cashAmount < total || isProcessing}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isProcessing ? "Processing..." : "Complete Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -29,8 +29,11 @@ import {
   RefreshCw,
   AlertCircle,
   Settings,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useState, useEffect } from "react";
 import { dbHelpers } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
@@ -39,6 +42,7 @@ import { toast } from "sonner";
 export function Sidebar() {
   const pathname = usePathname();
   const todaysOrders = useTodaysOrders();
+  const isOnline = useOnlineStatus();
   const [failedCount, setFailedCount] = useState({
     failed: 0,
     pending: 0,
@@ -78,9 +82,9 @@ export function Sidebar() {
     loadTerminalId();
   }, []);
 
-  // Fetch available terminals when dialog opens
+  // Fetch available terminals when dialog opens and online
   useEffect(() => {
-    if (isTerminalDialogOpen) {
+    if (isTerminalDialogOpen && isOnline) {
       const fetchTerminals = async () => {
         setIsLoadingTerminals(true);
         try {
@@ -97,7 +101,7 @@ export function Sidebar() {
       };
       fetchTerminals();
     }
-  }, [isTerminalDialogOpen]);
+  }, [isTerminalDialogOpen, isOnline]);
 
   const handleRetrySync = async () => {
     setIsRetrying(true);
@@ -150,6 +154,18 @@ export function Sidebar() {
       <div className="border-b p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-semibold text-gray-800">🏪 AR-POS</h2>
+          <div className="flex items-center gap-1.5">
+            {isOnline ? (
+              <Wifi className="h-4 w-4 text-green-600" />
+            ) : (
+              <WifiOff className="h-4 w-4 text-red-600" />
+            )}
+            <span
+              className={`text-xs font-medium ${isOnline ? "text-green-600" : "text-red-600"}`}
+            >
+              {isOnline ? "Online" : "Offline"}
+            </span>
+          </div>
         </div>
         <div className="flex items-center justify-between text-xs">
           <div className="flex-1 min-w-0">
@@ -175,20 +191,54 @@ export function Sidebar() {
               <DialogHeader>
                 <DialogTitle>Set Terminal ID</DialogTitle>
                 <DialogDescription>
-                  Select a registered terminal for this device.
+                  {isOnline
+                    ? "Select a registered terminal for this device."
+                    : "Enter a terminal ID manually (Offline mode)."}
                 </DialogDescription>
               </DialogHeader>
               <div className="py-4">
-                {isLoadingTerminals ? (
+                {!isOnline ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                      <WifiOff className="h-4 w-4" />
+                      <span>Offline: Manual entry only</span>
+                    </div>
+                    <Input
+                      placeholder="e.g., TERMINAL-001"
+                      value={newTerminalId}
+                      onChange={(e) => setNewTerminalId(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleSaveTerminalId();
+                        }
+                      }}
+                    />
+                  </div>
+                ) : isLoadingTerminals ? (
                   <div className="text-center text-gray-500 py-4">
                     Loading terminals...
                   </div>
                 ) : availableTerminals.length === 0 ? (
-                  <div className="text-center text-gray-500 py-4">
-                    <p className="text-sm mb-2">No terminals registered</p>
-                    <p className="text-xs">
-                      Please contact administrator to register terminals
-                    </p>
+                  <div className="space-y-3">
+                    <div className="text-center text-gray-500 py-4">
+                      <p className="text-sm mb-2">No terminals registered</p>
+                      <p className="text-xs">
+                        Please contact administrator to register terminals
+                      </p>
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      <p className="mb-2">Or enter manually:</p>
+                      <Input
+                        placeholder="e.g., TERMINAL-001"
+                        value={newTerminalId}
+                        onChange={(e) => setNewTerminalId(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleSaveTerminalId();
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 ) : (
                   <Select
@@ -221,7 +271,7 @@ export function Sidebar() {
                 </Button>
                 <Button
                   onClick={handleSaveTerminalId}
-                  disabled={!newTerminalId || availableTerminals.length === 0}
+                  disabled={!newTerminalId}
                 >
                   Save
                 </Button>
