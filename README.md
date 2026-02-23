@@ -79,6 +79,7 @@ npm run dev
 npm run dev:backend    # Backend API → http://localhost:3000
 npm run dev:pos        # POS Frontend → http://localhost:3001
 npm run dev:inventory  # Inventory → http://localhost:3002
+npm run dev:super-admin # Super Admin → http://localhost:3003
 ```
 
 ### Port Configuration
@@ -88,6 +89,7 @@ npm run dev:inventory  # Inventory → http://localhost:3002
 | Backend API      | 3000 | http://localhost:3000 |
 | POS Frontend     | 3001 | http://localhost:3001 |
 | Inventory System | 3002 | http://localhost:3002 |
+| Super Admin      | 3003 | http://localhost:3003 |
 
 ---
 

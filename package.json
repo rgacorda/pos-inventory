@@ -11,6 +11,7 @@
     "dev:backend": "cd apps/backend-api && npm run start:dev",
     "dev:pos": "cd apps/pos && npm run dev",
     "dev:inventory": "cd apps/inventory && npm run dev",
+    "dev:super-admin": "cd apps/super-admin && npm run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "clean": "turbo run clean",
