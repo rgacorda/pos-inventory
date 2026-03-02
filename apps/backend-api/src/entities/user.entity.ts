@@ -43,6 +43,16 @@ export class UserEntity {
   @Column({ default: true })
   isActive: boolean;
 
+  // Password management
+  @Column({ default: false })
+  mustChangePassword: boolean; // True for first-time login or password reset
+
+  @Column({ nullable: true })
+  passwordResetToken?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetExpires?: Date;
+
   // Additional user metadata
   @Column({ nullable: true })
   phone: string;

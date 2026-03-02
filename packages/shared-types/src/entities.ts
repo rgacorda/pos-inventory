@@ -4,6 +4,8 @@ import {
   PaymentStatus,
   ProductStatus,
   UserRole,
+  SubscriptionPlan,
+  SubscriptionStatus,
 } from "./enums";
 
 /**
@@ -116,4 +118,67 @@ export interface InventoryTransaction extends BaseEntity {
   reason?: string;
   reference?: string;
   userId: string;
+}
+
+/**
+ * Organization entity (Multi-tenant support)
+ */
+export interface Organization extends BaseEntity {
+  name: string;
+  slug: string;
+  description?: string;
+  logo?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalCode?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  taxId?: string;
+  settings?: {
+    currency?: string;
+    timezone?: string;
+    language?: string;
+    taxRate?: number;
+    features?: {
+      inventory?: boolean;
+      multipleTerminals?: boolean;
+      reporting?: boolean;
+      api?: boolean;
+    };
+  };
+  isActive: boolean;
+  subscription?: Subscription;
+}
+
+/**
+ * Subscription entity
+ */
+export interface Subscription extends BaseEntity {
+  organizationId: string;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  monthlyPrice: number;
+  billingCycle?: string;
+  paymentMethod?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  limits: {
+    maxUsers: number;
+    maxTerminals: number;
+    maxProducts: number;
+    maxTransactionsPerMonth: number;
+    features: {
+      multipleLocations: boolean;
+      advancedReporting: boolean;
+      apiAccess: boolean;
+      prioritySupport: boolean;
+    };
+  };
+  trialEndsAt?: Date;
+  currentPeriodStart?: Date;
+  currentPeriodEnd?: Date;
+  cancelledAt?: Date;
 }

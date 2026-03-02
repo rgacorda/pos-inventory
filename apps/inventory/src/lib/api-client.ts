@@ -96,6 +96,16 @@ class APIClient {
     }
   }
 
+  // Password management
+  async changePassword(data: {
+    currentPassword?: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) {
+    const response = await this.client.post("/auth/change-password", data);
+    return response.data;
+  }
+
   // Products API
   async getProducts() {
     const response = await this.client.get("/products");

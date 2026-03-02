@@ -47,6 +47,17 @@ export class CreateOrganizationDto {
   @IsEnum(SubscriptionPlan)
   @IsOptional()
   plan?: SubscriptionPlan;
+
+  // Admin user details
+  @IsString()
+  adminName: string;
+
+  @IsEmail()
+  adminEmail: string;
+
+  @IsString()
+  @IsOptional()
+  adminPassword?: string; // Optional - will generate if not provided
 }
 
 export class UpdateOrganizationDto {

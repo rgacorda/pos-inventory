@@ -68,6 +68,7 @@ export class AuthService {
         role: user.role,
         organizationId: user.organizationId,
         organizationName: user.organization?.name,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -87,5 +88,86 @@ export class AuthService {
   async hashPassword(password: string): Promise<string> {
     const salt = await bcrypt.genSalt(10);
     return bcrypt.hash(password, salt);
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string | undefined,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // If user must change password (first login), current password is not required
+    if (!user.mustChangePassword && currentPassword) {
+      const isPasswordValid = await bcrypt.compare(
+        currentPassword,
+        user.password,
+      );
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+    }
+
+    // Hash and update password
+    user.password = await this.hashPassword(newPassword);
+    user.mustChangePassword = false; // Clear the flag after password change
+
+    await this.userRepository.save(user);
+  }
+
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { email } });
+
+    if (!user) {
+      // Don't reveal if email exists or not for security
+      return;
+    }
+
+    // Generate reset token (valid for 1 hour)
+    const resetToken = this.generateResetToken();
+    user.passwordResetToken = resetToken;
+    user.passwordResetExpires = new Date(Date.now() + 3600000); // 1 hour
+
+    await this.userRepository.save(user);
+
+    // TODO: Send password reset email
+    console.log(`[Password Reset] Token for ${email}: ${resetToken}`);
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+
+    if (!user || !user.passwordResetExpires) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
+
+    if (new Date() > user.passwordResetExpires) {
+      throw new UnauthorizedException('Reset token has expired');
+    }
+
+    // Hash and update password
+    user.password = await this.hashPassword(newPassword);
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    user.mustChangePassword = false;
+
+    await this.userRepository.save(user);
+  }
+
+  private generateResetToken(): string {
+    // Generate a random 32-character token
+    const charset =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let token = '';
+    for (let i = 0; i < 32; i++) {
+      token += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return token;
   }
 }

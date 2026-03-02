@@ -8,8 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { SubscriptionEntity } from '../../entities/subscription.entity';
-import { SubscriptionPlan, SubscriptionStatus } from '@pos/shared-types';
+import { UserEntity } from '../../entities/user.entity';
+import { SubscriptionPlan, SubscriptionStatus, UserRole } from '@pos/shared-types';
 import { CreateOrganizationDto, UpdateOrganizationDto } from './dto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class OrganizationsService {
@@ -18,6 +20,8 @@ export class OrganizationsService {
     private organizationsRepository: Repository<OrganizationEntity>,
     @InjectRepository(SubscriptionEntity)
     private subscriptionsRepository: Repository<SubscriptionEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepository: Repository<UserEntity>,
   ) {}
 
   async create(createOrganizationDto: CreateOrganizationDto) {
@@ -25,8 +29,19 @@ export class OrganizationsService {
       name,
       email,
       plan = SubscriptionPlan.FREE,
+      adminName,
+      adminEmail,
+      adminPassword,
       ...orgData
     } = createOrganizationDto;
+
+    // Check if admin email already exists
+    const existingUser = await this.usersRepository.findOne({
+      where: { email: adminEmail },
+    });
+    if (existingUser) {
+      throw new ConflictException('A user with this email already exists');
+    }
 
     // Generate slug from name
     const slug = this.generateSlug(name);
@@ -38,6 +53,10 @@ export class OrganizationsService {
     if (existing) {
       throw new ConflictException('Organization with this name already exists');
     }
+
+    // Generate temporary password if not provided
+    const tempPassword = adminPassword || this.generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     // Create organization
     const organization = this.organizationsRepository.create({
@@ -71,6 +90,27 @@ export class OrganizationsService {
     });
 
     await this.subscriptionsRepository.save(subscription);
+
+    // Create admin user for the organization
+    const adminUser = this.usersRepository.create({
+      name: adminName,
+      email: adminEmail,
+      password: hashedPassword,
+      role: UserRole.ADMIN,
+      organizationId: savedOrg.id,
+      isActive: true,
+      mustChangePassword: true, // Force password change on first login
+    });
+
+    await this.usersRepository.save(adminUser);
+
+    // TODO: Send email notification with credentials
+    // For now, we'll return the temp password in the response (remove in production)
+    console.log(`[Organization Created] Admin credentials:`, {
+      email: adminEmail,
+      temporaryPassword: tempPassword,
+      organizationId: savedOrg.id,
+    });
 
     return this.findOne(savedOrg.id);
   }
@@ -127,6 +167,16 @@ export class OrganizationsService {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+  }
+
+  private generateTemporaryPassword(): string {
+    // Generate a random 12-character password
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+    for (let i = 0; i < 12; i++) {
+      password += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return password;
   }
 
   private getLimitsForPlan(plan: SubscriptionPlan) {

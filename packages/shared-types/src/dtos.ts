@@ -121,6 +121,7 @@ export interface AuthResponseDto {
     role: string;
     organizationId: string | null;
     organizationName?: string;
+    mustChangePassword?: boolean; // True if user needs to change password on first login
   };
 }
 
@@ -174,4 +175,82 @@ export interface SalesReportDto {
     amount: number;
     count: number;
   }[];
+}
+
+/**
+ * DTO for creating an organization (Super Admin only)
+ */
+export interface CreateOrganizationDto {
+  name: string;
+  slug: string;
+  description?: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalCode?: string;
+  website?: string;
+  taxId?: string;
+  settings?: {
+    currency?: string;
+    timezone?: string;
+    language?: string;
+    taxRate?: number;
+  };
+  // Admin user details (automatically created with organization)
+  adminName: string;
+  adminEmail: string;
+  adminPassword?: string; // Optional - will generate temporary password if not provided
+}
+
+/**
+ * DTO for updating an organization (Super Admin only)
+ */
+export interface UpdateOrganizationDto {
+  name?: string;
+  slug?: string;
+  description?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalCode?: string;
+  website?: string;
+  taxId?: string;
+  settings?: {
+    currency?: string;
+    timezone?: string;
+    language?: string;
+    taxRate?: number;
+  };
+  isActive?: boolean;
+}
+
+/**
+ * DTO for changing password
+ */
+export interface ChangePasswordDto {
+  currentPassword?: string; // Optional for first-time password change
+  newPassword: string;
+  confirmPassword: string;
+}
+
+/**
+ * DTO for password reset request
+ */
+export interface ResetPasswordRequestDto {
+  email: string;
+}
+
+/**
+ * DTO for password reset
+ */
+export interface ResetPasswordDto {
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
 }

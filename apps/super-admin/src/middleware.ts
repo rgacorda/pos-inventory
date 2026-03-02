@@ -13,9 +13,10 @@ export function middleware(request: NextRequest) {
 
   // Public paths that don't require authentication
   const isLoginPage = pathname === "/";
+  const isPublicAsset = pathname.startsWith("/_next") || pathname.startsWith("/favicon");
 
   // Protected paths (everything except login and public assets)
-  const isProtectedPath = !isLoginPage;
+  const isProtectedPath = !isLoginPage && !isPublicAsset;
 
   // If user is logged in (has token) and trying to access login page
   // Redirect to dashboard to prevent accessing auth pages when authenticated
