@@ -9,14 +9,21 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pos/shared-types": "*",
+    "@pos/shared-utils": "*",
+    "@tabler/icons-react": "^3.36.1",
+    "axios": "^1.6.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^3.3.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "tailwind-merge": "^3.5.0"
+    "sonner": "^1.4.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
