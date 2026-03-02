@@ -34,14 +34,22 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   IconPlus,
   IconPencil,
   IconTrash,
   IconBuilding,
   IconSearch,
   IconRefresh,
+  IconCreditCard,
 } from "@tabler/icons-react";
-import { Organization, SubscriptionStatus } from "@pos/shared-types";
+import { Organization, SubscriptionStatus, SubscriptionPlan } from "@pos/shared-types";
 import { toast } from "sonner";
 
 interface OrganizationFormData {
@@ -93,6 +101,7 @@ export default function OrganizationsPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
 
   // Form states
   const [formData, setFormData] =
@@ -100,6 +109,12 @@ export default function OrganizationsPage() {
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [deletingOrg, setDeletingOrg] = useState<Organization | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Subscription form state
+  const [subscriptionOrg, setSubscriptionOrg] = useState<Organization | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>(SubscriptionPlan.FREE);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(SubscriptionStatus.ACTIVE);
+  const [periodEndDate, setPeriodEndDate] = useState<string>("");
 
   useEffect(() => {
     fetchOrganizations();
@@ -251,6 +266,66 @@ export default function OrganizationsPage() {
     setIsDeleteDialogOpen(true);
   };
 
+  const openSubscriptionDialog = (org: Organization) => {
+    setSubscriptionOrg(org);
+    if (org.subscription) {
+      setSubscriptionPlan(org.subscription.plan as SubscriptionPlan);
+      setSubscriptionStatus(org.subscription.status);
+      // Format date to YYYY-MM-DD for input
+      const endDate = org.subscription.currentPeriodEnd 
+        ? new Date(org.subscription.currentPeriodEnd).toISOString().split('T')[0]
+        : '';
+      setPeriodEndDate(endDate);
+    } else {
+      setSubscriptionPlan(SubscriptionPlan.FREE);
+      setSubscriptionStatus(SubscriptionStatus.ACTIVE);
+      const defaultEndDate = new Date();
+      defaultEndDate.setDate(defaultEndDate.getDate() + 30);
+      setPeriodEndDate(defaultEndDate.toISOString().split('T')[0]);
+    }
+    setIsSubscriptionDialogOpen(true);
+  };
+
+  const handleUpdateSubscription = async () => {
+    if (!subscriptionOrg) return;
+
+    try {
+      setIsSubmitting(true);
+      await apiClient.updateSubscription(subscriptionOrg.id, {
+        plan: subscriptionPlan,
+        status: subscriptionStatus,
+        periodEndDate: periodEndDate,
+      });
+      toast.success("Subscription updated successfully");
+      setIsSubscriptionDialogOpen(false);
+      setSubscriptionOrg(null);
+      fetchOrganizations();
+    } catch (error: any) {
+      console.error("Failed to update subscription:", error);
+      toast.error(
+        error.response?.data?.message || "Failed to update subscription",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCheckExpiredSubscriptions = async () => {
+    try {
+      setIsLoading(true);
+      await apiClient.checkExpiredSubscriptions();
+      toast.success("Expiration check completed");
+      fetchOrganizations();
+    } catch (error: any) {
+      console.error("Failed to check expired subscriptions:", error);
+      toast.error(
+        error.response?.data?.message || "Failed to check expired subscriptions",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getStatusBadge = (org: Organization) => {
     if (!org.isActive) {
       return <Badge variant="secondary">Inactive</Badge>;
@@ -294,10 +369,20 @@ export default function OrganizationsPage() {
             Manage all organizations and their subscriptions
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <IconPlus className="mr-2 h-4 w-4" />
-          Create Organization
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleCheckExpiredSubscriptions}
+            disabled={isLoading}
+          >
+            <IconRefresh className="mr-2 h-4 w-4" />
+            Check Expired
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <IconPlus className="mr-2 h-4 w-4" />
+            Create Organization
+          </Button>
+        </div>
       </div>
 
       {/* Search and Filters */}
@@ -387,6 +472,14 @@ export default function OrganizationsPage() {
                   <TableCell>{formatDate(org.createdAt)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openSubscriptionDialog(org)}
+                        title="Manage Subscription"
+                      >
+                        <IconCreditCard className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -914,6 +1007,95 @@ export default function OrganizationsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Subscription Management Dialog */}
+      <Dialog
+        open={isSubscriptionDialogOpen}
+        onOpenChange={setIsSubscriptionDialogOpen}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manage Subscription</DialogTitle>
+            <DialogDescription>
+              Update the subscription plan and status for{" "}
+              <strong>{subscriptionOrg?.name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <Field>
+              <FieldLabel htmlFor="subscription-plan">Plan</FieldLabel>
+              <Select
+                value={subscriptionPlan}
+                onValueChange={(value) => setSubscriptionPlan(value as SubscriptionPlan)}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="subscription-plan">
+                  <SelectValue placeholder="Select a plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SubscriptionPlan.FREE}>
+                    Free (2 users, 1 terminal)
+                  </SelectItem>
+                  <SelectItem value={SubscriptionPlan.BASIC}>
+                    Basic (5 users, 2 terminals)
+                  </SelectItem>
+                  <SelectItem value={SubscriptionPlan.PROFESSIONAL}>
+                    Professional (20 users, 10 terminals)
+                  </SelectItem>
+                  <SelectItem value={SubscriptionPlan.ENTERPRISE}>
+                    Enterprise (Unlimited)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="subscription-status">Status</FieldLabel>
+              <Select
+                value={subscriptionStatus}
+                onValueChange={(value) => setSubscriptionStatus(value as SubscriptionStatus)}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="subscription-status">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SubscriptionStatus.ACTIVE}>Active</SelectItem>
+                  <SelectItem value={SubscriptionStatus.TRIAL}>Trial</SelectItem>
+                  <SelectItem value={SubscriptionStatus.PAST_DUE}>Past Due</SelectItem>
+                  <SelectItem value={SubscriptionStatus.CANCELLED}>Cancelled</SelectItem>
+                  <SelectItem value={SubscriptionStatus.EXPIRED}>Expired</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="period-end-date">Period End Date</FieldLabel>
+              <Input
+                id="period-end-date"
+                type="date"
+                value={periodEndDate}
+                onChange={(e) => setPeriodEndDate(e.target.value)}
+                disabled={isSubmitting}
+              />
+            </Field>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsSubscriptionDialogOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateSubscription} disabled={isSubmitting}>
+              {isSubmitting ? "Updating..." : "Update Subscription"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

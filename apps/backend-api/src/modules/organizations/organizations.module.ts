@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrganizationsController } from './organizations.controller';
 import { OrganizationsService } from './organizations.service';
+import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { SubscriptionEntity } from '../../entities/subscription.entity';
 import { UserEntity } from '../../entities/user.entity';
@@ -9,7 +10,7 @@ import { UserEntity } from '../../entities/user.entity';
 @Module({
   imports: [TypeOrmModule.forFeature([OrganizationEntity, SubscriptionEntity, UserEntity])],
   controllers: [OrganizationsController],
-  providers: [OrganizationsService],
+  providers: [OrganizationsService, SubscriptionSchedulerService],
   exports: [OrganizationsService],
 })
 export class OrganizationsModule {}

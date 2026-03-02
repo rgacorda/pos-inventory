@@ -231,6 +231,15 @@ export interface UpdateOrganizationDto {
 }
 
 /**
+ * DTO for updating subscription (Super Admin only)
+ */
+export interface UpdateSubscriptionDto {
+  plan: string; // SubscriptionPlan enum value
+  status: string; // SubscriptionStatus enum value
+  periodEndDate?: string; // ISO date string
+}
+
+/**
  * DTO for changing password
  */
 export interface ChangePasswordDto {

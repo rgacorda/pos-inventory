@@ -115,6 +115,24 @@ class APIClient {
     return response.data;
   }
 
+  async updateSubscription(
+    organizationId: string,
+    data: { plan: string; status: string; periodEndDate?: string }
+  ) {
+    const response = await this.client.put(
+      `/organizations/${organizationId}/subscription`,
+      data
+    );
+    return response.data;
+  }
+
+  async checkExpiredSubscriptions() {
+    const response = await this.client.post(
+      "/organizations/subscriptions/check-expired"
+    );
+    return response.data;
+  }
+
   // System-wide statistics
   async getSystemStats() {
     const response = await this.client.get("/admin/stats");

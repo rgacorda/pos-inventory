@@ -80,13 +80,14 @@ export class OrganizationsService {
 
     const savedOrg = await this.organizationsRepository.save(organization);
 
-    // Create subscription
+    // Create subscription with INACTIVE status (manual payment required)
     const subscription = this.subscriptionsRepository.create({
       organizationId: savedOrg.id,
       plan,
-      status: SubscriptionStatus.TRIAL,
+      status: SubscriptionStatus.ACTIVE, // Start as ACTIVE by default
       limits: this.getLimitsForPlan(plan),
-      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
     });
 
     await this.subscriptionsRepository.save(subscription);
@@ -160,6 +161,43 @@ export class OrganizationsService {
     const organization = await this.findOne(id);
     organization.isActive = isActive;
     return this.organizationsRepository.save(organization);
+  }
+
+  async updateSubscription(
+    organizationId: string,
+    plan: SubscriptionPlan,
+    status: SubscriptionStatus,
+    periodEndDate?: Date,
+  ) {
+    const organization = await this.findOne(organizationId);
+
+    if (!organization.subscription) {
+      throw new NotFoundException('Subscription not found for this organization');
+    }
+
+    // Update subscription details
+    organization.subscription.plan = plan;
+    organization.subscription.status = status;
+    organization.subscription.limits = this.getLimitsForPlan(plan);
+
+    // Update period dates if provided
+    if (periodEndDate) {
+      organization.subscription.currentPeriodEnd = periodEndDate;
+    }
+
+    // Update organization features based on plan
+    if (organization.settings) {
+      organization.settings.features = {
+        ...organization.settings.features,
+        multipleTerminals: plan !== SubscriptionPlan.FREE,
+        api: plan === SubscriptionPlan.ENTERPRISE,
+      };
+    }
+
+    await this.subscriptionsRepository.save(organization.subscription);
+    await this.organizationsRepository.save(organization);
+
+    return this.findOne(organizationId);
   }
 
   private generateSlug(name: string): string {

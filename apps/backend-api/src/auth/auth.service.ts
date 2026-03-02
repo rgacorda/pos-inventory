@@ -23,7 +23,7 @@ export class AuthService {
   ): Promise<UserEntity | null> {
     const user = await this.userRepository.findOne({
       where: { email, isActive: true },
-      relations: ['organization'],
+      relations: ['organization', 'organization.subscription'],
     });
 
     if (!user) {
@@ -35,6 +35,21 @@ export class AuthService {
       return null;
     }
 
+    // Check if organization is active
+    if (!user.organization?.isActive) {
+      return null;
+    }
+
+    // Check if subscription is valid (not expired or cancelled)
+    if (user.organization.subscription) {
+      const subscription = user.organization.subscription;
+      const invalidStatuses = ['EXPIRED', 'CANCELLED'];
+      
+      if (invalidStatuses.includes(subscription.status)) {
+        return null;
+      }
+    }
+
     return user;
   }
 
@@ -42,7 +57,7 @@ export class AuthService {
     const user = await this.validateUser(loginDto.email, loginDto.password);
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid credentials or subscription expired');
     }
 
     // Update last login timestamp

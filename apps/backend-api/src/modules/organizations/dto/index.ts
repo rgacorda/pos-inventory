@@ -1,5 +1,5 @@
-import { IsString, IsEmail, IsOptional, IsEnum } from 'class-validator';
-import { SubscriptionPlan } from '@pos/shared-types';
+import { IsString, IsEmail, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import { SubscriptionPlan, SubscriptionStatus } from '@pos/shared-types';
 
 export class CreateOrganizationDto {
   @IsString()
@@ -118,4 +118,16 @@ export class UpdateOrganizationDto {
       api?: boolean;
     };
   };
+}
+
+export class UpdateSubscriptionDto {
+  @IsEnum(SubscriptionPlan)
+  plan: SubscriptionPlan;
+
+  @IsEnum(SubscriptionStatus)
+  status: SubscriptionStatus;
+
+  @IsDateString()
+  @IsOptional()
+  periodEndDate?: string;
 }
