@@ -126,6 +126,13 @@ class APIClient {
     return response.data;
   }
 
+  async getOrganizationStats(organizationId: string) {
+    const response = await this.client.get(
+      `/organizations/${organizationId}/stats`
+    );
+    return response.data;
+  }
+
   async checkExpiredSubscriptions() {
     const response = await this.client.post(
       "/organizations/subscriptions/check-expired"

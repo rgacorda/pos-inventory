@@ -41,6 +41,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   IconPlus,
   IconPencil,
   IconTrash,
@@ -48,6 +55,9 @@ import {
   IconSearch,
   IconRefresh,
   IconCreditCard,
+  IconUser,
+  IconBox,
+  IconDevices,
 } from "@tabler/icons-react";
 import { Organization, SubscriptionStatus, SubscriptionPlan } from "@pos/shared-types";
 import { toast } from "sonner";
@@ -102,6 +112,7 @@ export default function OrganizationsPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false);
+  const [isDetailsDrawerOpen, setIsDetailsDrawerOpen] = useState(false);
 
   // Form states
   const [formData, setFormData] =
@@ -115,6 +126,11 @@ export default function OrganizationsPage() {
   const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>(SubscriptionPlan.FREE);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus>(SubscriptionStatus.ACTIVE);
   const [periodEndDate, setPeriodEndDate] = useState<string>("");
+
+  // Details drawer state
+  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
+  const [orgStats, setOrgStats] = useState<any>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
 
   useEffect(() => {
     fetchOrganizations();
@@ -326,6 +342,22 @@ export default function OrganizationsPage() {
     }
   };
 
+  const openDetailsDrawer = async (org: Organization) => {
+    setSelectedOrg(org);
+    setIsDetailsDrawerOpen(true);
+    setIsLoadingStats(true);
+    
+    try {
+      const stats = await apiClient.getOrganizationStats(org.id);
+      setOrgStats(stats);
+    } catch (error: any) {
+      console.error("Failed to fetch organization stats:", error);
+      toast.error("Failed to load organization details");
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
   const getStatusBadge = (org: Organization) => {
     if (!org.isActive) {
       return <Badge variant="secondary">Inactive</Badge>;
@@ -446,7 +478,11 @@ export default function OrganizationsPage() {
             </TableHeader>
             <TableBody>
               {filteredOrganizations.map((org) => (
-                <TableRow key={org.id}>
+                <TableRow 
+                  key={org.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => openDetailsDrawer(org)}
+                >
                   <TableCell className="font-medium">{org.name}</TableCell>
                   <TableCell>
                     <code className="text-xs px-2 py-1 bg-muted rounded">
@@ -475,7 +511,10 @@ export default function OrganizationsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => openSubscriptionDialog(org)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSubscriptionDialog(org);
+                        }}
                         title="Manage Subscription"
                       >
                         <IconCreditCard className="h-4 w-4" />
@@ -483,14 +522,20 @@ export default function OrganizationsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => openEditDialog(org)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditDialog(org);
+                        }}
                       >
                         <IconPencil className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => openDeleteDialog(org)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDeleteDialog(org);
+                        }}
                       >
                         <IconTrash className="h-4 w-4 text-destructive" />
                       </Button>
@@ -1096,6 +1141,135 @@ export default function OrganizationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Organization Details Drawer */}
+      <Sheet open={isDetailsDrawerOpen} onOpenChange={setIsDetailsDrawerOpen}>
+        <SheetContent className="w-full sm:max-w-2xl flex flex-col p-0">
+          <SheetHeader className="px-6 py-4 border-b shrink-0">
+            <SheetTitle className="flex items-center gap-2">
+              <IconBuilding className="h-5 w-5" />
+              {selectedOrg?.name}
+            </SheetTitle>
+            <SheetDescription>
+              Organization details and statistics
+            </SheetDescription>
+          </SheetHeader>
+
+          {isLoadingStats ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-muted-foreground">Loading...</div>
+            </div>
+          ) : orgStats ? (
+            <div className="flex-1 overflow-y-auto">
+              <div className="space-y-6 px-6 py-6">{/* Stats Overview */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <IconUser className="h-4 w-4" />
+                    <span className="text-sm font-medium">Users</span>
+                  </div>
+                  <div className="text-2xl font-bold">{orgStats.stats.userCount}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {selectedOrg?.subscription?.limits?.maxUsers === -1 
+                      ? "Unlimited" 
+                      : `of ${selectedOrg?.subscription?.limits?.maxUsers || 0} max`}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <IconDevices className="h-4 w-4" />
+                    <span className="text-sm font-medium">Terminals</span>
+                  </div>
+                  <div className="text-2xl font-bold">{orgStats.stats.terminalCount}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {selectedOrg?.subscription?.limits?.maxTerminals === -1 
+                      ? "Unlimited" 
+                      : `of ${selectedOrg?.subscription?.limits?.maxTerminals || 0} max`}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                    <IconBox className="h-4 w-4" />
+                    <span className="text-sm font-medium">Products</span>
+                  </div>
+                  <div className="text-2xl font-bold">{orgStats.stats.productCount}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Total items
+                  </div>
+                </div>
+              </div>
+
+              {/* Users List */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">User Accounts</h3>
+                <div className="space-y-2">
+                  {orgStats.users && orgStats.users.length > 0 ? (
+                    orgStats.users.map((user: any) => (
+                      <div
+                        key={user.id}
+                        className="flex items-center justify-between p-3 rounded-lg border"
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium">{user.name}</div>
+                          <div className="text-sm text-muted-foreground">{user.email}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{user.role}</Badge>
+                          {user.isActive ? (
+                            <Badge variant="default">Active</Badge>
+                          ) : (
+                            <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No users found
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Organization Info */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Organization Info</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Slug</span>
+                    <span className="font-medium">{selectedOrg?.slug}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Email</span>
+                    <span className="font-medium">{selectedOrg?.email || "—"}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Location</span>
+                    <span className="font-medium">
+                      {selectedOrg?.city && selectedOrg?.state
+                        ? `${selectedOrg.city}, ${selectedOrg.state}`
+                        : selectedOrg?.city || selectedOrg?.state || "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Plan</span>
+                    <span className="font-medium">
+                      {selectedOrg?.subscription?.plan || "No subscription"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Status</span>
+                    <span>{selectedOrg && getStatusBadge(selectedOrg)}</span>
+                  </div>
+                </div>
+              </div>
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

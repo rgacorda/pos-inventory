@@ -9,6 +9,8 @@ import { Repository } from 'typeorm';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { SubscriptionEntity } from '../../entities/subscription.entity';
 import { UserEntity } from '../../entities/user.entity';
+import { TerminalEntity } from '../../entities/terminal.entity';
+import { ProductEntity } from '../../entities/product.entity';
 import { SubscriptionPlan, SubscriptionStatus, UserRole } from '@pos/shared-types';
 import { CreateOrganizationDto, UpdateOrganizationDto } from './dto';
 import * as bcrypt from 'bcrypt';
@@ -22,6 +24,10 @@ export class OrganizationsService {
     private subscriptionsRepository: Repository<SubscriptionEntity>,
     @InjectRepository(UserEntity)
     private usersRepository: Repository<UserEntity>,
+    @InjectRepository(TerminalEntity)
+    private terminalsRepository: Repository<TerminalEntity>,
+    @InjectRepository(ProductEntity)
+    private productsRepository: Repository<ProductEntity>,
   ) {}
 
   async create(createOrganizationDto: CreateOrganizationDto) {
@@ -270,5 +276,39 @@ export class OrganizationsService {
     };
 
     return limits[plan];
+  }
+
+  async getOrganizationStats(organizationId: string) {
+    const organization = await this.findOne(organizationId);
+
+    // Get users with their details
+    const users = await this.usersRepository.find({
+      where: { organizationId },
+      select: ['id', 'name', 'email', 'role', 'isActive', 'createdAt', 'lastLoginAt'],
+      order: { createdAt: 'DESC' },
+    });
+
+    // Get counts
+    const userCount = await this.usersRepository.count({
+      where: { organizationId, isActive: true },
+    });
+
+    const terminalCount = await this.terminalsRepository.count({
+      where: { organizationId, isActive: true },
+    });
+
+    const productCount = await this.productsRepository.count({
+      where: { organizationId },
+    });
+
+    return {
+      organization,
+      users,
+      stats: {
+        userCount,
+        terminalCount,
+        productCount,
+      },
+    };
   }
 }

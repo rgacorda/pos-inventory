@@ -44,6 +44,12 @@ export class OrganizationsController {
     return this.organizationsService.findOne(id);
   }
 
+  @Get(':id/stats')
+  @Roles(UserRole.SUPER_ADMIN)
+  async getStats(@Param('id') id: string) {
+    return this.organizationsService.getOrganizationStats(id);
+  }
+
   @Put(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   async update(
