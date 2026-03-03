@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../entities/user.entity';
+import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateUserDto, UpdateUserDto } from './dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@pos/shared-types';
@@ -16,6 +18,8 @@ export class UsersService {
   constructor(
     @InjectRepository(UserEntity)
     private usersRepository: Repository<UserEntity>,
+    @InjectRepository(OrganizationEntity)
+    private organizationRepository: Repository<OrganizationEntity>,
   ) {}
 
   async create(createUserDto: CreateUserDto, requestingUser: any) {
@@ -47,6 +51,12 @@ export class UsersService {
       createUserDto.organizationId = requestingUser.organizationId;
     }
 
+    // Check subscription limits (skip for SUPER_ADMIN)
+    const targetOrgId = createUserDto.organizationId || requestingUser.organizationId;
+    if (targetOrgId && requestingUser.role !== UserRole.SUPER_ADMIN) {
+      await this.validateUserLimit(targetOrgId);
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -56,6 +66,38 @@ export class UsersService {
     });
 
     return this.usersRepository.save(user);
+  }
+
+  private async validateUserLimit(organizationId: string) {
+    const organization = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+      relations: ['subscription'],
+    });
+
+    if (!organization || !organization.subscription) {
+      throw new BadRequestException('Organization subscription not found');
+    }
+
+    const { maxUsers } = organization.subscription.limits;
+
+    // -1 means unlimited (Enterprise plan)
+    if (maxUsers === -1) {
+      return;
+    }
+
+    // Count existing active users in the organization
+    const currentUserCount = await this.usersRepository.count({
+      where: { 
+        organizationId,
+        isActive: true 
+      },
+    });
+
+    if (currentUserCount >= maxUsers) {
+      throw new BadRequestException(
+        `User limit reached. Your plan allows ${maxUsers} users. Please upgrade your subscription.`,
+      );
+    }
   }
 
   async findAll(requestingUser: any) {

@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TerminalEntity } from '../../entities/terminal.entity';
+import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateTerminalDto, UpdateTerminalDto } from './dto';
 import { UserRole } from '@pos/shared-types';
 
@@ -22,6 +24,8 @@ export class TerminalsService {
   constructor(
     @InjectRepository(TerminalEntity)
     private terminalsRepository: Repository<TerminalEntity>,
+    @InjectRepository(OrganizationEntity)
+    private organizationRepository: Repository<OrganizationEntity>,
   ) {}
 
   async create(createTerminalDto: CreateTerminalDto, requestingUser: any) {
@@ -32,6 +36,12 @@ export class TerminalsService {
       createTerminalDto.organizationId = requestingUser.organizationId;
     } else if (!organizationId) {
       throw new ForbiddenException('Organization ID is required');
+    }
+
+    // Check subscription limits (skip for SUPER_ADMIN)
+    const targetOrgId = createTerminalDto.organizationId;
+    if (targetOrgId && requestingUser.role !== UserRole.SUPER_ADMIN) {
+      await this.validateTerminalLimit(targetOrgId);
     }
 
     // Check if terminal ID already exists
@@ -45,6 +55,38 @@ export class TerminalsService {
 
     const terminal = this.terminalsRepository.create(createTerminalDto);
     return this.terminalsRepository.save(terminal);
+  }
+
+  private async validateTerminalLimit(organizationId: string) {
+    const organization = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+      relations: ['subscription'],
+    });
+
+    if (!organization || !organization.subscription) {
+      throw new BadRequestException('Organization subscription not found');
+    }
+
+    const { maxTerminals } = organization.subscription.limits;
+
+    // -1 means unlimited (Enterprise plan)
+    if (maxTerminals === -1) {
+      return;
+    }
+
+    // Count existing active terminals in the organization
+    const currentTerminalCount = await this.terminalsRepository.count({
+      where: { 
+        organizationId,
+        isActive: true 
+      },
+    });
+
+    if (currentTerminalCount >= maxTerminals) {
+      throw new BadRequestException(
+        `Terminal limit reached. Your plan allows ${maxTerminals} terminals. Please upgrade your subscription.`,
+      );
+    }
   }
 
   async findAll(requestingUser: any) {
