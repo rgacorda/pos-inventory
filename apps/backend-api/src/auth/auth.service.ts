@@ -35,7 +35,12 @@ export class AuthService {
       return null;
     }
 
-    // Check if organization is active
+    // SUPER_ADMIN users don't belong to an organization, skip org checks
+    if (user.role === 'SUPER_ADMIN') {
+      return user;
+    }
+
+    // Check if organization is active (for non-super-admin users)
     if (!user.organization?.isActive) {
       return null;
     }
