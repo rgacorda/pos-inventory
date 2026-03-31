@@ -40,6 +40,12 @@ export class OrderEntity {
   @JoinColumn({ name: 'cashierId' })
   cashier: any;
 
+  @Column({ nullable: true })
+  customerName: string;
+
+  @Column({ nullable: true })
+  customerAddress: string;
+
   // Organization relationship for multi-tenancy
   @Column()
   @Index()

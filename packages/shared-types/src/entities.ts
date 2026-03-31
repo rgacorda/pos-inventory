@@ -43,6 +43,8 @@ export interface Order extends BaseEntity {
   posLocalId: string; // Local ID from POS terminal for deduplication
   terminalId: string;
   cashierId: string;
+  customerName?: string;
+  customerAddress?: string;
   subtotal: number;
   taxAmount: number;
   discountAmount: number;

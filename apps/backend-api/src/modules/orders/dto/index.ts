@@ -53,6 +53,14 @@ export class CreateOrderDto {
   @IsUUID()
   cashierId: string;
 
+  @IsString()
+  @IsOptional()
+  customerName?: string;
+
+  @IsString()
+  @IsOptional()
+  customerAddress?: string;
+
   @IsNumber()
   @Min(0)
   subtotal: number;

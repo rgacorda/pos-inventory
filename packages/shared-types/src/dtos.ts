@@ -20,6 +20,8 @@ export interface CreateOrderDto {
   posLocalId: string;
   terminalId: string;
   cashierId: string;
+  customerName?: string;
+  customerAddress?: string;
   items: CreateOrderItemDto[];
   subtotal: number;
   taxAmount: number;

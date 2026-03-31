@@ -52,7 +52,10 @@ export default function Page() {
     useState<PaymentMethod | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showCashDialog, setShowCashDialog] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>("");
+  const [customerName, setCustomerName] = useState<string>("");
+  const [customerAddress, setCustomerAddress] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize terminal ID and extract categories
@@ -127,6 +130,8 @@ export default function Page() {
   const clearCart = () => {
     setOrderItems([]);
     setSelectedPaymentMethod(null);
+    setCustomerName("");
+    setCustomerAddress("");
   };
 
   // Calculate totals
@@ -158,11 +163,12 @@ export default function Page() {
     }) || [];
   // Open cash dialog or process other payments
   const handlePaymentClick = (paymentMethod: PaymentMethod) => {
+    setSelectedPaymentMethod(paymentMethod);
     if (paymentMethod === PaymentMethod.CASH) {
       setShowCashDialog(true);
       setCashReceived("");
     } else {
-      handleCheckout(paymentMethod);
+      setShowPaymentDialog(true);
     }
   };
 
@@ -222,6 +228,8 @@ export default function Page() {
         orderNumber,
         terminalId,
         cashierId: user.id || "unknown",
+        customerName: customerName.trim() || undefined,
+        customerAddress: customerAddress.trim() || undefined,
         items,
         subtotal,
         taxAmount: tax,
@@ -256,7 +264,10 @@ export default function Page() {
       // Clear cart after successful order
       clearCart();
       setShowCashDialog(false);
+      setShowPaymentDialog(false);
       setCashReceived("");
+      setCustomerName("");
+      setCustomerAddress("");
 
       // Show success feedback
       if (paymentMethod === PaymentMethod.CASH && change > 0) {
@@ -537,14 +548,42 @@ export default function Page() {
                 </span>
               </div>
             </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  Customer Name <span className="text-gray-400">(Optional)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Enter customer name"
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  Customer Address <span className="text-gray-400">(Optional)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  placeholder="Enter customer address"
+                  className="h-10"
+                />
+              </div>
+            </div>
             <div>
+              <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                Cash Received
+              </label>
               <Input
                 type="number"
                 placeholder="0.00"
                 value={cashReceived}
                 onChange={(e) => setCashReceived(e.target.value)}
                 className="text-right text-2xl font-semibold h-14"
-                autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && cashAmount >= total) {
                     handleCheckout(PaymentMethod.CASH);
@@ -608,6 +647,82 @@ export default function Page() {
               onClick={() => handleCheckout(PaymentMethod.CASH)}
               disabled={cashAmount < total || isProcessing}
               className="bg-green-600 hover:bg-green-700"
+            >
+              {isProcessing ? "Processing..." : "Complete Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Card/E-Wallet Payment Dialog */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedPaymentMethod === PaymentMethod.CARD ? "Card" : 
+               selectedPaymentMethod === PaymentMethod.DIGITAL_WALLET ? "E-Wallet" : 
+               "Store Credit"} Payment
+            </DialogTitle>
+            <DialogDescription>
+              Enter customer details (optional) and confirm payment
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Total:</span>
+                <span className="font-semibold text-lg">
+                  ${total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  Customer Name <span className="text-gray-400">(Optional)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Enter customer name"
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  Customer Address <span className="text-gray-400">(Optional)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  placeholder="Enter customer address"
+                  className="h-10"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPaymentDialog(false);
+                setSelectedPaymentMethod(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => selectedPaymentMethod && handleCheckout(selectedPaymentMethod)}
+              disabled={isProcessing}
+              className={
+                selectedPaymentMethod === PaymentMethod.CARD
+                  ? "bg-blue-600 hover:bg-blue-700"
+                  : selectedPaymentMethod === PaymentMethod.DIGITAL_WALLET
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : "bg-gray-600 hover:bg-gray-700"
+              }
             >
               {isProcessing ? "Processing..." : "Complete Payment"}
             </Button>
