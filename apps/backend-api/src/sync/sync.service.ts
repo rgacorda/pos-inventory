@@ -141,6 +141,8 @@ export class SyncService {
           status: OrderStatus.SYNCED,
           completedAt: orderDto.completedAt,
           syncedAt: new Date(),
+          customerName: orderDto.customerName,
+          customerAddress: orderDto.customerAddress,
         });
 
         const savedOrder = await queryRunner.manager.save(order);

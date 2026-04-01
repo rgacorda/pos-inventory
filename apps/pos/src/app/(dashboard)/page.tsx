@@ -56,6 +56,7 @@ export default function Page() {
   const [cashReceived, setCashReceived] = useState<string>("");
   const [customerName, setCustomerName] = useState<string>("");
   const [customerAddress, setCustomerAddress] = useState<string>("");
+  const [referenceNumber, setReferenceNumber] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize terminal ID and extract categories
@@ -132,6 +133,7 @@ export default function Page() {
     setSelectedPaymentMethod(null);
     setCustomerName("");
     setCustomerAddress("");
+    setReferenceNumber("");
   };
 
   // Calculate totals
@@ -253,6 +255,7 @@ export default function Page() {
         method: paymentMethod,
         amount: total,
         status: PaymentStatus.COMPLETED,
+        reference: referenceNumber.trim() || undefined,
         processedAt: now,
         syncStatus: "pending",
         localCreatedAt: now,
@@ -268,6 +271,7 @@ export default function Page() {
       setCashReceived("");
       setCustomerName("");
       setCustomerAddress("");
+      setReferenceNumber("");
 
       // Show success feedback
       if (paymentMethod === PaymentMethod.CASH && change > 0) {
@@ -679,6 +683,19 @@ export default function Page() {
             <div className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  Reference Number <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="text"
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                  placeholder="Enter transaction reference"
+                  className="h-10"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
                   Customer Name <span className="text-gray-400">(Optional)</span>
                 </label>
                 <Input
@@ -709,13 +726,14 @@ export default function Page() {
               onClick={() => {
                 setShowPaymentDialog(false);
                 setSelectedPaymentMethod(null);
+                setReferenceNumber("");
               }}
             >
               Cancel
             </Button>
             <Button
               onClick={() => selectedPaymentMethod && handleCheckout(selectedPaymentMethod)}
-              disabled={isProcessing}
+              disabled={isProcessing || !referenceNumber.trim()}
               className={
                 selectedPaymentMethod === PaymentMethod.CARD
                   ? "bg-blue-600 hover:bg-blue-700"

@@ -601,6 +601,8 @@ export class SyncService {
       posLocalId: order.posLocalId,
       terminalId: order.terminalId,
       cashierId: order.cashierId,
+      customerName: order.customerName,
+      customerAddress: order.customerAddress,
       items: order.items.map((item: any) => ({
         productId: item.productId,
         sku: item.sku,

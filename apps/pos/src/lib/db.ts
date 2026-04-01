@@ -57,6 +57,16 @@ export class POSDatabase extends Dexie {
       products: "id, sku, barcode, category, status, lastSyncedAt",
       syncMetadata: "++id, key, updatedAt",
     });
+
+    // Version 2: Add indexes for customer fields and payment reference
+    this.version(2).stores({
+      orders:
+        "++id, posLocalId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName",
+      payments:
+        "++id, posLocalId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+    });
   }
 }
 
