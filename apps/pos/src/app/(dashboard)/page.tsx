@@ -34,6 +34,7 @@ import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus } from "@pos/shared-types";
+import { Receipt } from "@/components/receipt";
 
 interface OrderItem {
   product: LocalProduct;
@@ -57,6 +58,8 @@ export default function Page() {
   const [customerName, setCustomerName] = useState<string>("");
   const [customerAddress, setCustomerAddress] = useState<string>("");
   const [referenceNumber, setReferenceNumber] = useState<string>("");
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
+  const [lastReceipt, setLastReceipt] = useState<any>(null);
   const cartEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize terminal ID and extract categories
@@ -264,6 +267,35 @@ export default function Page() {
 
       console.log(`Order created: ${orderNumber}, Payment: ${paymentMethod}`);
 
+      // Get terminal and user info
+      const terminal = await dbHelpers.getTerminalId();
+      const userStr = localStorage.getItem("user");
+      const userData = userStr ? JSON.parse(userStr) : null;
+
+      // Store receipt data
+      setLastReceipt({
+        orderNumber,
+        items: items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        })),
+        subtotal,
+        taxAmount: tax,
+        discountAmount: 0,
+        totalAmount: total,
+        paymentMethod: paymentMethod,
+        paymentReference: referenceNumber.trim() || undefined,
+        customerName: customerName.trim() || undefined,
+        customerAddress: customerAddress.trim() || undefined,
+        cashReceived: paymentMethod === PaymentMethod.CASH ? cashAmount : undefined,
+        change: paymentMethod === PaymentMethod.CASH ? change : undefined,
+        cashierName: userData?.name || "Cashier",
+        terminalName: terminal || "TERMINAL-001",
+        dateTime: now,
+      });
+
       // Clear cart after successful order
       clearCart();
       setShowCashDialog(false);
@@ -272,6 +304,9 @@ export default function Page() {
       setCustomerName("");
       setCustomerAddress("");
       setReferenceNumber("");
+
+      // Show receipt dialog
+      setShowReceiptDialog(true);
 
       // Show success feedback
       if (paymentMethod === PaymentMethod.CASH && change > 0) {
@@ -743,6 +778,52 @@ export default function Page() {
               }
             >
               {isProcessing ? "Processing..." : "Complete Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Dialog */}
+      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Order Completed</DialogTitle>
+            <DialogDescription>
+              Print receipt for this transaction
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {lastReceipt && (
+              <Receipt
+                orderNumber={lastReceipt.orderNumber}
+                items={lastReceipt.items}
+                subtotal={lastReceipt.subtotal}
+                taxAmount={lastReceipt.taxAmount}
+                discountAmount={lastReceipt.discountAmount}
+                totalAmount={lastReceipt.totalAmount}
+                paymentMethod={lastReceipt.paymentMethod}
+                paymentReference={lastReceipt.paymentReference}
+                customerName={lastReceipt.customerName}
+                customerAddress={lastReceipt.customerAddress}
+                cashReceived={lastReceipt.cashReceived}
+                change={lastReceipt.change}
+                cashierName={lastReceipt.cashierName}
+                terminalName={lastReceipt.terminalName}
+                dateTime={lastReceipt.dateTime}
+                onPrintComplete={() => {
+                  // Optional: close dialog after print
+                  // setShowReceiptDialog(false);
+                }}
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowReceiptDialog(false)}
+              className="w-full"
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
