@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTodaysOrders } from "@/hooks/useDatabase";
+import { useTodaysOrders, usePaymentsByOrder } from "@/hooks/useDatabase";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
 import { LocalOrder } from "@/lib/db";
 import { DataTable } from "./data-table";
@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 export default function OrdersPage() {
   const orders = useTodaysOrders();
   const [selectedOrder, setSelectedOrder] = useState<LocalOrder | null>(null);
+  const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -103,6 +104,52 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Customer Details Section */}
+                {(selectedOrder.customerName || selectedOrder.customerAddress) && (
+                  <div className="border-t pt-4 flex-shrink-0">
+                    <div className="text-sm font-medium mb-2">Customer Details</div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {selectedOrder.customerName && (
+                        <div>
+                          <div className="text-sm text-gray-600">Name</div>
+                          <div className="font-medium">{selectedOrder.customerName}</div>
+                        </div>
+                      )}
+                      {selectedOrder.customerAddress && (
+                        <div>
+                          <div className="text-sm text-gray-600">Address</div>
+                          <div className="font-medium">{selectedOrder.customerAddress}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Information Section */}
+                {payments && payments.length > 0 && (
+                  <div className="border-t pt-4 flex-shrink-0">
+                    <div className="text-sm font-medium mb-2">Payment Information</div>
+                    <div className="space-y-2">
+                      {payments.map((payment, idx) => (
+                        <div key={idx} className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="text-sm text-gray-600">Method</div>
+                            <div className="font-medium capitalize">
+                              {payment.method.replace(/_/g, ' ').toLowerCase()}
+                            </div>
+                          </div>
+                          {payment.reference && (
+                            <div>
+                              <div className="text-sm text-gray-600">Reference</div>
+                              <div className="font-medium">{payment.reference}</div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="border-t pt-4 flex-1 min-h-0 overflow-hidden">
                   <div className="text-sm font-medium mb-3">Items</div>

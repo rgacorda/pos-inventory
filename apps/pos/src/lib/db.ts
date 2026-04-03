@@ -255,4 +255,12 @@ export const dbHelpers = {
       .and((order) => order.localCreatedAt < cutoffDate)
       .delete();
   },
+
+  // Get payments for an order
+  async getPaymentsByOrder(orderPosLocalId: string) {
+    return db.payments
+      .where("orderId")
+      .equals(orderPosLocalId)
+      .toArray();
+  },
 };

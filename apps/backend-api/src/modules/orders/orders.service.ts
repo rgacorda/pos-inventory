@@ -86,6 +86,7 @@ export class OrdersService {
       .leftJoinAndSelect('items.product', 'product')
       .leftJoinAndSelect('order.terminal', 'terminal')
       .leftJoinAndSelect('order.cashier', 'cashier')
+      .leftJoinAndSelect('order.payments', 'payments')
       .orderBy('order.createdAt', 'DESC');
 
     // Filter by organization for non-super-admins

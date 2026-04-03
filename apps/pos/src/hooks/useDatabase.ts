@@ -34,3 +34,10 @@ export function useOrdersByStatus(status: any) {
 export function useLastSyncTime() {
   return useLiveQuery(() => dbHelpers.getLastSyncTime(), []);
 }
+
+export function usePaymentsByOrder(orderPosLocalId: string | null) {
+  return useLiveQuery(
+    () => orderPosLocalId ? dbHelpers.getPaymentsByOrder(orderPosLocalId) : Promise.resolve([]),
+    [orderPosLocalId]
+  );
+}

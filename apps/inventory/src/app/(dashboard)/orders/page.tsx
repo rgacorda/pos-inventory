@@ -371,6 +371,52 @@ export default function OrdersPage() {
                 </div>
               </div>
 
+              {/* Customer Details Section */}
+              {(selectedOrder.customerName || selectedOrder.customerAddress) && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3">Customer Details</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedOrder.customerName && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Name</p>
+                        <p className="font-medium">{selectedOrder.customerName}</p>
+                      </div>
+                    )}
+                    {selectedOrder.customerAddress && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Address</p>
+                        <p className="font-medium">{selectedOrder.customerAddress}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Information Section */}
+              {selectedOrder.payments && selectedOrder.payments.length > 0 && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3">Payment Information</h4>
+                  <div className="space-y-3">
+                    {selectedOrder.payments.map((payment: any, idx: number) => (
+                      <div key={idx} className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Method</p>
+                          <p className="font-medium capitalize">
+                            {payment.method.replace(/_/g, ' ').toLowerCase()}
+                          </p>
+                        </div>
+                        {payment.reference && (
+                          <div>
+                            <p className="text-sm text-muted-foreground">Reference</p>
+                            <p className="font-medium">{payment.reference}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h4 className="font-semibold mb-3">Order Items</h4>
                 <Table>

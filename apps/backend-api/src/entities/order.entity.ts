@@ -80,6 +80,9 @@ export class OrderEntity {
   @OneToMany(() => OrderItemEntity, (item) => item.order, { cascade: true })
   items: OrderItemEntity[];
 
+  @OneToMany('PaymentEntity', 'order')
+  payments: any[];
+
   @CreateDateColumn()
   createdAt: Date;
 
