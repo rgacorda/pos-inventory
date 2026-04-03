@@ -60,7 +60,9 @@ export default function Page() {
   const [referenceNumber, setReferenceNumber] = useState<string>("");
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<any>(null);
+  const [barcodeInput, setBarcodeInput] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize terminal ID and extract categories
   useEffect(() => {
@@ -107,6 +109,41 @@ export default function Page() {
       );
     } else {
       setOrderItems([...orderItems, { product, quantity: 1 }]);
+    }
+  };
+
+  // Handle barcode scan
+  const handleBarcodeScan = (barcode: string) => {
+    if (!barcode.trim() || !products) return;
+
+    // Search for product by barcode
+    const product = products.find(
+      (p) => p.barcode === barcode.trim()
+    );
+
+    if (product) {
+      addToOrder(product);
+      toast.success("Product Added", {
+        description: `${product.name} added to cart`,
+      });
+      setBarcodeInput("");
+      // Refocus barcode input
+      setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    } else {
+      toast.error("Product Not Found", {
+        description: `No product with barcode: ${barcode}`,
+      });
+      setBarcodeInput("");
+      // Refocus barcode input
+      setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    }
+  };
+
+  // Handle barcode input key press
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleBarcodeScan(barcodeInput);
     }
   };
 
@@ -336,15 +373,41 @@ export default function Page() {
         <div className="border-b p-4">
           <div className="flex items-center justify-between gap-4">
             <h1 className="text-xl font-semibold">Point of Sale</h1>
-            <div className="flex-1 max-w-md relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search products..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              />
+            <div className="flex flex-1 max-w-2xl gap-3">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                />
+              </div>
+              <div className="flex-1 relative">
+                <svg
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+                  />
+                </svg>
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  placeholder="Scan barcode..."
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  onKeyDown={handleBarcodeKeyDown}
+                  className="w-full pl-9 pr-4 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-blue-50"
+                />
+              </div>
             </div>
           </div>
         </div>
