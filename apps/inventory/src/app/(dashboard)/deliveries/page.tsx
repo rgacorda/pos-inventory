@@ -586,6 +586,7 @@ export default function InventoryDeliveriesPage() {
 
       {/* Add Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        {isAddDialogOpen && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Delivery</DialogTitle>
@@ -830,7 +831,7 @@ export default function InventoryDeliveriesPage() {
               {uploading ? "Uploading..." : "Create Delivery"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </DialogContent>)}
       </Dialog>
 
       {/* Edit Dialog */}

@@ -400,6 +400,7 @@ export default function TerminalsPage() {
 
       {/* Add Terminal Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        {showAddDialog && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Terminal</DialogTitle>
@@ -472,10 +473,12 @@ export default function TerminalsPage() {
             </div>
           </form>
         </DialogContent>
+        )}
       </Dialog>
 
       {/* Edit Terminal Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        {showEditDialog && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Terminal</DialogTitle>
@@ -545,7 +548,7 @@ export default function TerminalsPage() {
               </Button>
             </div>
           </form>
-        </DialogContent>
+        </DialogContent>)}
       </Dialog>
 
       {/* Delete Confirmation Dialog */}

@@ -497,6 +497,7 @@ export default function ExpensesPage() {
 
       {/* Add Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        {isAddDialogOpen && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Expense</DialogTitle>
@@ -621,10 +622,12 @@ export default function ExpensesPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        {isEditDialogOpen && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Expense</DialogTitle>
@@ -745,7 +748,7 @@ export default function ExpensesPage() {
               {uploading ? "Updating..." : "Update Expense"}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </DialogContent>)}
       </Dialog>
     </div>
   );

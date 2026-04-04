@@ -324,6 +324,7 @@ export default function UsersPage() {
                             open={showAddDialog}
                             onOpenChange={setShowAddDialog}
                           >
+                            {showAddDialog && (
                             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                               <DialogHeader>
                                 <DialogTitle>Add New User</DialogTitle>
@@ -471,6 +472,7 @@ export default function UsersPage() {
                                 </DialogFooter>
                               </form>
                             </DialogContent>
+                            )}
                           </Dialog>
 
                           {/* Edit User Dialog */}
@@ -478,6 +480,7 @@ export default function UsersPage() {
                             open={showEditDialog}
                             onOpenChange={setShowEditDialog}
                           >
+                            {showEditDialog && (
                             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                               <DialogHeader>
                                 <DialogTitle>Edit User</DialogTitle>
@@ -625,6 +628,7 @@ export default function UsersPage() {
                                 </DialogFooter>
                               </form>
                             </DialogContent>
+                            )}
                           </Dialog>
 
                           {/* Delete Confirmation Dialog */}
