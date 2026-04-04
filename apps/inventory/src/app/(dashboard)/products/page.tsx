@@ -66,6 +66,8 @@ export default function ProductsPage() {
     category: "",
     price: "",
     cost: "",
+    markupPercentage: "",
+    markupFixed: "",
     taxRate: "0.08",
     stockQuantity: "",
     lowStockThreshold: "10",
@@ -90,6 +92,26 @@ export default function ProductsPage() {
     }
   };
 
+  // Calculate selling price from cost and markups
+  const calculatePrice = (cost: string, markupPercentage: string, markupFixed: string): number => {
+    const costNum = parseFloat(cost) || 0;
+    const percentNum = parseFloat(markupPercentage) || 0;
+    const fixedNum = parseFloat(markupFixed) || 0;
+    
+    return costNum + (costNum * percentNum / 100) + fixedNum;
+  };
+
+  // Update price when cost or markups change
+  useEffect(() => {
+    if (formData.cost || formData.markupPercentage || formData.markupFixed) {
+      const calculatedPrice = calculatePrice(formData.cost, formData.markupPercentage, formData.markupFixed);
+      setFormData(prev => ({
+        ...prev,
+        price: calculatedPrice > 0 ? calculatedPrice.toFixed(2) : ""
+      }));
+    }
+  }, [formData.cost, formData.markupPercentage, formData.markupFixed]);
+
   const resetForm = () => {
     setFormData({
       sku: "",
@@ -98,6 +120,8 @@ export default function ProductsPage() {
       category: "",
       price: "",
       cost: "",
+      markupPercentage: "",
+      markupFixed: "",
       taxRate: "0.08",
       stockQuantity: "",
       lowStockThreshold: "10",
@@ -120,6 +144,8 @@ export default function ProductsPage() {
       category: product.category || "",
       price: product.price?.toString() || "",
       cost: product.cost?.toString() || "",
+      markupPercentage: product.markupPercentage?.toString() || "",
+      markupFixed: product.markupFixed?.toString() || "",
       taxRate: product.taxRate?.toString() || "0.08",
       stockQuantity: product.stockQuantity?.toString() || "",
       lowStockThreshold: product.lowStockThreshold?.toString() || "10",
@@ -143,6 +169,8 @@ export default function ProductsPage() {
         ...formData,
         price: parseFloat(formData.price),
         cost: parseFloat(formData.cost),
+        markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
+        markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
         taxRate: parseFloat(formData.taxRate),
         stockQuantity: parseInt(formData.stockQuantity),
         lowStockThreshold: parseInt(formData.lowStockThreshold),
@@ -170,6 +198,8 @@ export default function ProductsPage() {
         ...formData,
         price: parseFloat(formData.price),
         cost: parseFloat(formData.cost),
+        markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
+        markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
         taxRate: parseFloat(formData.taxRate),
         stockQuantity: parseInt(formData.stockQuantity),
         lowStockThreshold: parseInt(formData.lowStockThreshold),
@@ -267,14 +297,23 @@ export default function ProductsPage() {
                     <TableHead>Product</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead>Category</TableHead>
-                    <TableHead>Price</TableHead>
+                    <TableHead>Cost</TableHead>
+                    <TableHead>Markup %</TableHead>
+                    <TableHead>Fixed $</TableHead>
+                    <TableHead>Selling Price</TableHead>
+                    <TableHead>Profit</TableHead>
                     <TableHead>Stock</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedProducts.map((product) => (
+                  {paginatedProducts.map((product) => {
+                    const cost = Number(product.cost) || 0;
+                    const sellingPrice = Number(product.price) || 0;
+                    const profit = sellingPrice - cost;
+                    
+                    return (
                     <TableRow key={product.id}>
                       <TableCell className="font-medium">
                         {product.name}
@@ -283,8 +322,22 @@ export default function ProductsPage() {
                         {product.sku}
                       </TableCell>
                       <TableCell>{product.category || "N/A"}</TableCell>
-                      <TableCell className="font-semibold">
-                        ${Number(product.price).toFixed(2)}
+                      <TableCell className="font-medium">
+                        ${cost.toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        {product.markupPercentage ? `${Number(product.markupPercentage).toFixed(2)}%` : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {product.markupFixed ? `$${Number(product.markupFixed).toFixed(2)}` : "-"}
+                      </TableCell>
+                      <TableCell className="font-semibold text-green-600">
+                        ${sellingPrice.toFixed(2)}
+                      </TableCell>
+                      <TableCell className={`font-medium ${
+                        profit > 0 ? "text-green-600" : profit < 0 ? "text-red-600" : "text-gray-600"
+                      }`}>
+                        ${profit.toFixed(2)}
                       </TableCell>
                       <TableCell>
                         <span
@@ -329,7 +382,7 @@ export default function ProductsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );})}
                 </TableBody>
               </Table>
             )}
@@ -486,24 +539,7 @@ export default function ProductsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="price">Price *</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      step="0.01"
-                      value={formData.price}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          price: e.target.value,
-                        })
-                      }
-                      placeholder="2.49"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cost">Cost</Label>
+                    <Label htmlFor="cost">Cost *</Label>
                     <Input
                       id="cost"
                       type="number"
@@ -515,8 +551,58 @@ export default function ProductsPage() {
                           cost: e.target.value,
                         })
                       }
-                      placeholder="1.20"
+                      placeholder="10.00"
+                      required
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="markupPercentage">Markup (%) </Label>
+                    <Input
+                      id="markupPercentage"
+                      type="number"
+                      step="0.01"
+                      value={formData.markupPercentage}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          markupPercentage: e.target.value,
+                        })
+                      }
+                      placeholder="20"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="markupFixed">Fixed Markup ($)</Label>
+                    <Input
+                      id="markupFixed"
+                      type="number"
+                      step="0.01"
+                      value={formData.markupFixed}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          markupFixed: e.target.value,
+                        })
+                      }
+                      placeholder="1.50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="price">Selling Price *</Label>
+                    <Input
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      value={formData.price}
+                      readOnly
+                      className="bg-muted"
+                      placeholder="0.00"
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">Auto-calculated from cost + markups</p>
                   </div>
                 </div>
 
@@ -701,23 +787,7 @@ export default function ProductsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-price">Price *</Label>
-                    <Input
-                      id="edit-price"
-                      type="number"
-                      step="0.01"
-                      value={formData.price}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          price: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-cost">Cost</Label>
+                    <Label htmlFor="edit-cost">Cost *</Label>
                     <Input
                       id="edit-cost"
                       type="number"
@@ -729,7 +799,54 @@ export default function ProductsPage() {
                           cost: e.target.value,
                         })
                       }
+                      required
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-markupPercentage">Markup (%)</Label>
+                    <Input
+                      id="edit-markupPercentage"
+                      type="number"
+                      step="0.01"
+                      value={formData.markupPercentage}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          markupPercentage: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-markupFixed">Fixed Markup ($)</Label>
+                    <Input
+                      id="edit-markupFixed"
+                      type="number"
+                      step="0.01"
+                      value={formData.markupFixed}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          markupFixed: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-price">Selling Price *</Label>
+                    <Input
+                      id="edit-price"
+                      type="number"
+                      step="0.01"
+                      value={formData.price}
+                      readOnly
+                      className="bg-muted"
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">Auto-calculated from cost + markups</p>
                   </div>
                 </div>
 
