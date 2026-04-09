@@ -90,6 +90,13 @@ export class AuthService {
         organizationName: user.organization?.name,
         mustChangePassword: user.mustChangePassword,
       },
+      organization: user.organization ? {
+        id: user.organization.id,
+        name: user.organization.name,
+        address: user.organization.address,
+        phone: user.organization.phone,
+        email: user.organization.email,
+      } : undefined,
     };
   }
 

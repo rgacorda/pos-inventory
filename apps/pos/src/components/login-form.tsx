@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { apiClient, syncService } from "@/lib/api-client";
+import { dbHelpers } from "@/lib/db";
 import { UserRole } from "@pos/shared-types";
 
 export function LoginForm({
@@ -67,6 +68,11 @@ export function LoginForm({
             response.user.organizationName,
           );
         }
+      }
+
+      // Store organization data in IndexedDB for offline access
+      if (response.organization) {
+        await dbHelpers.setOrganization(response.organization);
       }
 
       // Start auto-sync

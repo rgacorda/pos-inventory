@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
+import { dbHelpers } from "@/lib/db";
+import { Button } from "@/components/ui/button";
 
 interface ReceiptProps {
   orderNumber: string;
@@ -45,6 +47,23 @@ export function Receipt({
   dateTime,
   onPrintComplete,
 }: ReceiptProps) {
+  const [organizationData, setOrganizationData] = useState<{
+    name: string;
+    address?: string;
+    phone?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    // Load organization data from IndexedDB
+    const loadOrganization = async () => {
+      const org = await dbHelpers.getOrganization();
+      if (org) {
+        setOrganizationData(org);
+      }
+    };
+    loadOrganization();
+  }, []);
+
   useEffect(() => {
     // Inject print styles into document head
     const styleId = "receipt-print-styles";
@@ -91,15 +110,21 @@ export function Receipt({
         <div className="max-w-[58mm] mx-auto p-2 font-mono text-xs leading-tight bg-white">
           {/* Header */}
           <div className="text-center mb-2">
-            <div className="text-base font-bold">YOUR STORE NAME</div>
-            <div className="text-[8pt]">123 Store Address</div>
-            <div className="text-[8pt]">Tel: (123) 456-7890</div>
+            <div className="text-base font-bold">
+              {organizationData?.name || "YOUR STORE NAME"}
+            </div>
+            {organizationData?.address && (
+              <div className="text-[8pt]">{organizationData.address}</div>
+            )}
+            {organizationData?.phone && (
+              <div className="text-[8pt]">Tel: {organizationData.phone}</div>
+            )}
             <div className="border-b border-dashed border-gray-400 my-2" />
           </div>
 
           {/* Order Info */}
           <div className="text-[9pt] mb-2">
-            <div>Order: {orderNumber}</div>
+            {/* <div>Order: {orderNumber}</div> */}
             <div>Date: {formatDateTime(dateTime)}</div>
           </div>
 
@@ -197,12 +222,12 @@ export function Receipt({
       </div>
 
       {/* Print button */}
-      <button
+      <Button
         onClick={handlePrint}
-        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded mt-2"
+        className="w-full mt-2"
       >
-        🖨️ Print Receipt
-      </button>
+        Print Receipt
+      </Button>
     </>
   );
 }

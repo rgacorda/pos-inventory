@@ -40,11 +40,21 @@ export interface SyncMetadata {
   updatedAt: Date;
 }
 
+export interface OrganizationData {
+  id: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  updatedAt: Date;
+}
+
 export class POSDatabase extends Dexie {
   orders!: Table<LocalOrder, number>;
   payments!: Table<LocalPayment, number>;
   products!: Table<LocalProduct, string>;
   syncMetadata!: Table<SyncMetadata, number>;
+  organization!: Table<OrganizationData, string>;
 
   constructor() {
     super("POSDatabase");
@@ -66,6 +76,17 @@ export class POSDatabase extends Dexie {
         "++id, posLocalId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
       products: "id, sku, barcode, category, status, lastSyncedAt",
       syncMetadata: "++id, key, updatedAt",
+    });
+
+    // Version 3: Add organization table for offline store data
+    this.version(3).stores({
+      orders:
+        "++id, posLocalId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName",
+      payments:
+        "++id, posLocalId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
     });
   }
 }
@@ -262,5 +283,19 @@ export const dbHelpers = {
       .where("orderId")
       .equals(orderPosLocalId)
       .toArray();
+  },
+
+  // Set organization data
+  async setOrganization(orgData: Omit<OrganizationData, "updatedAt">) {
+    await db.organization.put({
+      ...orgData,
+      updatedAt: new Date(),
+    });
+  },
+
+  // Get organization data
+  async getOrganization() {
+    const allOrgs = await db.organization.toArray();
+    return allOrgs.length > 0 ? allOrgs[0] : null;
   },
 };

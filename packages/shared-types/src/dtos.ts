@@ -125,6 +125,13 @@ export interface AuthResponseDto {
     organizationName?: string;
     mustChangePassword?: boolean; // True if user needs to change password on first login
   };
+  organization?: {
+    id: string;
+    name: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+  };
 }
 
 /**
