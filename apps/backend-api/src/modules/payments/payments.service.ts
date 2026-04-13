@@ -238,14 +238,14 @@ export class PaymentsService {
         query.getCount(),
         query
           .clone()
-          .where('payment.status = :status', {
+          .andWhere('payment.status = :status', {
             status: PaymentStatus.COMPLETED,
           })
           .getCount(),
         query
           .clone()
           .select('SUM(payment.amount)', 'total')
-          .where('payment.status = :status', {
+          .andWhere('payment.status = :status', {
             status: PaymentStatus.COMPLETED,
           })
           .andWhere('payment.amount > 0')
@@ -254,7 +254,7 @@ export class PaymentsService {
         query
           .clone()
           .select('SUM(ABS(payment.amount))', 'total')
-          .where('payment.status = :status', { status: PaymentStatus.REFUNDED })
+          .andWhere('payment.status = :status', { status: PaymentStatus.REFUNDED })
           .getRawOne()
           .then((result) => parseFloat(result?.total || 0)),
       ]);

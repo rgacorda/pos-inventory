@@ -244,12 +244,12 @@ export class OrdersService {
       query.getCount(),
       query
         .clone()
-        .where('order.status = :status', { status: OrderStatus.COMPLETED })
+        .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
         .getCount(),
       query
         .clone()
         .select('SUM(order.totalAmount)', 'total')
-        .where('order.status = :status', { status: OrderStatus.COMPLETED })
+        .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
         .getRawOne()
         .then((result) => parseFloat(result?.total || 0)),
     ]);
