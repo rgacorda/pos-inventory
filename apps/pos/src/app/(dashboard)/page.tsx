@@ -54,6 +54,7 @@ export default function Page() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showCashDialog, setShowCashDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [showProductSearch, setShowProductSearch] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>("");
   const [customerName, setCustomerName] = useState<string>("");
   const [customerAddress, setCustomerAddress] = useState<string>("");
@@ -61,8 +62,12 @@ export default function Page() {
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<any>(null);
   const [barcodeInput, setBarcodeInput] = useState<string>("");
+  const [showQuantityDialog, setShowQuantityDialog] = useState(false);
+  const [productToAdd, setProductToAdd] = useState<LocalProduct | null>(null);
+  const [quantityToAdd, setQuantityToAdd] = useState<string>("1");
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const quantityInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize terminal ID and extract categories
   useEffect(() => {
@@ -94,22 +99,51 @@ export default function Page() {
     }
   }, [orderItems]);
 
-  // Add product to order
+  // Auto-focus quantity input when dialog opens
+  useEffect(() => {
+    if (showQuantityDialog) {
+      setTimeout(() => quantityInputRef.current?.focus(), 100);
+    }
+  }, [showQuantityDialog]);
+
+  // Show quantity dialog for product
   const addToOrder = (product: LocalProduct) => {
+    setProductToAdd(product);
+    setQuantityToAdd("1");
+    setShowQuantityDialog(true);
+  };
+
+  // Add product with specified quantity
+  const confirmAddToOrder = () => {
+    if (!productToAdd) return;
+    const qty = parseInt(quantityToAdd) || 1;
+    if (qty <= 0) return;
+
     const existingItem = orderItems.find(
-      (item) => item.product.id === product.id,
+      (item) => item.product.id === productToAdd.id,
     );
     if (existingItem) {
       setOrderItems(
         orderItems.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+          item.product.id === productToAdd.id
+            ? { ...item, quantity: item.quantity + qty }
             : item,
         ),
       );
     } else {
-      setOrderItems([...orderItems, { product, quantity: 1 }]);
+      setOrderItems([...orderItems, { product: productToAdd, quantity: qty }]);
     }
+
+    toast.success("Product Added", {
+      description: `${qty}x ${productToAdd.name} added to cart`,
+    });
+
+    setShowQuantityDialog(false);
+    setProductToAdd(null);
+    setQuantityToAdd("1");
+
+    // Refocus barcode input
+    setTimeout(() => barcodeInputRef.current?.focus(), 100);
   };
 
   // Handle barcode scan
@@ -123,12 +157,7 @@ export default function Page() {
 
     if (product) {
       addToOrder(product);
-      toast.success("Product Added", {
-        description: `${product.name} added to cart`,
-      });
       setBarcodeInput("");
-      // Refocus barcode input
-      setTimeout(() => barcodeInputRef.current?.focus(), 100);
     } else {
       toast.error("Product Not Found", {
         description: `No product with barcode: ${barcode}`,
@@ -367,24 +396,22 @@ export default function Page() {
 
   return (
     <>
-      {/* Main Content */}
+      {/* Main Content - Center Area with Order Items */}
       <div className="flex flex-1 flex-col">
         {/* Header */}
         <div className="border-b p-4">
           <div className="flex items-center justify-between gap-4">
-            <h1 className="text-xl font-semibold">Point of Sale</h1>
-            <div className="flex flex-1 max-w-2xl gap-3">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search products..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                />
-              </div>
-              <div className="flex-1 relative">
+            <h1 className="text-2xl font-semibold">Point of Sale</h1>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowProductSearch(true)}
+                className="flex items-center gap-2 px-4"
+              >
+                <Search className="h-4 w-4" />
+                Search Products
+              </Button>
+              <div className="relative">
                 <svg
                   className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400"
                   fill="none"
@@ -405,232 +432,445 @@ export default function Page() {
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   onKeyDown={handleBarcodeKeyDown}
-                  className="w-full pl-9 pr-4 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-blue-50"
+                  className="w-64 pl-9 pr-4 py-2.5 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-blue-50"
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Categories */}
-        <div className="border-b p-4">
-          <div className="flex items-center gap-4">
-            <label className="text-sm font-medium">Category:</label>
-            <Select
-              value={selectedCategory}
-              onValueChange={setSelectedCategory}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((category) => (
-                  <SelectItem key={category} value={category}>
-                    {category}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Menu Items Table */}
-        <div className="flex-1 overflow-auto p-6">
-          {!products ? (
-            <div className="text-center text-gray-600 py-8 text-lg">
-              Loading products...
-            </div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="text-center text-gray-600 py-8 text-lg">
-              No products available in this category
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.map((product) => (
-                  <TableRow
-                    key={product.id}
-                    className="cursor-pointer hover:bg-gray-50"
-                    onClick={() => addToOrder(product)}
-                  >
-                    <TableCell className="font-medium">
-                      {product.name}
-                    </TableCell>
-                    <TableCell>{product.sku}</TableCell>
-                    <TableCell>{product.category}</TableCell>
-                    <TableCell className="text-right">
-                      ${product.price.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {product.stockQuantity}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      </div>
-
-      {/* Right Sidebar - Order Summary */}
-      <div className="flex w-80 flex-col border-l h-screen">
-        <div className="border-b p-4 flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Current Order</h2>
-            <div className="flex items-center gap-2">
-              <Trash2
-                className="text-muted-foreground h-4 w-4 cursor-pointer hover:text-red-500"
-                onClick={clearCart}
-              />
-            </div>
-          </div>
-        </div>
-
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-2">
+        {/* Order Items / Cart Display */}
+        <div className="flex-1 overflow-auto">
+          <div className="p-6">
             {orderItems.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
-                <p className="text-sm">Cart is empty</p>
-                <p className="text-xs mt-2">Add items to get started</p>
+              <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-gray-400">
+                <div className="text-center space-y-4">
+                  <div className="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
+                    <Search className="h-12 w-12 text-gray-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-600">No Items in Order</h3>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Click &quot;Search Products&quot; or scan a barcode to add items
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="space-y-1.5">
-                {orderItems.map((item, index) => (
-                  <div
-                    key={`${item.product.id}-${index}`}
-                    className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-gray-50"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-medium truncate">
-                        {item.product.name}
-                      </h4>
-                      <p className="text-muted-foreground text-xs">
-                        ${item.product.price.toFixed(2)} × {item.quantity}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 w-6 p-0"
-                          onClick={() => updateQuantity(item.product.id!, -1)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="text-xs font-medium w-6 text-center">
-                          {item.quantity}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 w-6 p-0"
-                          onClick={() => updateQuantity(item.product.id!, 1)}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-semibold text-sm">
-                        ${(item.product.price * item.quantity).toFixed(2)}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-5 w-5 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 mt-1"
-                        onClick={() => removeFromOrder(item.product.id!)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-center">Quantity</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-center">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orderItems.map((item, index) => (
+                      <TableRow key={`${item.product.id}-${index}`}>
+                        <TableCell>
+                          <div>
+                            <div className="font-semibold text-gray-900">
+                              {item.product.name}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              SKU: {item.product.sku}
+                              {item.product.category && (
+                                <span className="ml-2">• {item.product.category}</span>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 p-0"
+                              onClick={() => updateQuantity(item.product.id!, -1)}
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                            <span className="text-base font-semibold w-12 text-center">
+                              {item.quantity}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 p-0"
+                              onClick={() => updateQuantity(item.product.id!, 1)}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ${item.product.price.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="font-bold text-lg">
+                            ${(item.product.price * item.quantity).toFixed(2)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => removeFromOrder(item.product.id!)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
                 <div ref={cartEndRef} />
               </div>
             )}
           </div>
-        </ScrollArea>
+        </div>
+      </div>
 
-        <div className="border-t p-4 flex-shrink-0">
-          <div className="mb-4 space-y-2">
-            <div className="flex justify-between text-sm">
+      {/* Right Sidebar - Totals and Payment */}
+      <div className="flex w-96 flex-col border-l h-screen bg-gray-50">
+        {/* Total Summary at Top */}
+        <div className="border-b bg-white shadow-sm p-6 flex-shrink-0">
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm text-gray-600">
               <span>Subtotal</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between text-sm text-gray-600">
               <span>Tax</span>
               <span>${tax.toFixed(2)}</span>
             </div>
             <Separator />
-            <div className="flex justify-between font-semibold text-lg">
-              <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+            <div className="flex justify-between items-center">
+              <span className="text-lg font-semibold text-gray-900">Total</span>
+              <span className="text-3xl font-bold text-gray-900">
+                ${total.toFixed(2)}
+              </span>
             </div>
           </div>
+        </div>
 
-          <div className="mb-4 grid grid-cols-3 gap-2">
-            <Button
-              variant="outline"
-              className={`flex h-auto flex-col items-center bg-transparent p-4 ${
-                selectedPaymentMethod === PaymentMethod.CASH
-                  ? "ring-2 ring-green-500"
-                  : ""
-              }`}
-              onClick={() => handlePaymentClick(PaymentMethod.CASH)}
-              disabled={orderItems.length === 0 || isProcessing}
-            >
-              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-green-100">
-                <span className="font-semibold text-green-600">$</span>
-              </div>
-              <span className="text-xs">Cash</span>
-            </Button>
-            <Button
-              variant="outline"
-              className={`flex h-auto flex-col items-center bg-transparent p-4 ${
-                selectedPaymentMethod === PaymentMethod.CARD
-                  ? "ring-2 ring-blue-500"
-                  : ""
-              }`}
-              onClick={() => handlePaymentClick(PaymentMethod.CARD)}
-              disabled={orderItems.length === 0 || isProcessing}
-            >
-              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
-                <CreditCard className="h-4 w-4 text-blue-600" />
-              </div>
-              <span className="text-xs">Card</span>
-            </Button>
-            <Button
-              variant="outline"
-              className={`flex h-auto flex-col items-center bg-transparent p-4 ${
-                selectedPaymentMethod === PaymentMethod.DIGITAL_WALLET
-                  ? "ring-2 ring-purple-500"
-                  : ""
-              }`}
-              onClick={() => handlePaymentClick(PaymentMethod.DIGITAL_WALLET)}
-              disabled={orderItems.length === 0 || isProcessing}
-            >
-              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100">
-                <QrCode className="h-4 w-4 text-purple-600" />
-              </div>
-              <span className="text-xs">E-Wallet</span>
-            </Button>
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Payment Methods at Bottom */}
+        <div className="border-t bg-white shadow-sm p-6 flex-shrink-0">
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+              Payment Method
+            </h3>
+            <div className="grid grid-cols-1 gap-3">
+              <Button
+                variant="outline"
+                className={`flex h-auto items-center justify-between p-4 border-2 ${
+                  selectedPaymentMethod === PaymentMethod.CASH
+                    ? "border-green-500 bg-green-50"
+                    : "hover:border-gray-300"
+                }`}
+                onClick={() => handlePaymentClick(PaymentMethod.CASH)}
+                disabled={orderItems.length === 0 || isProcessing}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
+                    <span className="font-semibold text-green-600 text-lg">$</span>
+                  </div>
+                  <span className="font-semibold">Cash</span>
+                </div>
+                {selectedPaymentMethod === PaymentMethod.CASH && (
+                  <div className="h-5 w-5 rounded-full bg-green-500 flex items-center justify-center">
+                    <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 12 12">
+                      <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" fill="none" />
+                    </svg>
+                  </div>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className={`flex h-auto items-center justify-between p-4 border-2 ${
+                  selectedPaymentMethod === PaymentMethod.CARD
+                    ? "border-blue-500 bg-blue-50"
+                    : "hover:border-gray-300"
+                }`}
+                onClick={() => handlePaymentClick(PaymentMethod.CARD)}
+                disabled={orderItems.length === 0 || isProcessing}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                    <CreditCard className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <span className="font-semibold">Card</span>
+                </div>
+                {selectedPaymentMethod === PaymentMethod.CARD && (
+                  <div className="h-5 w-5 rounded-full bg-blue-500 flex items-center justify-center">
+                    <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 12 12">
+                      <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" fill="none" />
+                    </svg>
+                  </div>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                className={`flex h-auto items-center justify-between p-4 border-2 ${
+                  selectedPaymentMethod === PaymentMethod.DIGITAL_WALLET
+                    ? "border-purple-500 bg-purple-50"
+                    : "hover:border-gray-300"
+                }`}
+                onClick={() => handlePaymentClick(PaymentMethod.DIGITAL_WALLET)}
+                disabled={orderItems.length === 0 || isProcessing}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+                    <QrCode className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <span className="font-semibold">E-Wallet</span>
+                </div>
+                {selectedPaymentMethod === PaymentMethod.DIGITAL_WALLET && (
+                  <div className="h-5 w-5 rounded-full bg-purple-500 flex items-center justify-center">
+                    <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 12 12">
+                      <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" fill="none" />
+                    </svg>
+                  </div>
+                )}
+              </Button>
+            </div>
+            {orderItems.length > 0 && (
+              <Button
+                variant="ghost"
+                className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                onClick={clearCart}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear Order
+              </Button>
+            )}
+            {isProcessing && (
+              <p className="text-center text-sm text-gray-600">
+                Processing payment...
+              </p>
+            )}
           </div>
-
-          {isProcessing && (
-            <p className="text-center text-sm text-gray-600 mb-2">
-              Processing...
-            </p>
-          )}
         </div>
       </div>
+
+      {/* Product Search Modal */}
+      <Dialog open={showProductSearch} onOpenChange={setShowProductSearch}>
+        <DialogContent className="!max-w-7xl h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>Search Products</DialogTitle>
+            <DialogDescription>
+              Browse and select products to add to the order
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
+            {/* Search and Filter */}
+            <div className="flex gap-3 flex-shrink-0">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-lg focus:outline-none "
+                  autoFocus
+                />
+              </div>
+              <Select
+                value={selectedCategory}
+                onValueChange={setSelectedCategory}
+              >
+                <SelectTrigger className="w-[200px] h-10">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Products Table */}
+            <div className="flex-1 border rounded-lg overflow-hidden">
+              <ScrollArea className="h-full">
+                {!products ? (
+                  <div className="text-center text-gray-600 py-8">
+                    Loading products...
+                  </div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="text-center text-gray-600 py-8">
+                    No products found
+                  </div>
+                ) : (
+                  <Table>
+                  <TableHeader className="sticky top-0 bg-white z-10">
+                    <TableRow>
+                      <TableHead>Product Name</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-center">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProducts.map((product) => (
+                      <TableRow
+                        key={product.id}
+                        className="hover:bg-gray-50"
+                      >
+                        <TableCell className="font-medium">
+                          {product.name}
+                        </TableCell>
+                        <TableCell>{product.sku}</TableCell>
+                        <TableCell>{product.category}</TableCell>
+                        <TableCell className="text-right">
+                          ${product.price.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {product.stockQuantity}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            size="sm"
+                            onClick={() => addToOrder(product)}
+                            className="h-8"
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              </ScrollArea>
+            </div>
+          </div>
+          <DialogFooter className="flex-shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowProductSearch(false);
+                setSearchQuery("");
+                setSelectedCategory("All");
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quantity Selection Dialog */}
+      <Dialog open={showQuantityDialog} onOpenChange={setShowQuantityDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Product</DialogTitle>
+            <DialogDescription>
+              How many items would you like to add?
+            </DialogDescription>
+          </DialogHeader>
+          {productToAdd && (
+            <div className="space-y-4 py-4">
+              <div className="bg-gray-50 border rounded-lg p-3">
+                <div className="font-semibold text-gray-900">
+                  {productToAdd.name}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  SKU: {productToAdd.sku}
+                </div>
+                <div className="text-lg font-bold text-gray-900 mt-2">
+                  ${productToAdd.price.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Quantity</label>
+                <Input
+                  ref={quantityInputRef}
+                  type="number"
+                  value={quantityToAdd}
+                  onChange={(e) => setQuantityToAdd(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      confirmAddToOrder();
+                    }
+                  }}
+                  placeholder="1"
+                  className="text-lg h-12 text-center"
+                  min="1"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-4 gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setQuantityToAdd("1")}
+                  className="h-10"
+                >
+                  1
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setQuantityToAdd("2")}
+                  className="h-10"
+                >
+                  2
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setQuantityToAdd("5")}
+                  className="h-10"
+                >
+                  5
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setQuantityToAdd("10")}
+                  className="h-10"
+                >
+                  10
+                </Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowQuantityDialog(false);
+                setProductToAdd(null);
+                setQuantityToAdd("1");
+                // Refocus barcode input
+                setTimeout(() => barcodeInputRef.current?.focus(), 100);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmAddToOrder}
+              disabled={!quantityToAdd || parseInt(quantityToAdd) <= 0}
+            >
+              Add to Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cash Payment Dialog */}
       <Dialog open={showCashDialog} onOpenChange={setShowCashDialog}>
@@ -643,55 +883,21 @@ export default function Page() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Total:</span>
-                <span className="font-semibold text-lg">
-                  ${total.toFixed(2)}
+              <label className="text-sm font-medium">Amount Received</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  $
                 </span>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                  Customer Name <span className="text-gray-400">(Optional)</span>
-                </label>
                 <Input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Enter customer name"
-                  className="h-10"
+                  type="number"
+                  value={cashReceived}
+                  onChange={(e) => setCashReceived(e.target.value)}
+                  placeholder="0.00"
+                  className="pl-7 text-lg h-12"
+                  step="0.01"
+                  autoFocus
                 />
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                  Customer Address <span className="text-gray-400">(Optional)</span>
-                </label>
-                <Input
-                  type="text"
-                  value={customerAddress}
-                  onChange={(e) => setCustomerAddress(e.target.value)}
-                  placeholder="Enter customer address"
-                  className="h-10"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                Cash Received
-              </label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={cashReceived}
-                onChange={(e) => setCashReceived(e.target.value)}
-                className="text-right text-2xl font-semibold h-14"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && cashAmount >= total) {
-                    handleCheckout(PaymentMethod.CASH);
-                  }
-                }}
-              />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <Button
