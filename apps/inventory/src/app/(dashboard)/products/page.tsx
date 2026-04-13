@@ -309,7 +309,7 @@ export default function ProductsPage() {
                     <TableHead>Category</TableHead>
                     <TableHead>Cost</TableHead>
                     <TableHead>Markup %</TableHead>
-                    <TableHead>Fixed $</TableHead>
+                    <TableHead>Fixed ₱</TableHead>
                     <TableHead>Selling Price</TableHead>
                     <TableHead>Pack Price</TableHead>
                     <TableHead>Profit</TableHead>
@@ -334,22 +334,22 @@ export default function ProductsPage() {
                       </TableCell>
                       <TableCell>{product.category || "N/A"}</TableCell>
                       <TableCell className="font-medium">
-                        ${cost.toFixed(2)}
+                        ₱{cost.toFixed(2)}
                       </TableCell>
                       <TableCell>
                         {product.markupPercentage ? `${Number(product.markupPercentage).toFixed(2)}%` : "-"}
                       </TableCell>
                       <TableCell>
-                        {product.markupFixed ? `$${Number(product.markupFixed).toFixed(2)}` : "-"}
+                        {product.markupFixed ? `₱${Number(product.markupFixed).toFixed(2)}` : "-"}
                       </TableCell>
                       <TableCell className="font-semibold text-green-600">
-                        ${sellingPrice.toFixed(2)}
+                        ₱{sellingPrice.toFixed(2)}
                       </TableCell>
                       <TableCell>
                         {product.packPrice && product.packQuantity ? (
                           <div className="text-sm">
                             <div className="font-medium text-blue-600">
-                              ${Number(product.packPrice).toFixed(2)}
+                              ₱{Number(product.packPrice).toFixed(2)}
                             </div>
                             <div className="text-xs text-gray-500">
                               {product.packQuantity} pcs
@@ -362,7 +362,7 @@ export default function ProductsPage() {
                       <TableCell className={`font-medium ${
                         profit > 0 ? "text-green-600" : profit < 0 ? "text-red-600" : "text-gray-600"
                       }`}>
-                        ${profit.toFixed(2)}
+                        ₱{profit.toFixed(2)}
                       </TableCell>
                       <TableCell>
                         <span
@@ -600,7 +600,7 @@ export default function ProductsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="markupFixed">Fixed Markup ($)</Label>
+                    <Label htmlFor="markupFixed">Fixed Markup (₱)</Label>
                     <Input
                       id="markupFixed"
                       type="number"
@@ -652,7 +652,7 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="packPrice">Pack Price ($)</Label>
+                      <Label htmlFor="packPrice">Pack Price (₱)</Label>
                       <Input
                         id="packPrice"
                         type="number"
@@ -674,7 +674,7 @@ export default function ProductsPage() {
                       <span className="text-blue-900">
                         Per-item price when buying {formData.packQuantity} or more: 
                         <strong className="ml-1">
-                          ${(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
+                          ₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
                         </strong>
                       </span>
                     </div>
@@ -896,7 +896,7 @@ export default function ProductsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-markupFixed">Fixed Markup ($)</Label>
+                    <Label htmlFor="edit-markupFixed">Fixed Markup (₱)</Label>
                     <Input
                       id="edit-markupFixed"
                       type="number"
@@ -946,7 +946,7 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="edit-packPrice">Pack Price ($)</Label>
+                      <Label htmlFor="edit-packPrice">Pack Price (₱)</Label>
                       <Input
                         id="edit-packPrice"
                         type="number"
@@ -968,7 +968,7 @@ export default function ProductsPage() {
                       <span className="text-blue-900">
                         Per-item price when buying {formData.packQuantity} or more: 
                         <strong className="ml-1">
-                          ${(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
+                          ₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
                         </strong>
                       </span>
                     </div>

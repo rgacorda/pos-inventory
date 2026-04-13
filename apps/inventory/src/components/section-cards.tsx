@@ -17,7 +17,7 @@ export function SectionCards({ stats }: { stats?: any }) {
         <CardHeader>
           <CardDescription>Total Revenue</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            ${((stats?.netRevenue || 0) / 1).toFixed(2)}
+            ₱{((stats?.netRevenue || 0) / 1).toFixed(2)}
           </CardTitle>
           <CardAction>
             <Badge variant="outline">

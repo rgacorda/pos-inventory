@@ -147,7 +147,7 @@ export default function Page() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${todayStats.revenue.toFixed(2)}
+                ₱{todayStats.revenue.toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 From {todayStats.orders} orders
@@ -179,7 +179,7 @@ export default function Page() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${todayStats.averageOrderValue.toFixed(2)}
+                ₱{todayStats.averageOrderValue.toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Per order</p>
             </CardContent>
@@ -200,7 +200,7 @@ export default function Page() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${allTimeStats.totalRevenue.toFixed(2)}
+                ₱{allTimeStats.totalRevenue.toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">All time</p>
             </CardContent>
@@ -326,7 +326,7 @@ export default function Page() {
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-sm">
-                        ${Number(order.totalAmount).toFixed(2)}
+                        ₱{Number(order.totalAmount).toFixed(2)}
                       </p>
                       <Badge variant="outline" className="text-xs">
                         {order.status}

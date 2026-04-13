@@ -231,7 +231,7 @@ export default function OrdersPage() {
                       <TableCell>{order.cashier?.name || "N/A"}</TableCell>
                       <TableCell>{order.items?.length || 0}</TableCell>
                       <TableCell className="font-semibold">
-                        ${Number(order.totalAmount || 0).toFixed(2)}
+                        ₱{Number(order.totalAmount || 0).toFixed(2)}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -447,10 +447,10 @@ export default function OrdersPage() {
                           {item.quantity}
                         </TableCell>
                         <TableCell className="text-right">
-                          ${Number(item.unitPrice || 0).toFixed(2)}
+                          ₱{Number(item.unitPrice || 0).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          $
+                          ₱
                           {(
                             Number(item.quantity || 0) *
                             Number(item.unitPrice || 0)
@@ -466,19 +466,19 @@ export default function OrdersPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal:</span>
                   <span className="font-medium">
-                    ${Number(selectedOrder.subtotal || 0).toFixed(2)}
+                    ₱{Number(selectedOrder.subtotal || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Tax:</span>
                   <span className="font-medium">
-                    ${Number(selectedOrder.taxAmount || 0).toFixed(2)}
+                    ₱{Number(selectedOrder.taxAmount || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-semibold border-t pt-2">
                   <span>Total:</span>
                   <span>
-                    ${Number(selectedOrder.totalAmount || 0).toFixed(2)}
+                    ₱{Number(selectedOrder.totalAmount || 0).toFixed(2)}
                   </span>
                 </div>
               </div>

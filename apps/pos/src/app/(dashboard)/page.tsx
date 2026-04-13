@@ -399,11 +399,11 @@ export default function Page() {
       // Show success feedback
       if (paymentMethod === PaymentMethod.CASH && change > 0) {
         toast.success("Order Completed", {
-          description: `Change: $${change.toFixed(2)}`,
+          description: `Change: ₱${change.toFixed(2)}`,
         });
       } else {
         toast.success("Order Completed", {
-          description: `Total: $${total.toFixed(2)}`,
+          description: `Total: ₱${total.toFixed(2)}`,
         });
       }
     } catch (error) {
@@ -532,7 +532,7 @@ export default function Page() {
                         <TableCell className="text-right">
                           <div>
                             <div className="font-semibold">
-                              ${calculateEffectivePrice(
+                              ₱{calculateEffectivePrice(
                                 item.quantity,
                                 item.product.price,
                                 item.product.packPrice,
@@ -550,7 +550,7 @@ export default function Page() {
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-bold text-lg">
-                            ${calculateLineSubtotalWithTieredPrice(
+                            ₱{calculateLineSubtotalWithTieredPrice(
                               item.quantity,
                               item.product.price,
                               item.product.packPrice,
@@ -586,17 +586,17 @@ export default function Page() {
           <div className="space-y-3">
             <div className="flex justify-between text-sm text-gray-600">
               <span>Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span>₱{subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm text-gray-600">
               <span>Tax</span>
-              <span>${tax.toFixed(2)}</span>
+              <span>₱{tax.toFixed(2)}</span>
             </div>
             <Separator />
             <div className="flex justify-between items-center">
               <span className="text-lg font-semibold text-gray-900">Total</span>
               <span className="text-3xl font-bold text-gray-900">
-                ${total.toFixed(2)}
+                ₱{total.toFixed(2)}
               </span>
             </div>
           </div>
@@ -624,7 +624,7 @@ export default function Page() {
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
-                    <span className="font-semibold text-green-600 text-lg">$</span>
+                    <span className="font-semibold text-green-600 text-lg">₱</span>
                   </div>
                   <span className="font-semibold">Cash</span>
                 </div>
@@ -781,11 +781,11 @@ export default function Page() {
                         <TableCell className="text-right">
                           <div>
                             <div className="font-semibold">
-                              ${product.price.toFixed(2)}
+                              ₱{product.price.toFixed(2)}
                             </div>
                             {product.packPrice && product.packQuantity && (
                               <div className="text-xs text-green-600">
-                                ${product.packPrice.toFixed(2)}/{product.packQuantity}pc
+                                ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pc
                               </div>
                             )}
                           </div>
@@ -846,11 +846,11 @@ export default function Page() {
                 </div>
                 <div className="mt-2 space-y-1">
                   <div className="text-sm text-gray-700">
-                    Per piece: <span className="font-semibold">${productToAdd.price.toFixed(2)}</span>
+                    Per piece: <span className="font-semibold">₱{productToAdd.price.toFixed(2)}</span>
                   </div>
                   {productToAdd.packPrice && productToAdd.packQuantity && (
                     <div className="text-sm text-green-600">
-                      Pack price: <span className="font-semibold">${productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
+                      Pack price: <span className="font-semibold">₱{productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
                     </div>
                   )}
                 </div>
@@ -877,7 +877,7 @@ export default function Page() {
                       <div className="flex justify-between items-center">
                         <div>
                           <div className="text-sm text-gray-600">
-                            Effective price: ${effectivePrice.toFixed(2)}
+                            Effective price: ₱{effectivePrice.toFixed(2)}
                           </div>
                           {isUsingPackPrice && (
                             <div className="text-xs text-green-600 font-medium">
@@ -887,7 +887,7 @@ export default function Page() {
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-bold text-gray-900">
-                            ${lineTotal.toFixed(2)}
+                            ₱{lineTotal.toFixed(2)}
                           </div>
                           <div className="text-xs text-gray-500">
                             Total
@@ -994,7 +994,7 @@ export default function Page() {
               <label className="text-sm font-medium">Amount Received</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  $
+                  ₱
                 </span>
                 <Input
                   type="number"
@@ -1013,21 +1013,21 @@ export default function Page() {
                 onClick={() => handleQuickAmount(Math.ceil(total))}
                 className="h-12"
               >
-                ${Math.ceil(total)}
+                ₱{Math.ceil(total)}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleQuickAmount(Math.ceil(total / 10) * 10)}
                 className="h-12"
               >
-                ${Math.ceil(total / 10) * 10}
+                ₱{Math.ceil(total / 10) * 10}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => handleQuickAmount(Math.ceil(total / 50) * 50)}
                 className="h-12"
               >
-                ${Math.ceil(total / 50) * 50}
+                ₱{Math.ceil(total / 50) * 50}
               </Button>
             </div>
             {cashAmount >= total && (
@@ -1035,7 +1035,7 @@ export default function Page() {
                 <div className="flex justify-between items-center">
                   <span className="text-green-800 font-medium">Change:</span>
                   <span className="text-green-900 font-bold text-2xl">
-                    ${change.toFixed(2)}
+                    ₱{change.toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -1043,7 +1043,7 @@ export default function Page() {
             {cashAmount > 0 && cashAmount < total && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                 <p className="text-red-800 text-sm text-center">
-                  Insufficient amount. Need ${(total - cashAmount).toFixed(2)}{" "}
+                  Insufficient amount. Need ₱{(total - cashAmount).toFixed(2)}{" "}
                   more
                 </p>
               </div>
@@ -1088,7 +1088,7 @@ export default function Page() {
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Total:</span>
                 <span className="font-semibold text-lg">
-                  ${total.toFixed(2)}
+                  ₱{total.toFixed(2)}
                 </span>
               </div>
             </div>

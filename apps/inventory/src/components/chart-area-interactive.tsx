@@ -41,7 +41,7 @@ const chartConfig = {
     color: "hsl(var(--chart-1))",
   },
   profit: {
-    label: "Profit ($)",
+    label: "Profit (₱)",
     color: "hsl(var(--chart-2))",
   },
 } satisfies ChartConfig;

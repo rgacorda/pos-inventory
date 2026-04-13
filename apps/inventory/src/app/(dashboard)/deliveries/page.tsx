@@ -484,7 +484,7 @@ export default function InventoryDeliveriesPage() {
                         {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
                       </TableCell>
                       <TableCell>
-                        ${Number(delivery.totalCost).toFixed(2)}
+                        ₱{Number(delivery.totalCost).toFixed(2)}
                       </TableCell>
                       <TableCell>{getStatusBadge(delivery.status)}</TableCell>
                       <TableCell>
@@ -761,10 +761,10 @@ export default function InventoryDeliveriesPage() {
                               {item.quantity}
                             </TableCell>
                             <TableCell className="text-right text-sm">
-                              ${item.unitCost.toFixed(2)}
+                              ₱{item.unitCost.toFixed(2)}
                             </TableCell>
                             <TableCell className="text-right text-sm">
-                              ${item.totalCost.toFixed(2)}
+                              ₱{item.totalCost.toFixed(2)}
                             </TableCell>
                             <TableCell>
                               <Button
@@ -1005,10 +1005,10 @@ export default function InventoryDeliveriesPage() {
                               {item.quantity}
                             </TableCell>
                             <TableCell className="text-right text-sm">
-                              ${item.unitCost.toFixed(2)}
+                              ₱{item.unitCost.toFixed(2)}
                             </TableCell>
                             <TableCell className="text-right text-sm">
-                              ${item.totalCost.toFixed(2)}
+                              ₱{item.totalCost.toFixed(2)}
                             </TableCell>
                             <TableCell>
                               <Button

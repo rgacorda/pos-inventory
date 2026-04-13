@@ -321,7 +321,7 @@ export default function ExpensesPage() {
                 Total Expenses
               </h3>
               <p className="text-2xl font-bold mt-2">
-                ${getTotalExpenses().toFixed(2)}
+                ₱{getTotalExpenses().toFixed(2)}
               </p>
             </div>
             <div className="rounded-lg border p-4">
@@ -395,7 +395,7 @@ export default function ExpensesPage() {
                         {format(new Date(expense.expenseDate), "MMM d, yyyy")}
                       </TableCell>
                       <TableCell className="font-semibold">
-                        ${Number(expense.amount).toFixed(2)}
+                        ₱{Number(expense.amount).toFixed(2)}
                       </TableCell>
                       <TableCell>{expense.referenceNumber || "—"}</TableCell>
                       <TableCell>

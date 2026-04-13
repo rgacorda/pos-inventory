@@ -3,9 +3,9 @@
  */
 export function formatCurrency(
   amount: number,
-  currency: string = "USD",
+  currency: string = "PHP",
 ): string {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency,
   }).format(amount);

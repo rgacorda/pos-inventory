@@ -285,16 +285,16 @@ export default function ReportsPage() {
 
       // Add summary stats
       csvContent += `Summary Statistics\n`;
-      csvContent += `Total Revenue,$${stats.totalRevenue.toFixed(2)}\n`;
+      csvContent += `Total Revenue,₱${stats.totalRevenue.toFixed(2)}\n`;
       csvContent += `Total Orders,${stats.totalOrders}\n`;
-      csvContent += `Average Order Value,$${stats.averageOrderValue.toFixed(2)}\n`;
-      csvContent += `Total Profit,$${stats.totalProfit.toFixed(2)}\n\n`;
+      csvContent += `Average Order Value,₱${stats.averageOrderValue.toFixed(2)}\n`;
+      csvContent += `Total Profit,₱${stats.totalProfit.toFixed(2)}\n\n`;
 
       // Add top products
       csvContent += `Top Selling Products\n`;
       csvContent += `Rank,Product,SKU,Units Sold,Revenue\n`;
       topProducts.forEach((item: any, index: number) => {
-        csvContent += `${index + 1},${item.product?.name || "Unknown"},${item.product?.sku || "N/A"},${item.totalQuantity},$${item.totalRevenue.toFixed(2)}\n`;
+        csvContent += `${index + 1},${item.product?.name || "Unknown"},${item.product?.sku || "N/A"},${item.totalQuantity},₱${item.totalRevenue.toFixed(2)}\n`;
       });
       csvContent += `\n`;
 
@@ -303,7 +303,7 @@ export default function ReportsPage() {
         csvContent += `Cashier Performance\n`;
         csvContent += `Cashier,Orders,Revenue\n`;
         cashierPerformance.forEach((cashier: any) => {
-          csvContent += `${cashier.name},${cashier.orders},$${cashier.revenue.toFixed(2)}\n`;
+          csvContent += `${cashier.name},${cashier.orders},₱${cashier.revenue.toFixed(2)}\n`;
         });
         csvContent += `\n`;
       }
@@ -313,7 +313,7 @@ export default function ReportsPage() {
         csvContent += `Terminal Performance\n`;
         csvContent += `Terminal,Orders,Revenue\n`;
         terminalPerformance.forEach((terminal: any) => {
-          csvContent += `${terminal.name},${terminal.orders},$${terminal.revenue.toFixed(2)}\n`;
+          csvContent += `${terminal.name},${terminal.orders},₱${terminal.revenue.toFixed(2)}\n`;
         });
         csvContent += `\n`;
       }
@@ -322,7 +322,7 @@ export default function ReportsPage() {
       csvContent += `Recent Orders\n`;
       csvContent += `Date,Order ID,Items,Total,Status\n`;
       recentOrders.forEach((order) => {
-        csvContent += `${new Date(order.createdAt).toLocaleDateString()},${order.id},${order.items?.length || 0},$${Number(order.totalAmount || 0).toFixed(2)},${order.status}\n`;
+        csvContent += `${new Date(order.createdAt).toLocaleDateString()},${order.id},${order.items?.length || 0},₱${Number(order.totalAmount || 0).toFixed(2)},${order.status}\n`;
       });
 
       const blob = new Blob([csvContent], { type: "text/csv" });
@@ -423,7 +423,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  ${Number(stats.totalRevenue || 0).toFixed(2)}
+                  ₱{Number(stats.totalRevenue || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   For selected period
@@ -440,7 +440,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  ${Number(stats.totalProfit || 0).toFixed(2)}
+                  ₱{Number(stats.totalProfit || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Revenue minus tax
@@ -458,7 +458,7 @@ export default function ReportsPage() {
               <CardContent>
                 <div className="text-2xl font-bold">{stats.totalOrders}</div>
                 <p className="text-xs text-muted-foreground">
-                  Avg: ${Number(stats.averageOrderValue || 0).toFixed(2)}
+                  Avg: ₱{Number(stats.averageOrderValue || 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>
@@ -575,7 +575,7 @@ export default function ReportsPage() {
                             </TableCell>
                             <TableCell>{order.items?.length || 0}</TableCell>
                             <TableCell className="text-right font-semibold">
-                              ${Number(order.totalAmount || 0).toFixed(2)}
+                              ₱{Number(order.totalAmount || 0).toFixed(2)}
                             </TableCell>
                             <TableCell>
                               <Badge
@@ -643,7 +643,7 @@ export default function ReportsPage() {
                           </div>
                           <div className="text-right">
                             <p className="font-semibold">
-                              ${Number(item.totalRevenue || 0).toFixed(2)}
+                              ₱{Number(item.totalRevenue || 0).toFixed(2)}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {item.totalQuantity} units sold
@@ -730,10 +730,10 @@ export default function ReportsPage() {
                                 {cashier.orders}
                               </TableCell>
                               <TableCell className="text-right font-semibold">
-                                ${cashier.revenue.toFixed(2)}
+                                ₱{cashier.revenue.toFixed(2)}
                               </TableCell>
                               <TableCell className="text-right">
-                                ${(cashier.revenue / cashier.orders).toFixed(2)}
+                                ₱{(cashier.revenue / cashier.orders).toFixed(2)}
                               </TableCell>
                             </TableRow>
                           ),
@@ -781,10 +781,10 @@ export default function ReportsPage() {
                                 {terminal.orders}
                               </TableCell>
                               <TableCell className="text-right font-semibold">
-                                ${terminal.revenue.toFixed(2)}
+                                ₱{terminal.revenue.toFixed(2)}
                               </TableCell>
                               <TableCell className="text-right">
-                                $
+                                ₱
                                 {(terminal.revenue / terminal.orders).toFixed(
                                   2,
                                 )}
@@ -855,7 +855,7 @@ export default function ReportsPage() {
                               <p className="font-medium">{method.method}</p>
                             </div>
                             <p className="font-semibold">
-                              ${method.amount.toFixed(2)}
+                              ₱{method.amount.toFixed(2)}
                             </p>
                           </div>
                         ))}
@@ -923,7 +923,7 @@ export default function ReportsPage() {
                             </span>
                           </div>
                           <span className="font-semibold">
-                            ${hourData.revenue.toFixed(2)}
+                            ₱{hourData.revenue.toFixed(2)}
                           </span>
                         </div>
                       ))}
