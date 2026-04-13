@@ -361,12 +361,16 @@ export function Sidebar() {
           </div>
         )}
 
-        <Link href="/login">
-          <div className="hover:bg-gray-100 hover:text-gray-900 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-gray-700 transition-colors">
-            <LogOut className="h-5 w-5" />
-            <span className="text-sm">Logout</span>
-          </div>
-        </Link>
+        <div
+          onClick={() => {
+            apiClient.logout();
+            window.location.href = "/login";
+          }}
+          className="hover:bg-gray-100 hover:text-gray-900 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-gray-700 transition-colors"
+        >
+          <LogOut className="h-5 w-5" />
+          <span className="text-sm">Logout</span>
+        </div>
       </div>
     </div>
   );
