@@ -5,6 +5,10 @@ export class CreateOrganizationDto {
   @IsString()
   name: string;
 
+  @IsString()
+  @IsOptional()
+  slug?: string;
+
   @IsEmail()
   email: string;
 
@@ -64,6 +68,10 @@ export class UpdateOrganizationDto {
   @IsString()
   @IsOptional()
   name?: string;
+
+  @IsString()
+  @IsOptional()
+  slug?: string;
 
   @IsEmail()
   @IsOptional()

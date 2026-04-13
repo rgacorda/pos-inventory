@@ -31,7 +31,27 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   @IsOptional()
+  packPrice?: number;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  packQuantity?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
   cost?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  markupPercentage?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  markupFixed?: number;
 
   @IsNumber()
   @Min(0)
@@ -90,7 +110,27 @@ export class UpdateProductDto {
   @IsNumber()
   @Min(0)
   @IsOptional()
+  packPrice?: number;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  packQuantity?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
   cost?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  markupPercentage?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  markupFixed?: number;
 
   @IsNumber()
   @Min(0)

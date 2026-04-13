@@ -34,6 +34,7 @@ import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus } from "@pos/shared-types";
+import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 
 interface OrderItem {
@@ -205,15 +206,25 @@ export default function Page() {
     setReferenceNumber("");
   };
 
-  // Calculate totals
+  // Calculate totals with tiered pricing
   const subtotal = orderItems.reduce((sum, item) => {
-    const itemPrice = item.product.price * item.quantity;
-    return sum + itemPrice;
+    const itemSubtotal = calculateLineSubtotalWithTieredPrice(
+      item.quantity,
+      item.product.price,
+      item.product.packPrice,
+      item.product.packQuantity,
+    );
+    return sum + itemSubtotal;
   }, 0);
 
   const tax = orderItems.reduce((sum, item) => {
-    const itemPrice = item.product.price * item.quantity;
-    const itemTax = itemPrice * (item.product.taxRate || 0);
+    const itemSubtotal = calculateLineSubtotalWithTieredPrice(
+      item.quantity,
+      item.product.price,
+      item.product.packPrice,
+      item.product.packQuantity,
+    );
+    const itemTax = itemSubtotal * (item.product.taxRate || 0);
     return sum + itemTax;
   }, 0);
 
@@ -274,9 +285,20 @@ export default function Page() {
       const orderNumber = `ORD-${Date.now()}`;
       const now = new Date();
 
-      // Prepare order items
+      // Prepare order items with tiered pricing
       const items = orderItems.map((item) => {
-        const subtotal = item.product.price * item.quantity;
+        const effectivePrice = calculateEffectivePrice(
+          item.quantity,
+          item.product.price,
+          item.product.packPrice,
+          item.product.packQuantity,
+        );
+        const subtotal = calculateLineSubtotalWithTieredPrice(
+          item.quantity,
+          item.product.price,
+          item.product.packPrice,
+          item.product.packQuantity,
+        );
         const itemTax = subtotal * (item.product.taxRate || 0);
         return {
           id: uuidv4(),
@@ -285,7 +307,7 @@ export default function Page() {
           sku: item.product.sku,
           name: item.product.name,
           quantity: item.quantity,
-          unitPrice: item.product.price,
+          unitPrice: effectivePrice,
           taxRate: item.product.taxRate || 0,
           discountAmount: 0,
           subtotal,
@@ -508,11 +530,32 @@ export default function Page() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          ${item.product.price.toFixed(2)}
+                          <div>
+                            <div className="font-semibold">
+                              ${calculateEffectivePrice(
+                                item.quantity,
+                                item.product.price,
+                                item.product.packPrice,
+                                item.product.packQuantity,
+                              ).toFixed(2)}
+                            </div>
+                            {item.product.packPrice && 
+                             item.product.packQuantity && 
+                             item.quantity >= item.product.packQuantity && (
+                              <div className="text-xs text-green-600 font-medium">
+                                Pack price
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-bold text-lg">
-                            ${(item.product.price * item.quantity).toFixed(2)}
+                            ${calculateLineSubtotalWithTieredPrice(
+                              item.quantity,
+                              item.product.price,
+                              item.product.packPrice,
+                              item.product.packQuantity,
+                            ).toFixed(2)}
                           </span>
                         </TableCell>
                         <TableCell className="text-center">
@@ -736,7 +779,16 @@ export default function Page() {
                         <TableCell>{product.sku}</TableCell>
                         <TableCell>{product.category}</TableCell>
                         <TableCell className="text-right">
-                          ${product.price.toFixed(2)}
+                          <div>
+                            <div className="font-semibold">
+                              ${product.price.toFixed(2)}
+                            </div>
+                            {product.packPrice && product.packQuantity && (
+                              <div className="text-xs text-green-600">
+                                ${product.packPrice.toFixed(2)}/{product.packQuantity}pc
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           {product.stockQuantity}
@@ -792,9 +844,59 @@ export default function Page() {
                 <div className="text-sm text-gray-600 mt-1">
                   SKU: {productToAdd.sku}
                 </div>
-                <div className="text-lg font-bold text-gray-900 mt-2">
-                  ${productToAdd.price.toFixed(2)}
+                <div className="mt-2 space-y-1">
+                  <div className="text-sm text-gray-700">
+                    Per piece: <span className="font-semibold">${productToAdd.price.toFixed(2)}</span>
+                  </div>
+                  {productToAdd.packPrice && productToAdd.packQuantity && (
+                    <div className="text-sm text-green-600">
+                      Pack price: <span className="font-semibold">${productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
+                    </div>
+                  )}
                 </div>
+                {(() => {
+                  const qty = parseInt(quantityToAdd) || 0;
+                  const effectivePrice = calculateEffectivePrice(
+                    qty,
+                    productToAdd.price,
+                    productToAdd.packPrice,
+                    productToAdd.packQuantity,
+                  );
+                  const lineTotal = calculateLineSubtotalWithTieredPrice(
+                    qty,
+                    productToAdd.price,
+                    productToAdd.packPrice,
+                    productToAdd.packQuantity,
+                  );
+                  const isUsingPackPrice = productToAdd.packPrice && 
+                    productToAdd.packQuantity && 
+                    qty >= productToAdd.packQuantity;
+                  
+                  return qty > 0 ? (
+                    <div className="mt-3 pt-3 border-t border-gray-300">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="text-sm text-gray-600">
+                            Effective price: ${effectivePrice.toFixed(2)}
+                          </div>
+                          {isUsingPackPrice && (
+                            <div className="text-xs text-green-600 font-medium">
+                              Using pack price
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-gray-900">
+                            ${lineTotal.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Total
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
               </div>
 
               <div className="space-y-2">
@@ -841,10 +943,16 @@ export default function Page() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setQuantityToAdd("10")}
-                  className="h-10"
+                  onClick={() => setQuantityToAdd(
+                    productToAdd.packQuantity ? productToAdd.packQuantity.toString() : "10"
+                  )}
+                  className={`h-10 ${
+                    productToAdd.packQuantity && productToAdd.packPrice
+                      ? "border-green-500 text-green-700 hover:bg-green-50"
+                      : ""
+                  }`}
                 >
-                  10
+                  {productToAdd.packQuantity || "10"}
                 </Button>
               </div>
             </div>

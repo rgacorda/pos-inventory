@@ -191,7 +191,7 @@ export interface SalesReportDto {
  */
 export interface CreateOrganizationDto {
   name: string;
-  slug: string;
+  slug?: string; // Optional - will be auto-generated from name if not provided
   description?: string;
   email: string;
   phone?: string;

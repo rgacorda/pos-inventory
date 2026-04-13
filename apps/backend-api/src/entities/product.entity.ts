@@ -32,6 +32,12 @@ export class ProductEntity {
   price: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  packPrice: number;
+
+  @Column({ type: 'int', nullable: true })
+  packQuantity: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   cost: number;
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })

@@ -25,7 +25,9 @@ export interface Product extends BaseEntity {
   name: string;
   description?: string;
   category?: string;
-  price: number;
+  price: number; // Per piece price
+  packPrice?: number; // Price per pack/dozen
+  packQuantity?: number; // Number of items in a pack (e.g., 12 for dozen)
   cost?: number;
   taxRate: number;
   stockQuantity: number;

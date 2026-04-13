@@ -65,6 +65,8 @@ export default function ProductsPage() {
     description: "",
     category: "",
     price: "",
+    packPrice: "",
+    packQuantity: "",
     cost: "",
     markupPercentage: "",
     markupFixed: "",
@@ -119,6 +121,8 @@ export default function ProductsPage() {
       description: "",
       category: "",
       price: "",
+      packPrice: "",
+      packQuantity: "",
       cost: "",
       markupPercentage: "",
       markupFixed: "",
@@ -143,6 +147,8 @@ export default function ProductsPage() {
       description: product.description || "",
       category: product.category || "",
       price: product.price?.toString() || "",
+      packPrice: product.packPrice?.toString() || "",
+      packQuantity: product.packQuantity?.toString() || "",
       cost: product.cost?.toString() || "",
       markupPercentage: product.markupPercentage?.toString() || "",
       markupFixed: product.markupFixed?.toString() || "",
@@ -168,6 +174,8 @@ export default function ProductsPage() {
       const productData = {
         ...formData,
         price: parseFloat(formData.price),
+        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
+        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
@@ -197,6 +205,8 @@ export default function ProductsPage() {
       const productData = {
         ...formData,
         price: parseFloat(formData.price),
+        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
+        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
@@ -301,6 +311,7 @@ export default function ProductsPage() {
                     <TableHead>Markup %</TableHead>
                     <TableHead>Fixed $</TableHead>
                     <TableHead>Selling Price</TableHead>
+                    <TableHead>Pack Price</TableHead>
                     <TableHead>Profit</TableHead>
                     <TableHead>Stock</TableHead>
                     <TableHead>Status</TableHead>
@@ -333,6 +344,20 @@ export default function ProductsPage() {
                       </TableCell>
                       <TableCell className="font-semibold text-green-600">
                         ${sellingPrice.toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        {product.packPrice && product.packQuantity ? (
+                          <div className="text-sm">
+                            <div className="font-medium text-blue-600">
+                              ${Number(product.packPrice).toFixed(2)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {product.packQuantity} pcs
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </TableCell>
                       <TableCell className={`font-medium ${
                         profit > 0 ? "text-green-600" : profit < 0 ? "text-red-600" : "text-gray-600"
@@ -606,6 +631,56 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
+                {/* Tiered Pricing Section */}
+                <div className="border-t pt-4 mt-4">
+                  <h4 className="text-sm font-semibold mb-3 text-gray-700">Pack/Dozen Pricing (Optional)</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="packQuantity">Pack Quantity</Label>
+                      <Input
+                        id="packQuantity"
+                        type="number"
+                        value={formData.packQuantity}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            packQuantity: e.target.value,
+                          })
+                        }
+                        placeholder="12"
+                      />
+                      <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="packPrice">Pack Price ($)</Label>
+                      <Input
+                        id="packPrice"
+                        type="number"
+                        step="0.01"
+                        value={formData.packPrice}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            packPrice: e.target.value,
+                          })
+                        }
+                        placeholder="10.00"
+                      />
+                      <p className="text-xs text-muted-foreground">Total price for the pack</p>
+                    </div>
+                  </div>
+                  {formData.packQuantity && formData.packPrice && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                      <span className="text-blue-900">
+                        Per-item price when buying {formData.packQuantity} or more: 
+                        <strong className="ml-1">
+                          ${(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="stockQuantity">Stock Quantity *</Label>
@@ -848,6 +923,56 @@ export default function ProductsPage() {
                     />
                     <p className="text-xs text-muted-foreground">Auto-calculated from cost + markups</p>
                   </div>
+                </div>
+
+                {/* Tiered Pricing Section */}
+                <div className="border-t pt-4 mt-4">
+                  <h4 className="text-sm font-semibold mb-3 text-gray-700">Pack/Dozen Pricing (Optional)</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-packQuantity">Pack Quantity</Label>
+                      <Input
+                        id="edit-packQuantity"
+                        type="number"
+                        value={formData.packQuantity}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            packQuantity: e.target.value,
+                          })
+                        }
+                        placeholder="12"
+                      />
+                      <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-packPrice">Pack Price ($)</Label>
+                      <Input
+                        id="edit-packPrice"
+                        type="number"
+                        step="0.01"
+                        value={formData.packPrice}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            packPrice: e.target.value,
+                          })
+                        }
+                        placeholder="10.00"
+                      />
+                      <p className="text-xs text-muted-foreground">Total price for the pack</p>
+                    </div>
+                  </div>
+                  {formData.packQuantity && formData.packPrice && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                      <span className="text-blue-900">
+                        Per-item price when buying {formData.packQuantity} or more: 
+                        <strong className="ml-1">
+                          ${(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

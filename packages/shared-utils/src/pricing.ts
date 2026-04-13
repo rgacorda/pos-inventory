@@ -1,6 +1,56 @@
 import { CreateOrderItemDto } from "@pos/shared-types";
 
 /**
+ * Calculate the effective unit price based on quantity and tiered pricing
+ * If quantity meets or exceeds packQuantity and packPrice is set, use pack pricing
+ * Otherwise use per-piece pricing
+ * 
+ * @param quantity - Number of items being purchased
+ * @param unitPrice - Price per single item
+ * @param packPrice - Total price for a pack (not per-item in pack)
+ * @param packQuantity - Number of items that make a pack
+ * @returns Effective price per item
+ */
+export function calculateEffectivePrice(
+  quantity: number,
+  unitPrice: number,
+  packPrice?: number,
+  packQuantity?: number,
+): number {
+  // If pack pricing is not configured, use standard unit price
+  if (!packPrice || !packQuantity || packQuantity <= 0) {
+    return unitPrice;
+  }
+
+  // If quantity meets or exceeds pack threshold, calculate per-item price from pack
+  if (quantity >= packQuantity) {
+    return packPrice / packQuantity;
+  }
+
+  // Otherwise use standard unit price
+  return unitPrice;
+}
+
+/**
+ * Calculate line item subtotal with tiered pricing support
+ * (quantity × effective unit price based on pack pricing)
+ */
+export function calculateLineSubtotalWithTieredPrice(
+  quantity: number,
+  unitPrice: number,
+  packPrice?: number,
+  packQuantity?: number,
+): number {
+  const effectivePrice = calculateEffectivePrice(
+    quantity,
+    unitPrice,
+    packPrice,
+    packQuantity,
+  );
+  return Number((quantity * effectivePrice).toFixed(2));
+}
+
+/**
  * Calculate line item subtotal (quantity × unit price)
  */
 export function calculateLineSubtotal(

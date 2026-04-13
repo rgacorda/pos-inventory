@@ -173,8 +173,8 @@ export default function OrganizationsPage() {
       setIsSubmitting(true);
 
       // Validate required fields
-      if (!formData.name || !formData.slug || !formData.email) {
-        toast.error("Name, slug, and email are required");
+      if (!formData.name || !formData.email) {
+        toast.error("Name and email are required");
         return;
       }
 
@@ -208,8 +208,8 @@ export default function OrganizationsPage() {
       setIsSubmitting(true);
 
       // Validate required fields
-      if (!formData.name || !formData.slug || !formData.email) {
-        toast.error("Name, slug, and email are required");
+      if (!formData.name || !formData.email) {
+        toast.error("Name and email are required");
         return;
       }
 
@@ -568,18 +568,24 @@ export default function OrganizationsPage() {
                   id="name"
                   value={formData.name}
                   onChange={(e) => {
-                    setFormData({ ...formData, name: e.target.value });
-                    // Auto-generate slug from name
-                    if (!formData.slug) {
-                      setFormData({
-                        ...formData,
-                        name: e.target.value,
-                        slug: e.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-|-$/g, ""),
-                      });
-                    }
+                    const newName = e.target.value;
+                    // Auto-generate slug from name if slug hasn't been manually edited
+                    const autoSlug = newName
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-|-$/g, "");
+                    
+                    setFormData({ 
+                      ...formData, 
+                      name: newName,
+                      // Only auto-update slug if it matches the previous auto-generated value
+                      slug: formData.slug === formData.name
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, "-")
+                        .replace(/^-|-$/g, "")
+                        ? autoSlug
+                        : formData.slug
+                    });
                   }}
                   placeholder="Acme Corporation"
                   disabled={isSubmitting}
@@ -588,7 +594,7 @@ export default function OrganizationsPage() {
 
               <Field>
                 <FieldLabel htmlFor="slug">
-                  Slug <span className="text-destructive">*</span>
+                  Slug <span className="text-muted-foreground">(Optional)</span>
                 </FieldLabel>
                 <Input
                   id="slug"
@@ -596,9 +602,12 @@ export default function OrganizationsPage() {
                   onChange={(e) =>
                     setFormData({ ...formData, slug: e.target.value })
                   }
-                  placeholder="acme-corporation"
+                  placeholder="Auto-generated from name"
                   disabled={isSubmitting}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave empty to auto-generate from organization name
+                </p>
               </Field>
             </div>
 
@@ -854,7 +863,7 @@ export default function OrganizationsPage() {
 
               <Field>
                 <FieldLabel htmlFor="edit-slug">
-                  Slug <span className="text-destructive">*</span>
+                  Slug <span className="text-muted-foreground">(Optional)</span>
                 </FieldLabel>
                 <Input
                   id="edit-slug"
@@ -865,6 +874,9 @@ export default function OrganizationsPage() {
                   placeholder="acme-corporation"
                   disabled={isSubmitting}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Leave empty to auto-generate from organization name
+                </p>
               </Field>
             </div>
 

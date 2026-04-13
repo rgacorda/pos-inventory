@@ -38,6 +38,7 @@ export class OrganizationsService {
       adminName,
       adminEmail,
       adminPassword,
+      slug: providedSlug,
       ...orgData
     } = createOrganizationDto;
 
@@ -49,15 +50,19 @@ export class OrganizationsService {
       throw new ConflictException('A user with this email already exists');
     }
 
-    // Generate slug from name
-    const slug = this.generateSlug(name);
+    // Use provided slug or generate from name
+    const slug = providedSlug || this.generateSlug(name);
 
     // Check if slug already exists
     const existing = await this.organizationsRepository.findOne({
       where: { slug },
     });
     if (existing) {
-      throw new ConflictException('Organization with this name already exists');
+      throw new ConflictException(
+        providedSlug 
+          ? 'Organization with this slug already exists'
+          : 'Organization with this name already exists'
+      );
     }
 
     // Generate temporary password if not provided
@@ -144,6 +149,30 @@ export class OrganizationsService {
 
   async update(id: string, updateOrganizationDto: UpdateOrganizationDto) {
     const organization = await this.findOne(id);
+
+    // If slug is being updated, check for conflicts
+    if (updateOrganizationDto.slug && updateOrganizationDto.slug !== organization.slug) {
+      const existing = await this.organizationsRepository.findOne({
+        where: { slug: updateOrganizationDto.slug },
+      });
+      if (existing && existing.id !== id) {
+        throw new ConflictException('Organization with this slug already exists');
+      }
+    }
+
+    // If name is being updated but no slug provided, auto-generate slug
+    if (updateOrganizationDto.name && !updateOrganizationDto.slug) {
+      const autoSlug = this.generateSlug(updateOrganizationDto.name);
+      if (autoSlug !== organization.slug) {
+        const existing = await this.organizationsRepository.findOne({
+          where: { slug: autoSlug },
+        });
+        if (!existing || existing.id === id) {
+          updateOrganizationDto.slug = autoSlug;
+        }
+        // If auto-generated slug conflicts, keep the existing slug
+      }
+    }
 
     Object.assign(organization, updateOrganizationDto);
 
