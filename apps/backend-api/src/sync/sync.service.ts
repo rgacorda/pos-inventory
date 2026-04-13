@@ -321,6 +321,8 @@ export class SyncService {
         description: p.description,
         category: p.category,
         price: Number(p.price),
+        packPrice: p.packPrice ? Number(p.packPrice) : undefined,
+        packQuantity: p.packQuantity,
         taxRate: Number(p.taxRate),
         barcode: p.barcode,
         imageUrl: p.imageUrl,
