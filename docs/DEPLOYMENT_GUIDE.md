@@ -38,14 +38,13 @@ This guide provides complete step-by-step instructions for deploying the POS mon
 
 Follow these parts in order:
 1. **Part 1:** Server Preparation (Steps 1.1 - 1.5)
-2. **Part 2:** Database Setup (Steps 2.1 - 2.4) ⭐ **Set up & test database first**
-3. **Part 3:** Application Setup (Steps 3.1 - 3.4)
-4. **Part 4:** Application Dockerfiles (Steps 4.1 - 4.4)
-5. **Part 5:** Complete Docker Compose Setup (Steps 5.1 - 5.2)
-6. **Part 6:** Nginx Configuration (Step 6.1)
-7. **Part 7:** Deploy All Services (Steps 7.1 - 7.3)
-8. **Part 8:** SSL/HTTPS Setup (Steps 8.1 - 8.5)
-9. **Part 9:** Maintenance & Operations
+2. **Part 2:** Application Setup (Steps 2.1 - 2.4)
+3. **Part 3:** Application Dockerfiles (Steps 3.1 - 3.4)
+4. **Part 4:** Docker Compose Setup (Step 4.1)
+5. **Part 5:** Nginx Configuration (Step 5.1)
+6. **Part 6:** Deploy All Services (Steps 6.1 - 6.3)
+7. **Part 7:** SSL/HTTPS Setup (Steps 7.1 - 7.5)
+8. **Part 8:** Maintenance & Operations
 
 **Result:** Your apps will be accessible at:
 - `https://api.yourdomain.com`
@@ -131,111 +130,9 @@ cd ~/production/pos-system
 
 ---
 
-## �️ Part 2: Database Setup
+## 📦 Part 2: Application Setup
 
-> **⭐ Important:** We set up the database first to ensure your infrastructure is working before building applications.
-
-### Step 2.1: Create Docker Network
-
-Create a dedicated network for all services:
-```bash
-docker network create pos-network
-```
-
-Verify network creation:
-```bash
-docker network ls | grep pos-network
-```
-
-### Step 2.2: Pull PostgreSQL Image
-
-Pull the PostgreSQL Docker image:
-```bash
-docker pull postgres:15-alpine
-```
-
-This will download the PostgreSQL image. Wait for it to complete.
-
-### Step 2.3: Start PostgreSQL Container
-
-Create a simple docker-compose file for database testing:
-```bash
-nano ~/production/docker-compose-db.yml
-```
-
-Add the following:
-```yaml
-version: '3.8'
-
-services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: pos-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: pos_db
-      POSTGRES_USER: pos_user
-      POSTGRES_PASSWORD: CHANGE_THIS_STRONG_PASSWORD
-    volumes:
-      - ./postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"  # Expose for testing
-    networks:
-      - pos-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pos_user -d pos_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-networks:
-  pos-network:
-    external: true
-```
-
-**Important:** Change `CHANGE_THIS_STRONG_PASSWORD` to a strong password. Save this password - you'll need it later!
-
-Start the database:
-```bash
-cd ~/production
-docker compose -f docker-compose-db.yml up -d
-```
-
-Check if PostgreSQL is running:
-```bash
-docker compose -f docker-compose-db.yml ps
-docker compose -f docker-compose-db.yml logs postgres
-```
-
-You should see logs indicating PostgreSQL started successfully and is ready to accept connections.
-
-### Step 2.4: Test Database Connection
-
-Test the database connection:
-```bash
-# Check if postgres is healthy
-docker ps | grep pos-postgres
-
-# Connect to database
-docker exec -it pos-postgres psql -U pos_user -d pos_db
-```
-
-If successful, you'll see the PostgreSQL prompt. Type `\l` to list databases, then `\q` to exit.
-
-**Alternative test with docker compose:**
-```bash
-docker compose -f docker-compose-db.yml exec postgres psql -U pos_user -d pos_db -c "SELECT version();"
-```
-
-You should see the PostgreSQL version information.
-
-**✅ Checkpoint:** Your database is now running! Keep this terminal session for reference.
-
----
-
-## 📦 Part 3: Application Setup
-
-### Step 3.1: Clone Repository
+### Step 2.1: Clone Repository
 
 Clone your application repository:
 ```bash
@@ -254,7 +151,7 @@ cat ~/.ssh/id_ed25519.pub
 git clone git@github.com:yourusername/pos.git .
 ```
 
-### Step 3.2: Install Dependencies
+### Step 2.2: Install Dependencies
 
 Install all dependencies:
 ```bash
@@ -263,7 +160,7 @@ npm install
 
 This will install dependencies for all apps and packages in the monorepo.
 
-### Step 3.3: Create Environment Files
+### Step 2.3: Create Environment Files
 
 #### Backend API Environment
 
@@ -294,7 +191,7 @@ CORS_ORIGIN=https://yourdomain.com,https://pos.yourdomain.com,https://inventory.
 ```
 
 **Important:** Replace the following values:
-- `CHANGE_THIS_STRONG_PASSWORD` - Use the same database password from Part 2
+- `CHANGE_THIS_STRONG_PASSWORD` - Choose a strong database password (save it, you'll use it in docker-compose.yml)
 - `JWT_SECRET` - Generate a long random string (minimum 32 characters)
 - `yourdomain.com` - Replace with your actual domain name
 
@@ -327,7 +224,7 @@ Add:
 NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 ```
 
-### Step 3.4: Build Applications
+### Step 2.4: Build Applications
 
 Build all applications:
 ```bash
@@ -346,11 +243,11 @@ This command will:
 
 ---
 
-## 🐳 Part 4: Application Dockerfiles
+## 🐳 Part 3: Application Dockerfiles
 
 Now we'll create Dockerfiles for each application component.
 
-### Step 4.1: Create Dockerfile for Backend API
+### Step 3.1: Create Dockerfile for Backend API
 
 Create Dockerfile for Backend API:
 ```bash
@@ -395,7 +292,7 @@ EXPOSE 3000
 CMD ["node", "dist/main"]
 ```
 
-### Step 4.2: Create Dockerfile for POS App
+### Step 3.2: Create Dockerfile for POS App
 
 Create Dockerfile for POS app:
 ```bash
@@ -524,27 +421,21 @@ CMD ["npm", "start"]
 
 ---
 
-## 🐳 Part 5: Complete Docker Compose Setup
+## 🐳 Part 4: Docker Compose Setup
 
-### Step 5.1: Stop Test Database
+### Step 4.1: Create Docker Network and Compose File
 
-First, stop the test database we started earlier:
+First, create a dedicated network for all services:
 ```bash
-cd ~/production
-docker compose -f docker-compose-db.yml down
+docker network create pos-network
 ```
 
-**Note:** Don't worry, your data in `postgres-data` directory is preserved.
-
-### Step 5.2: Create Complete Docker Compose File
-
-Now create the complete docker-compose file for all services:
+Now create the complete docker-compose file:
 ```bash
 nano ~/production/docker-compose.yml
 ```
 
-> **💡 Note:** This will include the database AND all application services.
-> The network `pos-network` already exists from Part 2.
+> **💡 Note:** This file includes the database AND all application services in one configuration.
 
 Add the following:
 ```yaml
@@ -559,7 +450,7 @@ services:
     environment:
       POSTGRES_DB: pos_db
       POSTGRES_USER: pos_user
-      POSTGRES_PASSWORD: CHANGE_THIS_STRONG_PASSWORD  # Use the same password from Part 2
+      POSTGRES_PASSWORD: CHANGE_THIS_STRONG_PASSWORD  # Use the same password from your backend .env
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
     networks:
@@ -667,18 +558,18 @@ services:
 
 networks:
   pos-network:
-    external: true  # Use the network we created in Part 2
+    external: true  # Use the network we created above
 ```
 
-**Important:** Make sure to replace `CHANGE_THIS_STRONG_PASSWORD` with the SAME password you used in Part 2!
+**Important:** Make sure to replace `CHANGE_THIS_STRONG_PASSWORD` with the SAME password you used in your backend .env file!
 
 **✅ Checkpoint:** Complete docker-compose configuration is ready!
 
 ---
 
-## 🌐 Part 6: Nginx Configuration
+## 🌐 Part 5: Nginx Configuration
 
-### Step 6.1: Configure Nginx
+### Step 5.1: Configure Nginx
 
 Create Nginx configuration file:
 ```bash
@@ -787,9 +678,9 @@ server {
 
 ---
 
-## 🚀 Part 7: Deploy All Services
+## 🚀 Part 6: Deploy All Services
 
-### Step 7.1: Build and Start All Services
+### Step 6.1: Build and Start All Services
 
 Navigate to production directory:
 ```bash
@@ -814,7 +705,7 @@ docker compose ps
 
 All services should show "running" status.
 
-### Step 7.2: Initialize Database
+### Step 6.2: Initialize Database
 
 Run database migrations:
 ```bash
@@ -826,7 +717,7 @@ Seed initial data (if you have seed script):
 docker compose exec backend npm run seed
 ```
 
-### Step 7.3: Verify Deployment
+### Step 6.3: Verify Deployment
 
 Check logs for each service:
 ```bash
@@ -875,15 +766,15 @@ Visit these URLs:
 
 ---
 
-## 🔒 Part 8: SSL/HTTPS Setup
+## 🔒 Part 7: SSL/HTTPS Setup
 
-### Step 8.1: Install Certbot
+### Step 7.1: Install Certbot
 
 ```bash
 sudo apt install certbot python3-certbot-nginx -y
 ```
 
-### Step 8.2: Obtain SSL Certificates
+### Step 7.2: Obtain SSL Certificates
 
 Stop Nginx temporarily:
 ```bash
@@ -904,7 +795,7 @@ sudo mkdir -p ~/production/nginx/ssl
 sudo cp -r /etc/letsencrypt/* ~/production/certbot/conf/
 ```
 
-### Step 8.3: Update Nginx Configuration for HTTPS
+### Step 7.3: Update Nginx Configuration for HTTPS
 
 Update your Nginx configuration:
 ```bash
@@ -950,13 +841,13 @@ server {
 
 Repeat for all other server blocks (pos, inventory, admin).
 
-### Step 8.4: Restart Nginx
+### Step 7.4: Restart Nginx
 
 ```bash
 docker compose restart nginx
 ```
 
-### Step 8.5: Setup Auto-Renewal
+### Step 7.5: Setup Auto-Renewal
 
 Create renewal script:
 ```bash
@@ -988,7 +879,7 @@ Add this line:
 
 ---
 
-## 🔧 Part 9: Maintenance & Operations
+## 🔧 Part 8: Maintenance & Operations
 
 ### Common Commands
 
