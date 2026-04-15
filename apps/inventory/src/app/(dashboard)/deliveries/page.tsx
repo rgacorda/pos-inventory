@@ -29,6 +29,16 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   showSuccessToast,
   showErrorFromException,
   SUCCESS_MESSAGES,
@@ -69,6 +79,8 @@ export default function InventoryDeliveriesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -88,12 +100,17 @@ export default function InventoryDeliveriesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this delivery?")) return;
+  function handleDeleteDelivery(id: string) {
+    setSelectedDeliveryId(id);
+    setShowDeleteDialog(true);
+  }
 
+  async function confirmDelete() {
     try {
-      await apiClient.deleteInventoryDelivery(id);
+      await apiClient.deleteInventoryDelivery(selectedDeliveryId);
       showSuccessToast(SUCCESS_MESSAGES.DELETED("Delivery"));
+      setShowDeleteDialog(false);
+      setSelectedDeliveryId("");
       fetchDeliveries();
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("delivery"));
@@ -239,7 +256,7 @@ export default function InventoryDeliveriesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(delivery.id)}
+                          onClick={() => handleDeleteDelivery(delivery.id)}
                         >
                           <IconTrash className="h-4 w-4" />
                         </Button>
@@ -306,6 +323,23 @@ export default function InventoryDeliveriesPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Delivery</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this delivery? This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

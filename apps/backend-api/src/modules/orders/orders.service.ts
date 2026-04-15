@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { CreateOrderDto, UpdateOrderDto } from './dto';
@@ -189,7 +189,24 @@ export class OrdersService {
       throw new BadRequestException('Cannot delete completed or synced orders');
     }
 
-    await this.ordersRepository.remove(order);
+    try {
+      await this.ordersRepository.remove(order);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        // Handle foreign key constraint violations
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('foreign key constraint') ||
+          errorMessage.includes('violates foreign key') ||
+          errorMessage.includes('fk_')
+        ) {
+          throw new BadRequestException(
+            'Cannot delete order as it has associated payments. Please remove all payments first.',
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async syncOrder(id: string, requestingUser: any) {

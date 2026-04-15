@@ -28,6 +28,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -86,7 +96,9 @@ export default function ExpensesPage() {
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [selectedExpenseId, setSelectedExpenseId] = useState<string>("");
   const [expenseDate, setExpenseDate] = useState<Date>(new Date());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -183,12 +195,17 @@ export default function ExpensesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Are you sure you want to delete this expense?")) return;
+  function handleDeleteExpense(id: string) {
+    setSelectedExpenseId(id);
+    setShowDeleteDialog(true);
+  }
 
+  async function confirmDelete() {
     try {
-      await apiClient.deleteExpense(id);
+      await apiClient.deleteExpense(selectedExpenseId);
       showSuccessToast(SUCCESS_MESSAGES.DELETED("Expense"));
+      setShowDeleteDialog(false);
+      setSelectedExpenseId("");
       fetchExpenses();
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("expense"));
@@ -428,7 +445,7 @@ export default function ExpensesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(expense.id)}
+                          onClick={() => handleDeleteExpense(expense.id)}
                         >
                           <IconTrash className="h-4 w-4" />
                         </Button>
@@ -751,6 +768,23 @@ export default function ExpensesPage() {
           </DialogFooter>
         </DialogContent>)}
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Expense</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this expense? This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
