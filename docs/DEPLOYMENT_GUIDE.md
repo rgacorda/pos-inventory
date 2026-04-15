@@ -111,7 +111,7 @@ sudo systemctl start docker
 Add your user to docker group:
 ```bash
 sudo usermod -aG docker $USER
-newgrp docker
+newgrp docker`
 ```
 
 Verify Docker installation:

@@ -78,8 +78,15 @@ export function LoginForm({
       // Start auto-sync
       syncService.startAutoSync(60000);
 
-      // Redirect to home (use window.location for hard redirect to trigger middleware)
-      window.location.href = "/";
+      // Check if terminal is already selected
+      const terminalId = await dbHelpers.getTerminalId();
+      
+      // Redirect to terminal selection if not set, otherwise go to dashboard
+      if (!terminalId) {
+        window.location.href = "/select-terminal";
+      } else {
+        window.location.href = "/";
+      }
     } catch (err: any) {
       console.error("Login failed:", err);
       setError(

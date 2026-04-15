@@ -75,14 +75,8 @@ export default function Page() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize terminal ID and extract categories
+  // Extract categories from products
   useEffect(() => {
-    dbHelpers.getTerminalId().then((terminalId) => {
-      if (!terminalId) {
-        dbHelpers.setTerminalId("TERMINAL-001");
-      }
-    });
-
     if (products && products.length > 0) {
       const uniqueCategories = [
         "All",
