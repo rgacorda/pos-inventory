@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { SubscriptionEntity } from '../../entities/subscription.entity';
 import { UserEntity } from '../../entities/user.entity';
@@ -189,7 +189,24 @@ export class OrganizationsService {
       );
     }
 
-    await this.organizationsRepository.remove(organization);
+    try {
+      await this.organizationsRepository.remove(organization);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        // Handle foreign key constraint violations
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('foreign key constraint') ||
+          errorMessage.includes('violates foreign key') ||
+          errorMessage.includes('fk_')
+        ) {
+          throw new BadRequestException(
+            'Cannot delete organization as it has associated records (products, orders, terminals, etc.). Please remove all related records first.',
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async toggleActive(id: string, isActive: boolean) {

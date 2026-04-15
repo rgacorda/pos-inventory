@@ -47,7 +47,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
 import { Plus, Edit, Trash2, Search, Users as UsersIcon } from "lucide-react";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  showErrorToast,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
@@ -85,8 +91,7 @@ export default function UsersPage() {
       const data = await apiClient.getUsers();
       setUsers(data);
     } catch (error) {
-      console.error("Failed to load users:", error);
-      toast.error("Failed to load users");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("users"));
     } finally {
       setLoading(false);
     }
@@ -137,13 +142,12 @@ export default function UsersPage() {
       };
 
       await apiClient.createUser(userData);
-      toast.success("User added successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("User"));
       setShowAddDialog(false);
       resetForm();
       loadUsers();
     } catch (error: any) {
-      console.error("Failed to add user:", error);
-      toast.error(error.response?.data?.message || "Failed to add user");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("user"));
     } finally {
       setIsSaving(false);
     }
@@ -168,14 +172,13 @@ export default function UsersPage() {
       }
 
       await apiClient.updateUser(selectedUser.id, userData);
-      toast.success("User updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("User"));
       setShowEditDialog(false);
       setSelectedUser(null);
       resetForm();
       loadUsers();
     } catch (error: any) {
-      console.error("Failed to update user:", error);
-      toast.error(error.response?.data?.message || "Failed to update user");
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("user"));
     } finally {
       setIsSaving(false);
     }
@@ -184,13 +187,12 @@ export default function UsersPage() {
   const confirmDelete = async () => {
     try {
       await apiClient.deleteUser(selectedUser.id);
-      toast.success("User deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("User"));
       setShowDeleteDialog(false);
       setSelectedUser(null);
       loadUsers();
     } catch (error: any) {
-      console.error("Failed to delete user:", error);
-      toast.error(error.response?.data?.message || "Failed to delete user");
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("user"));
     }
   };
 

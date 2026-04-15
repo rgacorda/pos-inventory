@@ -15,7 +15,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiClient } from "@/lib/api-client";
 import { Building2, Save, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 
 interface Organization {
   id: string;
@@ -98,8 +103,7 @@ export default function OrganizationPage() {
         taxId: data.taxId || "",
       });
     } catch (error: any) {
-      console.error("Failed to fetch organization:", error);
-      toast.error("Failed to load organization details");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("organization details"));
     } finally {
       setLoading(false);
     }
@@ -128,14 +132,11 @@ export default function OrganizationPage() {
     try {
       setSaving(true);
       await apiClient.updateMyOrganization(formData);
-      toast.success("Organization updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Organization"));
       setIsEditing(false);
       fetchOrganization();
     } catch (error: any) {
-      console.error("Failed to update organization:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to update organization",
-      );
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("organization"));
     } finally {
       setSaving(false);
     }

@@ -60,7 +60,13 @@ import {
   IconDevices,
 } from "@tabler/icons-react";
 import { Organization, SubscriptionStatus, SubscriptionPlan } from "@pos/shared-types";
-import { toast } from "sonner";
+import { 
+  showSuccessToast, 
+  showErrorFromException, 
+  showErrorToast, 
+  SUCCESS_MESSAGES, 
+  ERROR_MESSAGES 
+} from "@/lib/toast-utils";
 
 interface OrganizationFormData {
   name: string;
@@ -161,8 +167,7 @@ export default function OrganizationsPage() {
       setOrganizations(data);
       setFilteredOrganizations(data);
     } catch (error: any) {
-      console.error("Failed to fetch organizations:", error);
-      toast.error("Failed to load organizations");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("organizations"));
     } finally {
       setIsLoading(false);
     }
@@ -174,28 +179,25 @@ export default function OrganizationsPage() {
 
       // Validate required fields
       if (!formData.name || !formData.email) {
-        toast.error("Name and email are required");
+        showErrorToast("Name and email are required");
         return;
       }
 
       // Validate admin fields
       if (!formData.adminName || !formData.adminEmail) {
-        toast.error("Admin name and email are required");
+        showErrorToast("Admin name and email are required");
         return;
       }
 
       await apiClient.createOrganization(formData);
-      toast.success(
-        "Organization and admin user created successfully! Credentials have been logged to console.",
+      showSuccessToast(
+        "Organization and admin user created successfully! Credentials have been logged to console."
       );
       setIsCreateDialogOpen(false);
       setFormData(initialFormData);
       fetchOrganizations();
     } catch (error: any) {
-      console.error("Failed to create organization:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to create organization",
-      );
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("organization"));
     } finally {
       setIsSubmitting(false);
     }
@@ -209,21 +211,18 @@ export default function OrganizationsPage() {
 
       // Validate required fields
       if (!formData.name || !formData.email) {
-        toast.error("Name and email are required");
+        showErrorToast("Name and email are required");
         return;
       }
 
       await apiClient.updateOrganization(editingOrg.id, formData);
-      toast.success("Organization updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Organization"));
       setIsEditDialogOpen(false);
       setEditingOrg(null);
       setFormData(initialFormData);
       fetchOrganizations();
     } catch (error: any) {
-      console.error("Failed to update organization:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to update organization",
-      );
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("organization"));
     } finally {
       setIsSubmitting(false);
     }
@@ -235,15 +234,12 @@ export default function OrganizationsPage() {
     try {
       setIsSubmitting(true);
       await apiClient.deleteOrganization(deletingOrg.id);
-      toast.success("Organization deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("Organization"));
       setIsDeleteDialogOpen(false);
       setDeletingOrg(null);
       fetchOrganizations();
     } catch (error: any) {
-      console.error("Failed to delete organization:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to delete organization",
-      );
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("organization"));
     } finally {
       setIsSubmitting(false);
     }
@@ -312,15 +308,12 @@ export default function OrganizationsPage() {
         status: subscriptionStatus,
         periodEndDate: periodEndDate,
       });
-      toast.success("Subscription updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Subscription"));
       setIsSubscriptionDialogOpen(false);
       setSubscriptionOrg(null);
       fetchOrganizations();
     } catch (error: any) {
-      console.error("Failed to update subscription:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to update subscription",
-      );
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("subscription"));
     } finally {
       setIsSubmitting(false);
     }
@@ -330,13 +323,10 @@ export default function OrganizationsPage() {
     try {
       setIsLoading(true);
       await apiClient.checkExpiredSubscriptions();
-      toast.success("Expiration check completed");
+      showSuccessToast("Expiration check completed");
       fetchOrganizations();
     } catch (error: any) {
-      console.error("Failed to check expired subscriptions:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to check expired subscriptions",
-      );
+      showErrorFromException(error, "Failed to check expired subscriptions");
     } finally {
       setIsLoading(false);
     }
@@ -351,8 +341,7 @@ export default function OrganizationsPage() {
       const stats = await apiClient.getOrganizationStats(org.id);
       setOrgStats(stats);
     } catch (error: any) {
-      console.error("Failed to fetch organization stats:", error);
-      toast.error("Failed to load organization details");
+      showErrorFromException(error, "Failed to load organization details");
     } finally {
       setIsLoadingStats(false);
     }

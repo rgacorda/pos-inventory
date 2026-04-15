@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { toast } from "sonner";
+import {
+  showErrorFromException,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import {
   Card,
   CardContent,
@@ -109,8 +112,7 @@ export default function Page() {
       // Get recent orders
       setRecentOrders(ordersData.slice(0, 5));
     } catch (error) {
-      console.error("Failed to load dashboard data:", error);
-      toast.error("Failed to load dashboard data");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("dashboard data"));
     } finally {
       setLoading(false);
     }

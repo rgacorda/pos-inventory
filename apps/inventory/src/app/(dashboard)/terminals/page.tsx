@@ -47,7 +47,12 @@ import {
   RefreshCw,
   MapPin,
 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 
 export default function TerminalsPage() {
   const [terminals, setTerminals] = useState<any[]>([]);
@@ -87,8 +92,7 @@ export default function TerminalsPage() {
       const data = await apiClient.getTerminals();
       setTerminals(data);
     } catch (error) {
-      console.error("Failed to load terminals:", error);
-      toast.error("Failed to load terminals");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("terminals"));
     } finally {
       setLoading(false);
     }
@@ -130,13 +134,12 @@ export default function TerminalsPage() {
 
     try {
       await apiClient.createTerminal(formData);
-      toast.success("Terminal added successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Terminal"));
       setShowAddDialog(false);
       resetForm();
       loadTerminals();
     } catch (error: any) {
-      console.error("Failed to add terminal:", error);
-      toast.error(error.response?.data?.message || "Failed to add terminal");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("terminal"));
     } finally {
       setIsSaving(false);
     }
@@ -148,14 +151,13 @@ export default function TerminalsPage() {
 
     try {
       await apiClient.updateTerminal(selectedTerminal.id, formData);
-      toast.success("Terminal updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Terminal"));
       setShowEditDialog(false);
       setSelectedTerminal(null);
       resetForm();
       loadTerminals();
     } catch (error: any) {
-      console.error("Failed to update terminal:", error);
-      toast.error(error.response?.data?.message || "Failed to update terminal");
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("terminal"));
     } finally {
       setIsSaving(false);
     }
@@ -164,13 +166,12 @@ export default function TerminalsPage() {
   const confirmDelete = async () => {
     try {
       await apiClient.deleteTerminal(selectedTerminal.id);
-      toast.success("Terminal deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("Terminal"));
       setShowDeleteDialog(false);
       setSelectedTerminal(null);
       loadTerminals();
     } catch (error: any) {
-      console.error("Failed to delete terminal:", error);
-      toast.error(error.response?.data?.message || "Failed to delete terminal");
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("terminal"));
     }
   };
 
@@ -179,11 +180,10 @@ export default function TerminalsPage() {
 
     try {
       await apiClient.syncTerminal(terminal.id);
-      toast.success(`Terminal "${terminal.name}" synced successfully`);
+      showSuccessToast(SUCCESS_MESSAGES.SYNCED(`Terminal "${terminal.name}"`));
       loadTerminals();
     } catch (error: any) {
-      console.error("Failed to sync terminal:", error);
-      toast.error(error.response?.data?.message || "Failed to sync terminal");
+      showErrorFromException(error, ERROR_MESSAGES.SYNC_FAILED("terminal"));
     } finally {
       setSyncingTerminals((prev) => {
         const newSet = new Set(prev);

@@ -11,12 +11,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { toast } from "sonner";
+  showErrorFromException,
+  ERROR_MESSAGES
+} from "@/lib/toast-utils";
 import {
   IconTrendingUp,
   IconTrendingDown,
@@ -73,8 +72,7 @@ export default function FinancialsPage() {
       );
       setData(result);
     } catch (error) {
-      console.error("Error fetching profit/loss:", error);
-      toast.error("Failed to load financial data");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("financial data"));
     } finally {
       setLoading(false);
     }

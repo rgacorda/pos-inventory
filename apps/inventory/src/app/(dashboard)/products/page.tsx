@@ -47,7 +47,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
 import { Plus, Edit, Trash2, Search, Package } from "lucide-react";
-import { toast } from "sonner";
+import { 
+  showSuccessToast, 
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES 
+} from "@/lib/toast-utils";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -87,8 +92,7 @@ export default function ProductsPage() {
       const data = await apiClient.getProducts();
       setProducts(data);
     } catch (error) {
-      console.error("Failed to load products:", error);
-      toast.error("Failed to load products");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("products"));
     } finally {
       setLoading(false);
     }
@@ -185,13 +189,12 @@ export default function ProductsPage() {
       };
 
       await apiClient.createProduct(productData);
-      toast.success("Product added successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Product"));
       setShowAddDialog(false);
       resetForm();
       loadProducts();
     } catch (error: any) {
-      console.error("Failed to add product:", error);
-      toast.error(error.response?.data?.message || "Failed to add product");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("product"));
     } finally {
       setIsSaving(false);
     }
@@ -216,14 +219,13 @@ export default function ProductsPage() {
       };
 
       await apiClient.updateProduct(selectedProduct.id, productData);
-      toast.success("Product updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Product"));
       setShowEditDialog(false);
       setSelectedProduct(null);
       resetForm();
       loadProducts();
     } catch (error: any) {
-      console.error("Failed to update product:", error);
-      toast.error(error.response?.data?.message || "Failed to update product");
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("product"));
     } finally {
       setIsSaving(false);
     }
@@ -232,13 +234,12 @@ export default function ProductsPage() {
   const confirmDelete = async () => {
     try {
       await apiClient.deleteProduct(selectedProduct.id);
-      toast.success("Product deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("Product"));
       setShowDeleteDialog(false);
       setSelectedProduct(null);
       loadProducts();
     } catch (error: any) {
-      console.error("Failed to delete product:", error);
-      toast.error(error.response?.data?.message || "Failed to delete product");
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("product"));
     }
   };
 

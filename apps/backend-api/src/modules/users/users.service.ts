@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import { UserEntity } from '../../entities/user.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateUserDto, UpdateUserDto } from './dto';
@@ -165,7 +165,24 @@ export class UsersService {
       throw new ForbiddenException('Cannot delete your own account');
     }
 
-    await this.usersRepository.remove(user);
+    try {
+      await this.usersRepository.remove(user);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        // Handle foreign key constraint violations
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('foreign key constraint') ||
+          errorMessage.includes('violates foreign key') ||
+          errorMessage.includes('fk_')
+        ) {
+          throw new BadRequestException(
+            'Cannot delete user as they have associated records (orders, transactions, etc.). Please transfer or remove all related records first.',
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async findByEmail(email: string) {

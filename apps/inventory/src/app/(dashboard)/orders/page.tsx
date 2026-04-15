@@ -47,7 +47,10 @@ import {
   ShoppingCart,
   Calendar as CalendarIcon,
 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  showErrorFromException,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
@@ -71,8 +74,7 @@ export default function OrdersPage() {
       const data = await apiClient.getOrders();
       setOrders(data);
     } catch (error) {
-      console.error("Failed to load orders:", error);
-      toast.error("Failed to load orders");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("orders"));
     } finally {
       setLoading(false);
     }

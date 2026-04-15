@@ -28,7 +28,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorToast,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import { Plus, Trash2, CreditCard, QrCode, Minus, Search } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
@@ -135,7 +140,7 @@ export default function Page() {
       setOrderItems([...orderItems, { product: productToAdd, quantity: qty }]);
     }
 
-    toast.success("Product Added", {
+    showSuccessToast(SUCCESS_MESSAGES.ADDED("Product"), {
       description: `${qty}x ${productToAdd.name} added to cart`,
     });
 
@@ -160,7 +165,7 @@ export default function Page() {
       addToOrder(product);
       setBarcodeInput("");
     } else {
-      toast.error("Product Not Found", {
+      showErrorToast(ERROR_MESSAGES.NOT_FOUND("Product"), {
         description: `No product with barcode: ${barcode}`,
       });
       setBarcodeInput("");
@@ -398,17 +403,17 @@ export default function Page() {
 
       // Show success feedback
       if (paymentMethod === PaymentMethod.CASH && change > 0) {
-        toast.success("Order Completed", {
+        showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Order"), {
           description: `Change: ₱${change.toFixed(2)}`,
         });
       } else {
-        toast.success("Order Completed", {
+        showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Order"), {
           description: `Total: ₱${total.toFixed(2)}`,
         });
       }
     } catch (error) {
       console.error("Checkout failed:", error);
-      toast.error("Checkout Failed", {
+      showErrorToast("Checkout Failed", {
         description: "Failed to process order. Please try again.",
       });
     } finally {

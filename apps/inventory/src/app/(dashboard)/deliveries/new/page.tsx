@@ -45,7 +45,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { format } from "date-fns";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  showErrorToast,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import { IconX, IconPlus, IconArrowLeft, IconSearch } from "@tabler/icons-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -148,8 +154,7 @@ export default function NewDeliveryPage() {
       const data = await apiClient.getProducts();
       setProducts(data);
     } catch (error) {
-      console.error("Error fetching products:", error);
-      toast.error("Failed to load products");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("products"));
     }
   }
 
@@ -185,7 +190,7 @@ export default function NewDeliveryPage() {
 
   function handleOpenAddItemDialog() {
     if (!selectedProductId) {
-      toast.error("Please select a product first");
+      showErrorToast("Please select a product first");
       return;
     }
     
@@ -204,7 +209,7 @@ export default function NewDeliveryPage() {
 
   async function handleAddItemToDelivery() {
     if (!selectedProductId || !itemFormData.quantity || !itemFormData.unitCost) {
-      toast.error("Please fill in all fields");
+      showErrorToast("Please fill in all fields");
       return;
     }
 
@@ -256,11 +261,10 @@ export default function NewDeliveryPage() {
       setSelectedProductId("");
       resetItemForm();
       
-      toast.success("Item added to delivery");
+      showSuccessToast(SUCCESS_MESSAGES.ADDED("Item"));
       await fetchProducts(); // Refresh products to show updated stock
     } catch (error) {
-      console.error("Error updating product:", error);
-      toast.error("Failed to update product stock");
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("product stock"));
     }
   }
 
@@ -285,15 +289,14 @@ export default function NewDeliveryPage() {
       };
 
       const savedProduct = await apiClient.createProduct(productData);
-      toast.success("Product created successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Product"));
 
       await fetchProducts();
       setIsCreateProductDialogOpen(false);
       setSelectedProductId(savedProduct.id);
       resetProductForm();
     } catch (error: any) {
-      console.error("Error creating product:", error);
-      toast.error(error.response?.data?.message || "Failed to create product");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("product"));
     }
   }
 
@@ -331,12 +334,12 @@ export default function NewDeliveryPage() {
 
   async function handleSubmit() {
     if (!formData.supplier) {
-      toast.error("Please enter supplier name");
+      showErrorToast("Please enter supplier name");
       return;
     }
 
     if (items.length === 0) {
-      toast.error("Please add at least one item");
+      showErrorToast("Please add at least one item");
       return;
     }
 
@@ -357,11 +360,10 @@ export default function NewDeliveryPage() {
         receiptImageUrl,
       });
 
-      toast.success("Delivery created successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Delivery"));
       router.push("/deliveries");
     } catch (error) {
-      console.error("Error creating delivery:", error);
-      toast.error("Failed to create delivery");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("delivery"));
     } finally {
       setUploading(false);
     }

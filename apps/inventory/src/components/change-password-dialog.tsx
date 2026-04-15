@@ -13,7 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { apiClient } from "@/lib/api-client";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  showErrorToast,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 
 interface ChangePasswordDialogProps {
   open: boolean;
@@ -36,17 +42,17 @@ export function ChangePasswordDialog({
 
     // Validate passwords
     if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match");
+      showErrorToast("New passwords do not match");
       return;
     }
 
     if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters long");
+      showErrorToast("Password must be at least 6 characters long");
       return;
     }
 
     if (!isFirstLogin && !currentPassword) {
-      toast.error("Current password is required");
+      showErrorToast("Current password is required");
       return;
     }
 
@@ -59,7 +65,9 @@ export function ChangePasswordDialog({
         confirmPassword,
       });
 
-      toast.success(response.message || "Password changed successfully");
+      showSuccessToast(
+        response.message || SUCCESS_MESSAGES.UPDATED("Password")
+      );
 
       // Update user in localStorage to clear mustChangePassword flag
       const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -75,10 +83,7 @@ export function ChangePasswordDialog({
       // Reload page to update UI state
       window.location.reload();
     } catch (error: any) {
-      console.error("Failed to change password:", error);
-      toast.error(
-        error.response?.data?.message || "Failed to change password"
-      );
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("password"));
     } finally {
       setIsSubmitting(false);
     }

@@ -37,7 +37,12 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import {
   IconReceipt,
   IconPlus,
@@ -114,8 +119,7 @@ export default function ExpensesPage() {
       const data = await apiClient.getExpenses();
       setExpenses(data);
     } catch (error) {
-      console.error("Error fetching expenses:", error);
-      toast.error("Failed to load expenses");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("expenses"));
     } finally {
       setLoading(false);
     }
@@ -138,13 +142,12 @@ export default function ExpensesPage() {
         amount: parseFloat(formData.amount),
         receiptImageUrl,
       });
-      toast.success("Expense created successfully");
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Expense"));
       setIsAddDialogOpen(false);
       resetForm();
       fetchExpenses();
     } catch (error) {
-      console.error("Error creating expense:", error);
-      toast.error("Failed to create expense");
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("expense"));
     } finally {
       setUploading(false);
     }
@@ -169,13 +172,12 @@ export default function ExpensesPage() {
         amount: parseFloat(formData.amount),
         receiptImageUrl,
       });
-      toast.success("Expense updated successfully");
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Expense"));
       setIsEditDialogOpen(false);
       resetForm();
       fetchExpenses();
     } catch (error) {
-      console.error("Error updating expense:", error);
-      toast.error("Failed to update expense");
+      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("expense"));
     } finally {
       setUploading(false);
     }
@@ -186,11 +188,10 @@ export default function ExpensesPage() {
 
     try {
       await apiClient.deleteExpense(id);
-      toast.success("Expense deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("Expense"));
       fetchExpenses();
     } catch (error) {
-      console.error("Error deleting expense:", error);
-      toast.error("Failed to delete expense");
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("expense"));
     }
   }
 

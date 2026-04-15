@@ -28,7 +28,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import {
   IconPackage,
   IconPlus,
@@ -77,8 +82,7 @@ export default function InventoryDeliveriesPage() {
       const data = await apiClient.getInventoryDeliveries();
       setDeliveries(data);
     } catch (error) {
-      console.error("Error fetching deliveries:", error);
-      toast.error("Failed to load deliveries");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("deliveries"));
     } finally {
       setLoading(false);
     }
@@ -89,11 +93,10 @@ export default function InventoryDeliveriesPage() {
 
     try {
       await apiClient.deleteInventoryDelivery(id);
-      toast.success("Delivery deleted successfully");
+      showSuccessToast(SUCCESS_MESSAGES.DELETED("Delivery"));
       fetchDeliveries();
     } catch (error) {
-      console.error("Error deleting delivery:", error);
-      toast.error("Failed to delete delivery");
+      showErrorFromException(error, ERROR_MESSAGES.DELETE_FAILED("delivery"));
     }
   }
 

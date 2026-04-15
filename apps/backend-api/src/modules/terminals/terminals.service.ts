@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import { TerminalEntity } from '../../entities/terminal.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateTerminalDto, UpdateTerminalDto } from './dto';
@@ -146,7 +146,25 @@ export class TerminalsService {
 
   async remove(id: string, requestingUser: any) {
     const terminal = await this.findOne(id, requestingUser);
-    await this.terminalsRepository.remove(terminal);
+    
+    try {
+      await this.terminalsRepository.remove(terminal);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        // Handle foreign key constraint violations
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('foreign key constraint') ||
+          errorMessage.includes('violates foreign key') ||
+          errorMessage.includes('fk_')
+        ) {
+          throw new BadRequestException(
+            'Cannot delete terminal as it has associated records (orders, transactions, etc.). Please remove all related records first.',
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async syncTerminal(id: string, requestingUser: any) {

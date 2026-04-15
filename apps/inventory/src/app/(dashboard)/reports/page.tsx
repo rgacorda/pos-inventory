@@ -62,7 +62,12 @@ import {
   Clock,
   FileText,
 } from "lucide-react";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorFromException,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 import { format, parseISO, startOfDay, eachDayOfInterval } from "date-fns";
 
 export default function ReportsPage() {
@@ -267,8 +272,7 @@ export default function ReportsPage() {
       }));
       setHourlySales(hourlyArray);
     } catch (error) {
-      console.error("Failed to load report data:", error);
-      toast.error("Failed to load report data");
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("report data"));
     } finally {
       setLoading(false);
     }
@@ -333,10 +337,9 @@ export default function ReportsPage() {
       a.click();
       window.URL.revokeObjectURL(url);
 
-      toast.success("Comprehensive report exported successfully");
+      showSuccessToast(SUCCESS_MESSAGES.EXPORTED("Report"));
     } catch (error) {
-      console.error("Failed to export report:", error);
-      toast.error("Failed to export report");
+      showErrorFromException(error, ERROR_MESSAGES.EXPORT_FAILED("report"));
     }
   };
 

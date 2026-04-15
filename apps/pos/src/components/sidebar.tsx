@@ -37,7 +37,12 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useState, useEffect } from "react";
 import { dbHelpers } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
-import { toast } from "sonner";
+import {
+  showSuccessToast,
+  showErrorToast,
+  SUCCESS_MESSAGES,
+  ERROR_MESSAGES,
+} from "@/lib/toast-utils";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -92,7 +97,7 @@ export function Sidebar() {
           setAvailableTerminals(terminals);
         } catch (error) {
           console.error("Failed to fetch terminals:", error);
-          toast.error("Failed to load terminals", {
+          showErrorToast(ERROR_MESSAGES.LOAD_FAILED("terminals"), {
             description: "Unable to fetch available terminals from server.",
           });
         } finally {
@@ -108,19 +113,19 @@ export function Sidebar() {
     try {
       const success = await syncService.retryFailedSync();
       if (success) {
-        toast.success("Sync Retry Successful", {
+        showSuccessToast(SUCCESS_MESSAGES.SYNCED("Transactions"), {
           description: "All pending and failed transactions have been synced.",
         });
         // Refresh counts
         const counts = await dbHelpers.getFailedItemsCount();
         setFailedCount(counts);
       } else {
-        toast.error("Sync Retry Failed", {
+        showErrorToast(ERROR_MESSAGES.SYNC_FAILED("transactions"), {
           description: "Unable to sync. Check your connection and try again.",
         });
       }
     } catch (error) {
-      toast.error("Sync Error", {
+      showErrorToast("Sync Error", {
         description: "An error occurred while retrying sync.",
       });
     } finally {
@@ -130,7 +135,7 @@ export function Sidebar() {
 
   const handleSaveTerminalId = async () => {
     if (!newTerminalId.trim()) {
-      toast.error("Terminal ID Required", {
+      showErrorToast(ERROR_MESSAGES.REQUIRED_FIELD("Terminal ID"), {
         description: "Please enter a valid terminal ID.",
       });
       return;
@@ -139,11 +144,11 @@ export function Sidebar() {
       await dbHelpers.setTerminalId(newTerminalId.trim());
       setTerminalId(newTerminalId.trim());
       setIsTerminalDialogOpen(false);
-      toast.success("Terminal ID Updated", {
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Terminal ID"), {
         description: `Terminal ID set to: ${newTerminalId.trim()}`,
       });
     } catch (error) {
-      toast.error("Update Failed", {
+      showErrorToast(ERROR_MESSAGES.UPDATE_FAILED("terminal ID"), {
         description: "Unable to update terminal ID.",
       });
     }

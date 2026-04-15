@@ -3,9 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryFailedError } from 'typeorm';
 import { ProductEntity } from '../../entities/product.entity';
 import { CreateProductDto, UpdateProductDto } from './dto';
 import { UserRole } from '@pos/shared-types';
@@ -100,7 +101,25 @@ export class ProductsService {
 
   async remove(id: string, requestingUser: any) {
     const product = await this.findOne(id, requestingUser);
-    await this.productsRepository.remove(product);
+    
+    try {
+      await this.productsRepository.remove(product);
+    } catch (error) {
+      if (error instanceof QueryFailedError) {
+        // Handle foreign key constraint violations
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('foreign key constraint') ||
+          errorMessage.includes('violates foreign key') ||
+          errorMessage.includes('fk_')
+        ) {
+          throw new BadRequestException(
+            'Cannot delete product as it is being used in orders, inventory transactions, or other records. Please remove all related records first.',
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async findByOrganization(organizationId: string) {
