@@ -215,7 +215,6 @@ export default function OrdersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Order ID</TableHead>
                     <TableHead>Terminal</TableHead>
                     <TableHead>Cashier</TableHead>
                     <TableHead>Items</TableHead>
@@ -228,7 +227,6 @@ export default function OrdersPage() {
                 <TableBody>
                   {paginatedOrders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell className="font-medium">#{order.id}</TableCell>
                       <TableCell>{order.terminal?.name || "N/A"}</TableCell>
                       <TableCell>{order.cashier?.name || "N/A"}</TableCell>
                       <TableCell>{order.items?.length || 0}</TableCell>
@@ -330,7 +328,7 @@ export default function OrdersPage() {
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Order Details - #{selectedOrder?.id}</DialogTitle>
+            <DialogTitle>Order Details</DialogTitle>
             <DialogDescription>
               Complete order information and items
             </DialogDescription>

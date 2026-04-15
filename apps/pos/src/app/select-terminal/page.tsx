@@ -19,14 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Wifi, WifiOff, Terminal as TerminalIcon } from "lucide-react";
+import { Wifi, WifiOff, Terminal as TerminalIcon } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { dbHelpers } from "@/lib/db";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   showSuccessToast,
   showErrorToast,
+  showWarningToast,
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
@@ -38,7 +38,6 @@ export default function SelectTerminalPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTerminalId, setSelectedTerminalId] = useState<string>("");
   const [manualTerminalId, setManualTerminalId] = useState<string>("");
-  const [error, setError] = useState<string>("");
 
   useEffect(() => {
     // Check if terminal is already selected
@@ -47,8 +46,13 @@ export default function SelectTerminalPage() {
     // Fetch available terminals if online
     if (isOnline) {
       fetchTerminals();
+    } else {
+      // Show offline notification
+      showWarningToast("Offline Mode", {
+        description: "You can still select a terminal manually",
+      });
     }
-  }, []);
+  }, [isOnline]);
 
   const checkExistingTerminal = async () => {
     const terminalId = await dbHelpers.getTerminalId();
@@ -77,7 +81,9 @@ export default function SelectTerminalPage() {
     const terminalId = manualTerminalId.trim() || selectedTerminalId;
 
     if (!terminalId) {
-      setError("Please select or enter a terminal ID");
+      showErrorToast("Selection Required", {
+        description: "Please select or enter a terminal ID",
+      });
       return;
     }
 
@@ -126,22 +132,6 @@ export default function SelectTerminalPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {!isOnline && (
-              <Alert variant="default" className="bg-orange-50 border-orange-200">
-                <AlertCircle className="h-4 w-4 text-orange-600" />
-                <AlertDescription className="text-orange-800">
-                  <strong>Offline Mode:</strong> You can still select a terminal manually
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
             {isLoading ? (
               <div className="text-center py-8 text-gray-500">
                 Loading available terminals...
@@ -157,7 +147,6 @@ export default function SelectTerminalPage() {
                       onValueChange={(value) => {
                         setSelectedTerminalId(value);
                         setManualTerminalId(""); // Clear manual entry when selecting from dropdown
-                        setError("");
                       }}
                     >
                       <SelectTrigger id="terminal" className="w-full">
@@ -201,7 +190,6 @@ export default function SelectTerminalPage() {
                     onChange={(e) => {
                       setManualTerminalId(e.target.value);
                       setSelectedTerminalId(""); // Clear dropdown selection when typing manually
-                      setError("");
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
