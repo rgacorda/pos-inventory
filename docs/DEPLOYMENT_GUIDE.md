@@ -75,7 +75,7 @@ sudo apt install curl git unzip build-essential -y
 
 ### Step 1.2: Install Node.js and npm
 
-Install Node.js 18+ (required by your apps):
+Install Node.js 20+ (required by your apps):
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
@@ -83,7 +83,7 @@ sudo apt install -y nodejs
 
 Verify installation:
 ```bash
-node --version  # Should be v18.x.x or higher
+node --version  # Should be v20.x.x or higher
 npm --version
 ```
 
@@ -158,7 +158,7 @@ Install all dependencies:
 npm install
 ```
 
-This will install dependencies for all apps and packages in the monorepo.
+This will install dependencies for all apps and packages in the monorepo and update the package-lock.json file.
 
 ### Step 2.3: Create Environment Files
 
@@ -256,7 +256,7 @@ nano ~/production/pos-system/apps/backend-api/Dockerfile
 
 Add:
 ```dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -265,8 +265,8 @@ COPY package*.json ./
 COPY apps/backend-api/package*.json ./apps/backend-api/
 COPY packages ./packages
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (including dev dependencies needed for build)
+RUN npm install
 
 # Copy source code
 COPY apps/backend-api ./apps/backend-api
@@ -275,14 +275,19 @@ COPY apps/backend-api ./apps/backend-api
 WORKDIR /app/apps/backend-api
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy built application and dependencies
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/backend-api/dist ./dist
+# Copy package files
+COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/apps/backend-api/package*.json ./
+
+# Install only production dependencies
+RUN npm install --production
+
+# Copy built application
+COPY --from=builder /app/apps/backend-api/dist ./dist
 
 # Create uploads directory
 RUN mkdir -p uploads/receipts
@@ -301,7 +306,7 @@ nano ~/production/pos-system/apps/pos/Dockerfile
 
 Add:
 ```dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -311,7 +316,7 @@ COPY apps/pos/package*.json ./apps/pos/
 COPY packages ./packages
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY apps/pos ./apps/pos
@@ -320,15 +325,18 @@ COPY apps/pos ./apps/pos
 WORKDIR /app/apps/pos
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Copy package files and install production dependencies
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/apps/pos/package*.json ./
+RUN npm install --production
 
 # Copy built application
 COPY --from=builder /app/apps/pos/.next ./.next
 COPY --from=builder /app/apps/pos/public ./public
-COPY --from=builder /app/apps/pos/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 3000
 
@@ -342,7 +350,7 @@ nano ~/production/pos-system/apps/inventory/Dockerfile
 
 Add:
 ```dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -352,7 +360,7 @@ COPY apps/inventory/package*.json ./apps/inventory/
 COPY packages ./packages
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY apps/inventory ./apps/inventory
@@ -361,15 +369,18 @@ COPY apps/inventory ./apps/inventory
 WORKDIR /app/apps/inventory
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Copy package files and install production dependencies
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/apps/inventory/package*.json ./
+RUN npm install --production
 
 # Copy built application
 COPY --from=builder /app/apps/inventory/.next ./.next
 COPY --from=builder /app/apps/inventory/public ./public
-COPY --from=builder /app/apps/inventory/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 3000
 
@@ -383,7 +394,7 @@ nano ~/production/pos-system/apps/super-admin/Dockerfile
 
 Add:
 ```dockerfile
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -393,7 +404,7 @@ COPY apps/super-admin/package*.json ./apps/super-admin/
 COPY packages ./packages
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY apps/super-admin ./apps/super-admin
@@ -402,15 +413,18 @@ COPY apps/super-admin ./apps/super-admin
 WORKDIR /app/apps/super-admin
 RUN npm run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Copy package files and install production dependencies
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/apps/super-admin/package*.json ./
+RUN npm install --production
 
 # Copy built application
 COPY --from=builder /app/apps/super-admin/.next ./.next
 COPY --from=builder /app/apps/super-admin/public ./public
-COPY --from=builder /app/apps/super-admin/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 3000
 
@@ -687,9 +701,31 @@ Navigate to production directory:
 cd ~/production
 ```
 
-Build and start all services:
+**CRITICAL: Create Docker network if you haven't already:**
 ```bash
-docker compose up -d --build
+# Check if network exists
+docker network ls | grep pos-network
+
+# If not found, create it
+docker network create pos-network
+```
+
+Clear Docker build cache completely:
+```bash
+# Stop all containers
+docker compose down
+
+# Remove all build cache (IMPORTANT!)
+docker builder prune -af
+
+# Remove all images
+docker images -q | xargs -r docker rmi -f
+```
+
+Build and start all services **without cache**:
+```bash
+docker compose build --no-cache
+docker compose up -d
 ```
 
 This will:
@@ -1009,6 +1045,96 @@ docker system prune -a
 ---
 
 ## 🐛 Troubleshooting
+
+### Docker Network Issues
+
+**Error: "network pos-network declared as external, but could not be found"**
+
+This means the Docker network hasn't been created yet. Fix it:
+
+```bash
+# Create the network
+docker network create pos-network
+
+# Verify it was created
+docker network ls | grep pos-network
+
+# Then retry deployment
+docker compose up -d
+```
+
+If the network already exists but you still get the error:
+
+```bash
+# Remove the network
+docker network rm pos-network
+
+# Recreate it
+docker network create pos-network
+
+# Retry
+docker compose up -d
+```
+
+### Docker Build Issues
+
+**npm ci errors (lock file sync issues):**
+
+If you get errors like `npm ci can only install packages when your package.json and package-lock.json are in sync`, follow these steps:
+
+```bash
+# 1. Stop all containers
+cd ~/production
+docker compose down
+
+# 2. Update Dockerfiles to use npm install instead of npm ci
+sed -i 's/RUN npm ci/RUN npm install/g' ~/production/pos-system/apps/*/Dockerfile
+sed -i 's/npm ci --only=production/npm install --production/g' ~/production/pos-system/apps/*/Dockerfile
+
+# 3. Verify the change
+grep "RUN npm" ~/production/pos-system/apps/backend-api/Dockerfile
+# Should show: RUN npm install (not npm ci)
+
+# 4. Clear ALL Docker cache
+docker builder prune -af
+docker images -q | xargs -r docker rmi -f
+docker system prune -af
+
+# 5. Rebuild without cache
+docker compose build --no-cache
+docker compose up -d
+```
+
+**Clean up previous builds:**
+```bash
+# Stop and remove all containers
+cd ~/production
+docker compose down
+
+# Remove project images
+docker images | grep -E 'production' | awk '{print $3}' | xargs -r docker rmi -f
+
+# Clean up dangling images and build cache
+docker builder prune -af
+docker system prune -af
+
+# Complete cleanup (removes all unused Docker data)
+docker system prune -a --volumes -f
+```
+
+**Package lock file sync issues:**
+```bash
+# If you still get errors, update package-lock.json on server
+cd ~/production/pos-system
+npm install  # This updates package-lock.json
+git add package-lock.json
+git commit -m "Update package-lock.json"
+
+# Then rebuild
+cd ~/production
+docker compose build --no-cache
+docker compose up -d
+```
 
 ### Container won't start
 ```bash
