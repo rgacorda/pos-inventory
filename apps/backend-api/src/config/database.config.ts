@@ -7,7 +7,7 @@ export default registerAs(
     type: 'postgres',
     url: process.env.DATABASE_URL,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-    synchronize: process.env.NODE_ENV === 'development',
+    synchronize: process.env.TYPEORM_SYNCHRONIZE === 'true' || process.env.NODE_ENV === 'development',
     logging: process.env.NODE_ENV === 'development',
     // Connection pool configuration for handling multiple POS terminal polling
     extra: {
