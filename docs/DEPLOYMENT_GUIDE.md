@@ -260,37 +260,61 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files
 COPY package*.json ./
-COPY apps/backend-api/package*.json ./apps/backend-api/
-COPY packages ./packages
 
-# Install all dependencies (including dev dependencies needed for build)
+# Copy all workspace package.json files
+COPY apps/backend-api/package*.json ./apps/backend-api/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install all dependencies
 RUN npm install
 
-# Copy source code
+# Copy shared packages source code
+COPY packages/shared-types ./packages/shared-types
+COPY packages/shared-utils ./packages/shared-utils
+
+# Build shared packages
+WORKDIR /app/packages/shared-types
+RUN npm run build || true
+
+WORKDIR /app/packages/shared-utils
+RUN npm run build || true
+
+# Copy backend source code
+WORKDIR /app
 COPY apps/backend-api ./apps/backend-api
 
-# Build application
+# Build backend application
 WORKDIR /app/apps/backend-api
 RUN npm run build
 
+# Production stage
 FROM node:20-alpine
 
 WORKDIR /app
 
 # Copy package files
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/apps/backend-api/package*.json ./
+COPY package*.json ./
+COPY apps/backend-api/package*.json ./apps/backend-api/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
 
 # Install only production dependencies
 RUN npm install --production
 
+# Copy built shared packages from builder
+COPY --from=builder /app/packages/shared-types ./packages/shared-types
+COPY --from=builder /app/packages/shared-utils ./packages/shared-utils
+
 # Copy built application
-COPY --from=builder /app/apps/backend-api/dist ./dist
+COPY --from=builder /app/apps/backend-api/dist ./apps/backend-api/dist
 
 # Create uploads directory
-RUN mkdir -p uploads/receipts
+RUN mkdir -p apps/backend-api/uploads/receipts
+
+WORKDIR /app/apps/backend-api
 
 EXPOSE 3000
 
@@ -310,33 +334,60 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files
 COPY package*.json ./
-COPY apps/pos/package*.json ./apps/pos/
-COPY packages ./packages
 
-# Install dependencies
+# Copy all workspace package.json files
+COPY apps/pos/package*.json ./apps/pos/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install all dependencies
 RUN npm install
 
-# Copy source code
+# Copy shared packages source code
+COPY packages/shared-types ./packages/shared-types
+COPY packages/shared-utils ./packages/shared-utils
+
+# Build shared packages
+WORKDIR /app/packages/shared-types
+RUN npm run build || true
+
+WORKDIR /app/packages/shared-utils
+RUN npm run build || true
+
+# Copy POS app source code
+WORKDIR /app
 COPY apps/pos ./apps/pos
 
-# Build application
+# Build POS application
 WORKDIR /app/apps/pos
 RUN npm run build
 
+# Production stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/apps/pos/package*.json ./
+# Copy package files
+COPY package*.json ./
+COPY apps/pos/package*.json ./apps/pos/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install production dependencies
 RUN npm install --production
 
+# Copy built shared packages from builder
+COPY --from=builder /app/packages/shared-types ./packages/shared-types
+COPY --from=builder /app/packages/shared-utils ./packages/shared-utils
+
 # Copy built application
-COPY --from=builder /app/apps/pos/.next ./.next
-COPY --from=builder /app/apps/pos/public ./public
+COPY --from=builder /app/apps/pos/.next ./apps/pos/.next
+COPY --from=builder /app/apps/pos/public ./apps/pos/public
+COPY --from=builder /app/apps/pos/package*.json ./apps/pos/
+
+WORKDIR /app/apps/pos
 
 EXPOSE 3000
 
@@ -354,33 +405,60 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files
 COPY package*.json ./
-COPY apps/inventory/package*.json ./apps/inventory/
-COPY packages ./packages
 
-# Install dependencies
+# Copy all workspace package.json files
+COPY apps/inventory/package*.json ./apps/inventory/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install all dependencies
 RUN npm install
 
-# Copy source code
+# Copy shared packages source code
+COPY packages/shared-types ./packages/shared-types
+COPY packages/shared-utils ./packages/shared-utils
+
+# Build shared packages
+WORKDIR /app/packages/shared-types
+RUN npm run build || true
+
+WORKDIR /app/packages/shared-utils
+RUN npm run build || true
+
+# Copy inventory app source code
+WORKDIR /app
 COPY apps/inventory ./apps/inventory
 
-# Build application
+# Build inventory application
 WORKDIR /app/apps/inventory
 RUN npm run build
 
+# Production stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/apps/inventory/package*.json ./
+# Copy package files
+COPY package*.json ./
+COPY apps/inventory/package*.json ./apps/inventory/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install production dependencies
 RUN npm install --production
 
+# Copy built shared packages from builder
+COPY --from=builder /app/packages/shared-types ./packages/shared-types
+COPY --from=builder /app/packages/shared-utils ./packages/shared-utils
+
 # Copy built application
-COPY --from=builder /app/apps/inventory/.next ./.next
-COPY --from=builder /app/apps/inventory/public ./public
+COPY --from=builder /app/apps/inventory/.next ./apps/inventory/.next
+COPY --from=builder /app/apps/inventory/public ./apps/inventory/public
+COPY --from=builder /app/apps/inventory/package*.json ./apps/inventory/
+
+WORKDIR /app/apps/inventory
 
 EXPOSE 3000
 
@@ -398,33 +476,60 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files
 COPY package*.json ./
-COPY apps/super-admin/package*.json ./apps/super-admin/
-COPY packages ./packages
 
-# Install dependencies
+# Copy all workspace package.json files
+COPY apps/super-admin/package*.json ./apps/super-admin/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install all dependencies
 RUN npm install
 
-# Copy source code
+# Copy shared packages source code
+COPY packages/shared-types ./packages/shared-types
+COPY packages/shared-utils ./packages/shared-utils
+
+# Build shared packages
+WORKDIR /app/packages/shared-types
+RUN npm run build || true
+
+WORKDIR /app/packages/shared-utils
+RUN npm run build || true
+
+# Copy super-admin app source code
+WORKDIR /app
 COPY apps/super-admin ./apps/super-admin
 
-# Build application
+# Build super-admin application
 WORKDIR /app/apps/super-admin
 RUN npm run build
 
+# Production stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/apps/super-admin/package*.json ./
+# Copy package files
+COPY package*.json ./
+COPY apps/super-admin/package*.json ./apps/super-admin/
+COPY packages/shared-types/package*.json ./packages/shared-types/
+COPY packages/shared-utils/package*.json ./packages/shared-utils/
+
+# Install production dependencies
 RUN npm install --production
 
+# Copy built shared packages from builder
+COPY --from=builder /app/packages/shared-types ./packages/shared-types
+COPY --from=builder /app/packages/shared-utils ./packages/shared-utils
+
 # Copy built application
-COPY --from=builder /app/apps/super-admin/.next ./.next
-COPY --from=builder /app/apps/super-admin/public ./public
+COPY --from=builder /app/apps/super-admin/.next ./apps/super-admin/.next
+COPY --from=builder /app/apps/super-admin/public ./apps/super-admin/public
+COPY --from=builder /app/apps/super-admin/package*.json ./apps/super-admin/
+
+WORKDIR /app/apps/super-admin
 
 EXPOSE 3000
 
@@ -508,7 +613,7 @@ services:
     ports:
       - "3001:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:3000
+      NEXT_PUBLIC_API_URL: http://YOUR_SERVER_IP:3000  # Replace YOUR_SERVER_IP with actual server IP or use Nginx domain
       NODE_ENV: production
     depends_on:
       - backend
@@ -525,7 +630,7 @@ services:
     ports:
       - "3002:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:3000
+      NEXT_PUBLIC_API_URL: http://YOUR_SERVER_IP:3000  # Replace YOUR_SERVER_IP with actual server IP or use Nginx domain
       NODE_ENV: production
     depends_on:
       - backend
@@ -542,7 +647,7 @@ services:
     ports:
       - "3003:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:3000
+      NEXT_PUBLIC_API_URL: http://YOUR_SERVER_IP:3000  # Replace YOUR_SERVER_IP with actual server IP or use Nginx domain
       NODE_ENV: production
     depends_on:
       - backend
@@ -1078,33 +1183,6 @@ docker compose up -d
 
 ### Docker Build Issues
 
-**npm ci errors (lock file sync issues):**
-
-If you get errors like `npm ci can only install packages when your package.json and package-lock.json are in sync`, follow these steps:
-
-```bash
-# 1. Stop all containers
-cd ~/production
-docker compose down
-
-# 2. Update Dockerfiles to use npm install instead of npm ci
-sed -i 's/RUN npm ci/RUN npm install/g' ~/production/pos-system/apps/*/Dockerfile
-sed -i 's/npm ci --only=production/npm install --production/g' ~/production/pos-system/apps/*/Dockerfile
-
-# 3. Verify the change
-grep "RUN npm" ~/production/pos-system/apps/backend-api/Dockerfile
-# Should show: RUN npm install (not npm ci)
-
-# 4. Clear ALL Docker cache
-docker builder prune -af
-docker images -q | xargs -r docker rmi -f
-docker system prune -af
-
-# 5. Rebuild without cache
-docker compose build --no-cache
-docker compose up -d
-```
-
 **Clean up previous builds:**
 ```bash
 # Stop and remove all containers
@@ -1122,19 +1200,7 @@ docker system prune -af
 docker system prune -a --volumes -f
 ```
 
-**Package lock file sync issues:**
-```bash
-# If you still get errors, update package-lock.json on server
-cd ~/production/pos-system
-npm install  # This updates package-lock.json
-git add package-lock.json
-git commit -m "Update package-lock.json"
 
-# Then rebuild
-cd ~/production
-docker compose build --no-cache
-docker compose up -d
-```
 
 ### Container won't start
 ```bash
