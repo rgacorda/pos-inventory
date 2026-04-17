@@ -46,7 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
-import { Plus, Edit, Trash2, Search, Package } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Package, AlertTriangle } from "lucide-react";
 import { 
   showSuccessToast, 
   showErrorFromException,
@@ -63,6 +63,7 @@ export default function ProductsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [lowStockPage, setLowStockPage] = useState(1);
   const itemsPerPage = 10;
   const [formData, setFormData] = useState({
     sku: "",
@@ -250,10 +251,22 @@ export default function ProductsPage() {
       p.category?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  // Filter low stock products (stockQuantity <= lowStockThreshold)
+  const lowStockProducts = products.filter(
+    (p) => p.stockQuantity <= (p.lowStockThreshold || 10)
+  );
+
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const paginatedProducts = filteredProducts.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
+  );
+
+  // Low stock pagination
+  const lowStockTotalPages = Math.ceil(lowStockProducts.length / itemsPerPage);
+  const paginatedLowStockProducts = lowStockProducts.slice(
+    (lowStockPage - 1) * itemsPerPage,
+    lowStockPage * itemsPerPage,
   );
 
   // Reset to page 1 when search changes
@@ -263,6 +276,135 @@ export default function ProductsPage() {
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
+      {/* Low Stock Alert Card */}
+      {lowStockProducts.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <div>
+                <CardTitle className="text-amber-900">Low Stock Alert</CardTitle>
+                <CardDescription className="text-amber-700">
+                  {lowStockProducts.length} product{lowStockProducts.length !== 1 ? 's' : ''} running low on stock
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Current Stock</TableHead>
+                    <TableHead>Threshold</TableHead>
+                    <TableHead>Selling Price</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedLowStockProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell className="font-medium">
+                        {product.name}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {product.sku}
+                      </TableCell>
+                      <TableCell>{product.category || "N/A"}</TableCell>
+                      <TableCell>
+                        <span className={`font-semibold ${
+                          product.stockQuantity === 0 
+                            ? "text-red-600" 
+                            : "text-amber-600"
+                        }`}>
+                          {product.stockQuantity}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {product.lowStockThreshold || 10}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        ₱{Number(product.price || 0).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditProduct(product)}
+                          title="Update stock"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {/* Low Stock Pagination */}
+            {lowStockTotalPages > 1 && (
+              <div className="flex items-center justify-between pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Showing {(lowStockPage - 1) * itemsPerPage + 1} to{" "}
+                  {Math.min(lowStockPage * itemsPerPage, lowStockProducts.length)}{" "}
+                  of {lowStockProducts.length} low stock items
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLowStockPage((p) => Math.max(1, p - 1))}
+                    disabled={lowStockPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(lowStockTotalPages, 5) }, (_, i) => {
+                      let pageNum;
+                      if (lowStockTotalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (lowStockPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (lowStockPage >= lowStockTotalPages - 2) {
+                        pageNum = lowStockTotalPages - 4 + i;
+                      } else {
+                        pageNum = lowStockPage - 2 + i;
+                      }
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={
+                            lowStockPage === pageNum ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => setLowStockPage(pageNum)}
+                          className="w-8"
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setLowStockPage((p) => Math.min(lowStockTotalPages, p + 1))
+                    }
+                    disabled={lowStockPage === lowStockTotalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
