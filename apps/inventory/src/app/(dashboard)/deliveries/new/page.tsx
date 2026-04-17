@@ -700,7 +700,7 @@ export default function NewDeliveryPage() {
 
       {/* Add Item to Delivery Dialog */}
       <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="!max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Item to Delivery</DialogTitle>
             <DialogDescription>
@@ -843,7 +843,7 @@ export default function NewDeliveryPage() {
 
       {/* Create New Product Dialog */}
       <Dialog open={isCreateProductDialogOpen} onOpenChange={setIsCreateProductDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Product</DialogTitle>
             <DialogDescription>
