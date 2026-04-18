@@ -86,7 +86,7 @@ export function Receipt({
             width: 100%;
           }
           @page {
-            size: 58mm auto;
+            size: 48mm auto;
             margin: 0;
           }
         }
@@ -107,30 +107,30 @@ export function Receipt({
     <>
       {/* Receipt content for printing */}
       <div className="receipt-print-container">
-        <div className="max-w-[58mm] mx-auto p-2 font-mono text-xs leading-tight bg-white">
+        <div className="max-w-[48mm] mx-auto p-2 font-mono text-[9pt] leading-tight bg-white">
           {/* Header */}
           <div className="text-center mb-2">
-            <div className="text-base font-bold">
+            <div className="font-bold">
               {organizationData?.name || "YOUR STORE NAME"}
             </div>
             {organizationData?.address && (
-              <div className="text-[8pt]">{organizationData.address}</div>
+              <div>{organizationData.address}</div>
             )}
             {organizationData?.phone && (
-              <div className="text-[8pt]">Tel: {organizationData.phone}</div>
+              <div>Tel: {organizationData.phone}</div>
             )}
             <div className="border-b border-dashed border-gray-400 my-2" />
           </div>
 
           {/* Order Info */}
-          <div className="text-[9pt] mb-2">
+          <div className="mb-2">
             {/* <div>Order: {orderNumber}</div> */}
             <div>Date: {formatDateTime(dateTime)}</div>
           </div>
 
           {/* Customer Info */}
           {(customerName || customerAddress) && (
-            <div className="text-[9pt] mb-2">
+            <div className="mb-2">
               <div className="border-b border-dashed border-gray-400 my-2" />
               <div className="font-bold">CUSTOMER:</div>
               {customerName && <div>Name: {customerName}</div>}
@@ -140,7 +140,7 @@ export function Receipt({
 
           {/* Items */}
           <div className="border-b border-dashed border-gray-400 my-2" />
-          <div className="text-[7pt]">
+          <div>
             {items.map((item, index) => (
               <div key={index} className="flex justify-between gap-1 mb-1">
                 <span className="flex-1 min-w-0">
@@ -158,7 +158,7 @@ export function Receipt({
 
           {/* Totals */}
           <div className="border-b border-dashed border-gray-400 my-2" />
-          <div className="text-[10pt]">
+          <div>
             <div className="flex justify-between mb-1">
               <span>Subtotal:</span>
               <span>{formatCurrency(subtotal)}</span>
@@ -174,7 +174,7 @@ export function Receipt({
               </div>
             )}
             <div className="border-t border-black pt-2 mt-2">
-              <div className="flex justify-between text-base font-bold">
+              <div className="flex justify-between font-bold">
                 <span>TOTAL:</span>
                 <span>{formatCurrency(totalAmount)}</span>
               </div>
@@ -183,7 +183,7 @@ export function Receipt({
 
           {/* Payment Info */}
           <div className="border-b border-dashed border-gray-400 my-2" />
-          <div className="text-[9pt] mb-2">
+          <div className="mb-2">
             <div className="font-bold">PAYMENT:</div>
             <div className="flex justify-between">
               <span>Method:</span>
@@ -214,10 +214,10 @@ export function Receipt({
           </div>
 
           {/* Footer */}
-          <div className="border-t border-dashed border-gray-400 pt-3 text-center text-[9pt]">
+          {/* <div className="border-t border-dashed border-gray-400 pt-3 text-center text-[9pt]">
             <div>Thank you for your purchase!</div>
             <div className="mt-2">Please come again</div>
-          </div>
+          </div> */}
         </div>
       </div>
 
