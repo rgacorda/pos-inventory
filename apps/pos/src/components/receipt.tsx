@@ -86,7 +86,7 @@ export function Receipt({
             width: 100%;
           }
           @page {
-            size: 48mm auto;
+            size: 68mm auto;
             margin: 0;
           }
         }
