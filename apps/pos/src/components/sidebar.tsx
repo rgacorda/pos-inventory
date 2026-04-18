@@ -31,6 +31,7 @@ import {
   Settings,
   Wifi,
   WifiOff,
+  Printer,
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -43,6 +44,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
+import { TestPrinterDialog } from "@/components/test-printer-dialog";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -365,6 +367,14 @@ export function Sidebar() {
             </div>
           </div>
         )}
+
+        {/* Test Printer */}
+        <TestPrinterDialog>
+          <div className="hover:bg-gray-100 hover:text-gray-900 flex cursor-pointer items-center gap-3 rounded-lg p-3 text-gray-700 transition-colors mb-2">
+            <Printer className="h-5 w-5" />
+            <span className="text-sm">Test Printer</span>
+          </div>
+        </TestPrinterDialog>
 
         <div
           onClick={() => {
