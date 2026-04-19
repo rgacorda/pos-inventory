@@ -46,7 +46,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
-import { Plus, Edit, Trash2, Search, Package, AlertTriangle } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown } from "lucide-react";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { 
   showSuccessToast, 
   showErrorFromException,
@@ -63,6 +77,8 @@ export default function ProductsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
+  const [openEditCategoryCombobox, setOpenEditCategoryCombobox] = useState(false);
   const [lowStockPage, setLowStockPage] = useState(1);
   const itemsPerPage = 10;
   const [formData, setFormData] = useState({
@@ -131,7 +147,7 @@ export default function ProductsPage() {
       cost: "",
       markupPercentage: "",
       markupFixed: "",
-      taxRate: "0.08",
+      taxRate: "0",
       stockQuantity: "",
       lowStockThreshold: "10",
       barcode: "",
@@ -157,7 +173,7 @@ export default function ProductsPage() {
       cost: product.cost?.toString() || "",
       markupPercentage: product.markupPercentage?.toString() || "",
       markupFixed: product.markupFixed?.toString() || "",
-      taxRate: product.taxRate?.toString() || "0.08",
+      taxRate: product.taxRate?.toString() || "0",
       stockQuantity: product.stockQuantity?.toString() || "",
       lowStockThreshold: product.lowStockThreshold?.toString() || "10",
       barcode: product.barcode || "",
@@ -273,6 +289,11 @@ export default function ProductsPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
+
+  // Get unique categories from products
+  const uniqueCategories = Array.from(
+    new Set(products.map((p) => p.category).filter((c) => c && c.trim() !== ""))
+  ).sort();
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
@@ -691,18 +712,61 @@ export default function ProductsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Input
-                    id="category"
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        category: e.target.value,
-                      })
-                    }
-                    placeholder="Beverages"
-                  />
+                  <Label>Category</Label>
+                  <Popover open={openCategoryCombobox} onOpenChange={setOpenCategoryCombobox}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openCategoryCombobox}
+                        className="w-full justify-between"
+                      >
+                        {formData.category || "Select or add category..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0" style={{ width: 'var(--radix-popover-trigger-width)' }}>
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search or type new category..." 
+                          value={formData.category}
+                          onValueChange={(value) => setFormData({ ...formData, category: value })}
+                        />
+                        <CommandList>
+                          <CommandEmpty>
+                            <div className="p-2 text-sm">
+                              Press Enter to add &quot;{formData.category}&quot;
+                            </div>
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {uniqueCategories.map((cat) => (
+                              <CommandItem
+                                key={cat}
+                                value={cat}
+                                onSelect={(currentValue) => {
+                                  setFormData({ ...formData, category: currentValue });
+                                  setOpenCategoryCombobox(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    formData.category === cat ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                {cat}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {uniqueCategories.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Existing: {uniqueCategories.join(", ")}
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -990,17 +1054,61 @@ export default function ProductsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="edit-category">Category</Label>
-                  <Input
-                    id="edit-category"
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        category: e.target.value,
-                      })
-                    }
-                  />
+                  <Label>Category</Label>
+                  <Popover open={openEditCategoryCombobox} onOpenChange={setOpenEditCategoryCombobox}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={openEditCategoryCombobox}
+                        className="w-full justify-between"
+                      >
+                        {formData.category || "Select or add category..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0" style={{ width: 'var(--radix-popover-trigger-width)' }}>
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search or type new category..." 
+                          value={formData.category}
+                          onValueChange={(value) => setFormData({ ...formData, category: value })}
+                        />
+                        <CommandList>
+                          <CommandEmpty>
+                            <div className="p-2 text-sm">
+                              Press Enter to add &quot;{formData.category}&quot;
+                            </div>
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {uniqueCategories.map((cat) => (
+                              <CommandItem
+                                key={cat}
+                                value={cat}
+                                onSelect={(currentValue) => {
+                                  setFormData({ ...formData, category: currentValue });
+                                  setOpenEditCategoryCombobox(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    formData.category === cat ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                {cat}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {uniqueCategories.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Existing: {uniqueCategories.join(", ")}
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
