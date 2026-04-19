@@ -53,7 +53,17 @@ import {
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
 import { IconX, IconPlus, IconArrowLeft, IconSearch } from "@tabler/icons-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 
 interface DeliveryItem {
   productId: string;
@@ -95,6 +105,7 @@ export default function NewDeliveryPage() {
   const [isProductSearchDialogOpen, setIsProductSearchDialogOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
 
   const [formData, setFormData] = useState({
     supplier: "",
@@ -115,8 +126,8 @@ export default function NewDeliveryPage() {
     cost: "",
     markupPercentage: "",
     markupFixed: "",
-    taxRate: "0.08",
-    stockQuantity: "",
+    taxRate: "0",
+    stockQuantity: "0",
     lowStockThreshold: "10",
     barcode: "",
     status: "ACTIVE",
@@ -125,9 +136,6 @@ export default function NewDeliveryPage() {
   const [itemFormData, setItemFormData] = useState({
     quantity: "",
     unitCost: "",
-    updatePrice: false,
-    packPrice: "",
-    packQuantity: "",
   });
 
   useEffect(() => {
@@ -148,6 +156,11 @@ export default function NewDeliveryPage() {
       }));
     }
   }, [productFormData.cost, productFormData.markupPercentage, productFormData.markupFixed]);
+
+  // Get unique categories from products
+  const uniqueCategories = Array.from(
+    new Set(products.map((p) => p.category).filter((c) => c && c.trim() !== ""))
+  ).sort();
 
   async function fetchProducts() {
     try {
@@ -170,8 +183,8 @@ export default function NewDeliveryPage() {
       cost: "",
       markupPercentage: "",
       markupFixed: "",
-      taxRate: "0.08",
-      stockQuantity: "",
+      taxRate: "0",
+      stockQuantity: "0",
       lowStockThreshold: "10",
       barcode: "",
       status: "ACTIVE",
@@ -182,9 +195,6 @@ export default function NewDeliveryPage() {
     setItemFormData({
       quantity: "",
       unitCost: "",
-      updatePrice: false,
-      packPrice: "",
-      packQuantity: "",
     });
   }
 
@@ -198,10 +208,7 @@ export default function NewDeliveryPage() {
     if (product) {
       setItemFormData({
         quantity: "",
-        unitCost: product.cost.toString(),
-        updatePrice: false,
-        packPrice: product.packPrice?.toString() || "",
-        packQuantity: product.packQuantity?.toString() || "",
+        unitCost: product.cost?.toString() || "0",
       });
     }
     setIsAddItemDialogOpen(true);
@@ -220,52 +227,23 @@ export default function NewDeliveryPage() {
     const unitCost = parseFloat(itemFormData.unitCost);
     const totalCost = quantity * unitCost;
 
-    // Update product stock and optionally price
-    try {
-      const updateData: any = {
-        stockQuantity: product.stockQuantity + quantity,
-      };
+    // Just add item to local state - backend will handle stock updates when delivery is submitted
+    const newItem: DeliveryItem = {
+      productId: product.id,
+      productName: product.name,
+      quantity,
+      unitCost,
+      totalCost,
+    };
 
-      if (itemFormData.updatePrice) {
-        updateData.cost = unitCost;
-        // Recalculate price based on new cost if markups exist
-        if (product.markupPercentage || product.markupFixed) {
-          const percentNum = product.markupPercentage || 0;
-          const fixedNum = product.markupFixed || 0;
-          updateData.price = unitCost + (unitCost * percentNum / 100) + fixedNum;
-        }
-      }
-
-      // Update pack pricing if provided
-      if (itemFormData.packPrice) {
-        updateData.packPrice = parseFloat(itemFormData.packPrice);
-      }
-      if (itemFormData.packQuantity) {
-        updateData.packQuantity = parseInt(itemFormData.packQuantity);
-      }
-
-      await apiClient.updateProduct(product.id, updateData);
-
-      const newItem: DeliveryItem = {
-        productId: product.id,
-        productName: product.name,
-        quantity,
-        unitCost,
-        totalCost,
-      };
-
-      setItems([...items, newItem]);
-      updateTotalCost([...items, newItem]);
-      
-      setIsAddItemDialogOpen(false);
-      setSelectedProductId("");
-      resetItemForm();
-      
-      showSuccessToast(SUCCESS_MESSAGES.ADDED("Item"));
-      await fetchProducts(); // Refresh products to show updated stock
-    } catch (error) {
-      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("product stock"));
-    }
+    setItems([...items, newItem]);
+    updateTotalCost([...items, newItem]);
+    
+    setIsAddItemDialogOpen(false);
+    setSelectedProductId("");
+    resetItemForm();
+    
+    showSuccessToast(SUCCESS_MESSAGES.ADDED("Item"));
   }
 
   async function handleCreateProduct() {
@@ -295,6 +273,16 @@ export default function NewDeliveryPage() {
       setIsCreateProductDialogOpen(false);
       setSelectedProductId(savedProduct.id);
       resetProductForm();
+      
+      // Automatically open Add Item dialog with the new product
+      setTimeout(() => {
+        const newProduct = { ...savedProduct, cost: productData.cost };
+        setItemFormData({
+          quantity: "",
+          unitCost: productData.cost.toString(),
+        });
+        setIsAddItemDialogOpen(true);
+      }, 100);
     } catch (error: any) {
       showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("product"));
     }
@@ -724,7 +712,7 @@ export default function NewDeliveryPage() {
                 required
               />
               <p className="text-xs text-muted-foreground">
-                This will be added to the current stock
+                Stock will be updated when delivery is submitted
               </p>
             </div>
 
@@ -742,85 +730,19 @@ export default function NewDeliveryPage() {
               />
             </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="updatePrice"
-                checked={itemFormData.updatePrice}
-                onChange={(e) =>
-                  setItemFormData({ ...itemFormData, updatePrice: e.target.checked })
-                }
-                className="h-4 w-4"
-              />
-              <Label htmlFor="updatePrice" className="cursor-pointer font-normal">
-                Update product cost with this unit cost
-              </Label>
-            </div>
-
-            {/* Pack Pricing */}
-            <div className="border-t pt-4 mt-4">
-              <h4 className="text-sm font-semibold mb-3">Pack/Dozen Pricing (Optional)</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Pack Quantity</Label>
-                  <Input
-                    type="number"
-                    value={itemFormData.packQuantity}
-                    onChange={(e) =>
-                      setItemFormData({ ...itemFormData, packQuantity: e.target.value })
-                    }
-                    placeholder="12"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Items per pack (e.g., 12 for dozen)
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Pack Price (₱)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={itemFormData.packPrice}
-                    onChange={(e) =>
-                      setItemFormData({ ...itemFormData, packPrice: e.target.value })
-                    }
-                    placeholder="0.00"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Total price for the pack
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {itemFormData.updatePrice && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm">
-                <p className="text-amber-900">
-                  The product's cost will be updated to ₱{itemFormData.unitCost || "0.00"}.
-                  {products.find(p => p.id === selectedProductId)?.markupPercentage || 
-                   products.find(p => p.id === selectedProductId)?.markupFixed ? (
-                    <> The selling price will be automatically recalculated based on markups.</>
-                  ) : null}
-                </p>
-              </div>
-            )}
-
             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
-              <p className="font-medium text-blue-900">Current Product Info:</p>
+              <p className="font-medium text-blue-900">Preview (updates when delivery is submitted):</p>
               <p className="text-blue-800">
-                Stock: {products.find(p => p.id === selectedProductId)?.stockQuantity || 0} 
-                {itemFormData.quantity && ` → ${(products.find(p => p.id === selectedProductId)?.stockQuantity || 0) + parseFloat(itemFormData.quantity)}`}
+                Current Stock: {products.find(p => p.id === selectedProductId)?.stockQuantity || 0}
+                {itemFormData.quantity && (
+                  <span className="text-green-700 font-semibold">
+                    {" → "}{(products.find(p => p.id === selectedProductId)?.stockQuantity || 0) + parseFloat(itemFormData.quantity)}
+                  </span>
+                )}
               </p>
               <p className="text-blue-800">
-                Cost: ₱{Number(products.find(p => p.id === selectedProductId)?.cost || 0).toFixed(2)}
-                {itemFormData.updatePrice && itemFormData.unitCost && ` → ₱${parseFloat(itemFormData.unitCost).toFixed(2)}`}
+                Product Cost: ₱{Number(products.find(p => p.id === selectedProductId)?.cost || 0).toFixed(2)}
               </p>
-              {(products.find(p => p.id === selectedProductId)?.packPrice || itemFormData.packPrice) && (
-                <p className="text-blue-800">
-                  Pack: {products.find(p => p.id === selectedProductId)?.packQuantity || 0} @ ₱{Number(products.find(p => p.id === selectedProductId)?.packPrice || 0).toFixed(2)}
-                  {(itemFormData.packPrice || itemFormData.packQuantity) && ` → ${itemFormData.packQuantity || products.find(p => p.id === selectedProductId)?.packQuantity || 0} @ ₱${Number(itemFormData.packPrice || products.find(p => p.id === selectedProductId)?.packPrice || 0).toFixed(2)}`}
-                </p>
-              )}
             </div>
           </div>
 
@@ -843,7 +765,7 @@ export default function NewDeliveryPage() {
 
       {/* Create New Product Dialog */}
       <Dialog open={isCreateProductDialogOpen} onOpenChange={setIsCreateProductDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Product</DialogTitle>
             <DialogDescription>
@@ -901,13 +823,60 @@ export default function NewDeliveryPage() {
 
             <div className="space-y-2">
               <Label>Category</Label>
-              <Input
-                value={productFormData.category}
-                onChange={(e) =>
-                  setProductFormData({ ...productFormData, category: e.target.value })
-                }
-                placeholder="e.g., Beverages, Snacks"
-              />
+              <Popover open={openCategoryCombobox} onOpenChange={setOpenCategoryCombobox}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={openCategoryCombobox}
+                    className="w-full justify-between"
+                  >
+                    {productFormData.category || "Select or add category..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" style={{ width: 'var(--radix-popover-trigger-width)' }}>
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search or type new category..." 
+                      value={productFormData.category}
+                      onValueChange={(value) => setProductFormData({ ...productFormData, category: value })}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        <div className="p-2 text-sm">
+                          Press Enter to add &quot;{productFormData.category}&quot;
+                        </div>
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {uniqueCategories.map((cat) => (
+                          <CommandItem
+                            key={cat}
+                            value={cat}
+                            onSelect={(currentValue) => {
+                              setProductFormData({ ...productFormData, category: currentValue });
+                              setOpenCategoryCombobox(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                productFormData.category === cat ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {cat}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {uniqueCategories.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Existing: {uniqueCategories.join(", ")}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1006,16 +975,16 @@ export default function NewDeliveryPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Initial Stock Quantity *</Label>
+                <Label>Initial Stock Quantity</Label>
                 <Input
                   type="number"
-                  value={productFormData.stockQuantity}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, stockQuantity: e.target.value })
-                  }
-                  placeholder="0"
-                  required
+                  value="0"
+                  disabled
+                  className="bg-muted"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Stock will be set from delivery quantity
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Low Stock Alert</Label>
