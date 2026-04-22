@@ -46,7 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
-import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -80,6 +80,8 @@ export default function ProductsPage() {
   const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
   const [openEditCategoryCombobox, setOpenEditCategoryCombobox] = useState(false);
   const [lowStockPage, setLowStockPage] = useState(1);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const itemsPerPage = 10;
   const [formData, setFormData] = useState({
     sku: "",
@@ -267,13 +269,69 @@ export default function ProductsPage() {
       p.category?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  // Handle sorting
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Sort filtered products
+  const sortedProducts = sortColumn
+    ? [...filteredProducts].sort((a, b) => {
+        let aValue = a[sortColumn];
+        let bValue = b[sortColumn];
+
+        // Handle special cases
+        if (sortColumn === 'profit') {
+          aValue = (Number(a.price) || 0) - (Number(a.cost) || 0);
+          bValue = (Number(b.price) || 0) - (Number(b.cost) || 0);
+        }
+
+        // Handle null/undefined
+        if (aValue == null) aValue = '';
+        if (bValue == null) bValue = '';
+
+        // Convert to numbers if numeric
+        if (typeof aValue === 'number' || !isNaN(Number(aValue))) {
+          aValue = Number(aValue);
+          bValue = Number(bValue);
+        } else {
+          // Convert to lowercase for string comparison
+          aValue = String(aValue).toLowerCase();
+          bValue = String(bValue).toLowerCase();
+        }
+
+        if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      })
+    : filteredProducts;
+
+  // Render sort icon
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="h-3 w-3 ml-1" />
+    ) : (
+      <ArrowDown className="h-3 w-3 ml-1" />
+    );
+  };
+
   // Filter low stock products (stockQuantity <= lowStockThreshold)
   const lowStockProducts = products.filter(
     (p) => p.stockQuantity <= (p.lowStockThreshold || 10)
   );
 
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const paginatedProducts = filteredProducts.slice(
+  const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
+  const paginatedProducts = sortedProducts.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
@@ -468,17 +526,105 @@ export default function ProductsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Cost</TableHead>
-                    <TableHead>Markup %</TableHead>
-                    <TableHead>Fixed ₱</TableHead>
-                    <TableHead>Selling Price</TableHead>
-                    <TableHead>Pack Price</TableHead>
-                    <TableHead>Profit</TableHead>
-                    <TableHead>Stock</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('name')}
+                    >
+                      <div className="flex items-center">
+                        Product
+                        <SortIcon column="name" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('sku')}
+                    >
+                      <div className="flex items-center">
+                        SKU
+                        <SortIcon column="sku" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('category')}
+                    >
+                      <div className="flex items-center">
+                        Category
+                        <SortIcon column="category" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('cost')}
+                    >
+                      <div className="flex items-center">
+                        Cost
+                        <SortIcon column="cost" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('markupPercentage')}
+                    >
+                      <div className="flex items-center">
+                        Markup %
+                        <SortIcon column="markupPercentage" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('markupFixed')}
+                    >
+                      <div className="flex items-center">
+                        Fixed ₱
+                        <SortIcon column="markupFixed" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('price')}
+                    >
+                      <div className="flex items-center">
+                        Selling Price
+                        <SortIcon column="price" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('packPrice')}
+                    >
+                      <div className="flex items-center">
+                        Pack Price
+                        <SortIcon column="packPrice" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('profit')}
+                    >
+                      <div className="flex items-center">
+                        Profit
+                        <SortIcon column="profit" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('stockQuantity')}
+                    >
+                      <div className="flex items-center">
+                        Stock
+                        <SortIcon column="stockQuantity" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('status')}
+                    >
+                      <div className="flex items-center">
+                        Status
+                        <SortIcon column="status" />
+                      </div>
+                    </TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -581,8 +727,8 @@ export default function ProductsPage() {
             <div className="flex items-center justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-                {Math.min(currentPage * itemsPerPage, filteredProducts.length)}{" "}
-                of {filteredProducts.length} results
+                {Math.min(currentPage * itemsPerPage, sortedProducts.length)}{" "}
+                of {sortedProducts.length} results
               </p>
               <div className="flex items-center gap-2">
                 <Button
