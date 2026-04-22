@@ -44,6 +44,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { format } from "date-fns";
 import {
   showSuccessToast,
@@ -53,7 +61,9 @@ import {
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
 import { IconX, IconPlus, IconArrowLeft, IconSearch } from "@tabler/icons-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 interface DeliveryItem {
   productId: string;
@@ -99,6 +109,7 @@ export default function EditDeliveryPage() {
   const [isProductSearchDialogOpen, setIsProductSearchDialogOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
 
   const [formData, setFormData] = useState({
     supplier: "",
@@ -119,8 +130,8 @@ export default function EditDeliveryPage() {
     cost: "",
     markupPercentage: "",
     markupFixed: "",
-    taxRate: "0.08",
-    stockQuantity: "",
+    taxRate: "0",
+    stockQuantity: "0",
     lowStockThreshold: "10",
     barcode: "",
     status: "ACTIVE",
@@ -191,6 +202,11 @@ export default function EditDeliveryPage() {
     }
   }
 
+  // Get unique categories from products
+  const uniqueCategories = Array.from(
+    new Set(products.map((p) => p.category).filter((c) => c && c.trim() !== ""))
+  ).sort();
+
   function resetProductForm() {
     setProductFormData({
       name: "",
@@ -203,8 +219,8 @@ export default function EditDeliveryPage() {
       cost: "",
       markupPercentage: "",
       markupFixed: "",
-      taxRate: "0.08",
-      stockQuantity: "",
+      taxRate: "0",
+      stockQuantity: "0",
       lowStockThreshold: "10",
       barcode: "",
       status: "ACTIVE",
@@ -327,6 +343,19 @@ export default function EditDeliveryPage() {
       await fetchProducts();
       setIsCreateProductDialogOpen(false);
       setSelectedProductId(savedProduct.id);
+      
+      // Pre-populate item form with product details
+      setItemFormData({
+        quantity: "",
+        unitCost: productFormData.cost,
+        updatePrice: false,
+        packPrice: productFormData.packPrice || "",
+        packQuantity: productFormData.packQuantity || "",
+      });
+      
+      // Open the add item dialog
+      setIsAddItemDialogOpen(true);
+      
       resetProductForm();
     } catch (error: any) {
       showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("product"));
@@ -942,13 +971,60 @@ export default function EditDeliveryPage() {
 
             <div className="space-y-2">
               <Label>Category</Label>
-              <Input
-                value={productFormData.category}
-                onChange={(e) =>
-                  setProductFormData({ ...productFormData, category: e.target.value })
-                }
-                placeholder="e.g., Beverages, Snacks"
-              />
+              <Popover open={openCategoryCombobox} onOpenChange={setOpenCategoryCombobox}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={openCategoryCombobox}
+                    className="w-full justify-between"
+                  >
+                    {productFormData.category || "Select or add category..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" style={{ width: 'var(--radix-popover-trigger-width)' }}>
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search or type new category..." 
+                      value={productFormData.category}
+                      onValueChange={(value) => setProductFormData({ ...productFormData, category: value })}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        <div className="p-2 text-sm">
+                          Press Enter to add &quot;{productFormData.category}&quot;
+                        </div>
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {uniqueCategories.map((cat) => (
+                          <CommandItem
+                            key={cat}
+                            value={cat}
+                            onSelect={(currentValue) => {
+                              setProductFormData({ ...productFormData, category: currentValue });
+                              setOpenCategoryCombobox(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                productFormData.category === cat ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {cat}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {uniqueCategories.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Existing: {uniqueCategories.join(", ")}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1047,16 +1123,17 @@ export default function EditDeliveryPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Initial Stock Quantity *</Label>
+                <Label>Initial Stock Quantity</Label>
                 <Input
                   type="number"
                   value={productFormData.stockQuantity}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, stockQuantity: e.target.value })
-                  }
+                  readOnly
+                  className="bg-muted"
                   placeholder="0"
-                  required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Stock will be added from delivery quantity
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Low Stock Alert</Label>
