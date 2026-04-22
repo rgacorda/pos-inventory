@@ -68,6 +68,7 @@ import { cn } from "@/lib/utils";
 interface DeliveryItem {
   productId: string;
   productName: string;
+  productSku: string;
   quantity: number;
   unitCost: number;
   totalCost: number;
@@ -231,6 +232,7 @@ export default function NewDeliveryPage() {
     const newItem: DeliveryItem = {
       productId: product.id,
       productName: product.name,
+      productSku: product.sku,
       quantity,
       unitCost,
       totalCost,
@@ -487,6 +489,7 @@ export default function NewDeliveryPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
+                      <TableHead>SKU</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="text-right">Unit Cost</TableHead>
                       <TableHead className="text-right">Total Cost</TableHead>
@@ -498,6 +501,9 @@ export default function NewDeliveryPage() {
                       <TableRow key={index}>
                         <TableCell className="font-medium">
                           {item.productName}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm text-muted-foreground">
+                          {item.productSku}
                         </TableCell>
                         <TableCell className="text-right">
                           {item.quantity}
@@ -521,7 +527,7 @@ export default function NewDeliveryPage() {
                       </TableRow>
                     ))}
                     <TableRow>
-                      <TableCell colSpan={3} className="text-right font-semibold">
+                      <TableCell colSpan={4} className="text-right font-semibold">
                         Total:
                       </TableCell>
                       <TableCell className="text-right font-semibold">

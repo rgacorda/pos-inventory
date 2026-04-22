@@ -56,6 +56,7 @@ export class ProductEntity {
   lowStockThreshold: number;
 
   @Column({ nullable: true })
+  @Index() // Non-unique index for faster barcode lookups
   barcode: string;
 
   @Column({ nullable: true })
