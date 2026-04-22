@@ -56,7 +56,6 @@ export class ProductEntity {
   lowStockThreshold: number;
 
   @Column({ nullable: true })
-  @Index()
   barcode: string;
 
   @Column({ nullable: true })

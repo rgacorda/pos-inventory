@@ -128,4 +128,23 @@ export class ProductsService {
       order: { name: 'ASC' },
     });
   }
+
+  async findByBarcode(barcode: string, requestingUser: any) {
+    const query = this.productsRepository
+      .createQueryBuilder('product')
+      .where('product.barcode = :barcode', { barcode });
+
+    // Filter by organization for non-super-admins
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      query.andWhere('product.organizationId = :orgId', {
+        orgId: requestingUser.organizationId,
+      });
+    }
+
+    // Order by stock quantity DESC (products with stock first), then by name
+    return query
+      .orderBy('product.stockQuantity', 'DESC')
+      .addOrderBy('product.name', 'ASC')
+      .getMany();
+  }
 }

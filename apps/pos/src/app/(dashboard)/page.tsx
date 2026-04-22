@@ -69,6 +69,8 @@ export default function Page() {
   const [lastReceipt, setLastReceipt] = useState<any>(null);
   const [barcodeInput, setBarcodeInput] = useState<string>("");
   const [showQuantityDialog, setShowQuantityDialog] = useState(false);
+  const [showProductSelectionDialog, setShowProductSelectionDialog] = useState(false);
+  const [matchingProducts, setMatchingProducts] = useState<LocalProduct[]>([]);
   const [productToAdd, setProductToAdd] = useState<LocalProduct | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<string>("1");
   const cartEndRef = useRef<HTMLDivElement>(null);
@@ -150,22 +152,45 @@ export default function Page() {
   const handleBarcodeScan = (barcode: string) => {
     if (!barcode.trim() || !products) return;
 
-    // Search for product by barcode
-    const product = products.find(
+    // Search for all products with this barcode
+    const matchedProducts = products.filter(
       (p) => p.barcode === barcode.trim()
     );
 
-    if (product) {
-      addToOrder(product);
-      setBarcodeInput("");
-    } else {
+    if (matchedProducts.length === 0) {
       showErrorToast(ERROR_MESSAGES.NOT_FOUND("Product"), {
         description: `No product with barcode: ${barcode}`,
       });
       setBarcodeInput("");
-      // Refocus barcode input
       setTimeout(() => barcodeInputRef.current?.focus(), 100);
+      return;
     }
+
+    // Sort by stock (products with stock first)
+    const sortedProducts = matchedProducts.sort((a, b) => {
+      if (a.stockQuantity > 0 && b.stockQuantity === 0) return -1;
+      if (a.stockQuantity === 0 && b.stockQuantity > 0) return 1;
+      return b.stockQuantity - a.stockQuantity;
+    });
+
+    if (sortedProducts.length === 1) {
+      // Only one product found, add directly
+      addToOrder(sortedProducts[0]);
+      setBarcodeInput("");
+    } else {
+      // Multiple products found, show selection dialog
+      setMatchingProducts(sortedProducts);
+      setShowProductSelectionDialog(true);
+      setBarcodeInput("");
+    }
+  };
+
+  // Handle product selection from dialog
+  const handleProductSelection = (product: LocalProduct) => {
+    addToOrder(product);
+    setShowProductSelectionDialog(false);
+    setMatchingProducts([]);
+    setTimeout(() => barcodeInputRef.current?.focus(), 100);
   };
 
   // Handle barcode input key press
@@ -974,6 +999,98 @@ export default function Page() {
               disabled={!quantityToAdd || parseInt(quantityToAdd) <= 0}
             >
               Add to Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Product Selection Dialog (Multiple Barcode Matches) */}
+      <Dialog open={showProductSelectionDialog} onOpenChange={setShowProductSelectionDialog}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Select Product</DialogTitle>
+            <DialogDescription>
+              Multiple products found with this barcode. Choose one to add to order.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[500px] overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead className="text-right">Stock</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {matchingProducts.map((product) => (
+                  <TableRow 
+                    key={product.id}
+                    className={product.stockQuantity === 0 ? "opacity-50" : ""}
+                  >
+                    <TableCell className="font-medium">
+                      <div>
+                        {product.name}
+                        {product.stockQuantity === 0 && (
+                          <span className="ml-2 text-xs text-red-600 font-semibold">
+                            OUT OF STOCK
+                          </span>
+                        )}
+                        {product.stockQuantity > 0 && matchingProducts.findIndex(p => p.stockQuantity > 0) === matchingProducts.findIndex(p => p.id === product.id) && (
+                          <span className="ml-2 text-xs text-green-600 font-semibold">
+                            ✓ HAS STOCK
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{product.sku}</TableCell>
+                    <TableCell>{product.category}</TableCell>
+                    <TableCell className="text-right">
+                      <div>
+                        <div className="font-semibold">
+                          ₱{product.price.toFixed(2)}
+                        </div>
+                        {product.packPrice && product.packQuantity && (
+                          <div className="text-xs text-green-600">
+                            ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pc
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className={product.stockQuantity > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
+                        {product.stockQuantity}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        size="sm"
+                        onClick={() => handleProductSelection(product)}
+                        className="h-8"
+                        variant={product.stockQuantity > 0 ? "default" : "outline"}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowProductSelectionDialog(false);
+                setMatchingProducts([]);
+                setTimeout(() => barcodeInputRef.current?.focus(), 100);
+              }}
+            >
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -38,6 +38,11 @@ export class ProductsController {
     return this.productsService.findAll(user);
   }
 
+  @Get('barcode/:barcode')
+  async findByBarcode(@Param('barcode') barcode: string, @CurrentUser() user: any) {
+    return this.productsService.findByBarcode(barcode, user);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.findOne(id, user);
