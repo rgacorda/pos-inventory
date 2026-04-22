@@ -107,10 +107,10 @@ export function Receipt({
     <>
       {/* Receipt content for printing */}
       <div className="receipt-print-container">
-        <div className="max-w-[48mm] mx-auto p-2 font-mono text-[9pt] leading-tight bg-white">
+        <div className="max-w-[48mm] mx-auto p-2 font-sans text-[7pt] leading-tight bg-white">
           {/* Header */}
           <div className="text-center mb-2">
-            <div className="font-bold">
+            <div>
               {organizationData?.name || "YOUR STORE NAME"}
             </div>
             {organizationData?.address && (
@@ -132,7 +132,7 @@ export function Receipt({
           {(customerName || customerAddress) && (
             <div className="mb-2">
               <div className="border-b border-dashed border-gray-400 my-2" />
-              <div className="font-bold">CUSTOMER:</div>
+              <div>CUSTOMER:</div>
               {customerName && <div>Name: {customerName}</div>}
               {customerAddress && <div>Address: {customerAddress}</div>}
             </div>
@@ -149,7 +149,7 @@ export function Receipt({
                 <span className="whitespace-nowrap">
                   x{item.quantity}
                 </span>
-                <span className="font-bold whitespace-nowrap">
+                <span className="whitespace-nowrap">
                   {formatCurrency(item.total)}
                 </span>
               </div>
@@ -174,7 +174,7 @@ export function Receipt({
               </div>
             )}
             <div className="border-t border-black pt-2 mt-2">
-              <div className="flex justify-between font-bold">
+              <div className="flex justify-between">
                 <span>TOTAL:</span>
                 <span>{formatCurrency(totalAmount)}</span>
               </div>
@@ -184,7 +184,7 @@ export function Receipt({
           {/* Payment Info */}
           <div className="border-b border-dashed border-gray-400 my-2" />
           <div className="mb-2">
-            <div className="font-bold">PAYMENT:</div>
+            <div>PAYMENT:</div>
             <div className="flex justify-between">
               <span>Method:</span>
               <span className="capitalize">
@@ -204,7 +204,7 @@ export function Receipt({
                   <span>{formatCurrency(cashReceived)}</span>
                 </div>
                 {change !== undefined && change > 0 && (
-                  <div className="flex justify-between font-bold">
+                  <div className="flex justify-between">
                     <span>Change:</span>
                     <span>{formatCurrency(change)}</span>
                   </div>
