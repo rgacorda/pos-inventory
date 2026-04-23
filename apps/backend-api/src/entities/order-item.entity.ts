@@ -22,11 +22,9 @@ export class OrderItemEntity {
   @Column({ type: 'varchar', nullable: true })
   productId: string;
 
-  // Optional product relation - will be null for manual items
-  // Uses nullable: true to allow manual items that don't reference real products
-  @ManyToOne('ProductEntity', 'orderItems', { nullable: true })
-  @JoinColumn({ name: 'productId' })
-  product: any;
+  // Product relation removed - manual items use string IDs that don't match products table
+  // All product info (name, sku, price) is already stored in this table
+  // If you need product details, query separately using productId (only for non-manual items)
 
   @Column()
   sku: string;

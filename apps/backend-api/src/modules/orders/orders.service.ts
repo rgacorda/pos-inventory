@@ -83,7 +83,6 @@ export class OrdersService {
     const query = this.ordersRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('items.product', 'product')
       .leftJoinAndSelect('order.terminal', 'terminal')
       .leftJoinAndSelect('order.cashier', 'cashier')
       .leftJoinAndSelect('order.payments', 'payments')

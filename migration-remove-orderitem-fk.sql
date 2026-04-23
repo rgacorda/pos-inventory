@@ -7,7 +7,7 @@
 ALTER TABLE order_items DROP CONSTRAINT IF EXISTS "FK_cdb99c05982d5191ac8465ac010";
 
 -- Step 2: Change productId column type from uuid to varchar to accept manual item IDs
-ALTER TABLE order_items ALTER COLUMN "productId" TYPE varchar USING "productId"::varchar;
+ALTER TABLE order_items ALTER COLUMN "productId" TYPE varchar(255) USING "productId"::varchar;
 
 -- Step 3: Make productId nullable to support manual items
 ALTER TABLE order_items ALTER COLUMN "productId" DROP NOT NULL;
