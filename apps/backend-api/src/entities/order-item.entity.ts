@@ -19,7 +19,7 @@ export class OrderItemEntity {
   @JoinColumn({ name: 'orderId' })
   order: OrderEntity;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   productId: string;
 
   // Optional product relation - will be null for manual items
