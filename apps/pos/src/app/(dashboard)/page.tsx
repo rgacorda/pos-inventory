@@ -38,7 +38,7 @@ import { Plus, Trash2, CreditCard, QrCode, Minus, Search } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
-import { OrderStatus, PaymentMethod, PaymentStatus } from "@pos/shared-types";
+import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
 import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 
@@ -181,11 +181,12 @@ export default function Page() {
       sku: "MANUAL",
       price: price,
       cost: 0,
+      taxRate: 0,
       stockQuantity: 999999, // Manual items don't affect stock
-      organizationId: "manual",
-      status: "ACTIVE",
-      syncStatus: "synced",
-      lastModified: new Date(),
+      status: ProductStatus.ACTIVE,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSyncedAt: new Date(),
     };
 
     setOrderItems([...orderItems, { product: manualProduct, quantity: qty }]);
@@ -223,7 +224,7 @@ export default function Page() {
   };
 
   // Filter products for manual item search
-  const manualItemSearchResults = manualItemSearch.trim()
+  const manualItemSearchResults = manualItemSearch.trim() && products
     ? products.filter((p) => {
         const query = manualItemSearch.toLowerCase();
         return (
