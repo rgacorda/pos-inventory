@@ -198,7 +198,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
             <div className="max-h-[500px] overflow-y-auto">
               {/* Receipt content for printing */}
               <div className="test-receipt-print-container">
-                <div className="w-full max-w-[58mm] px-1 py-2 font-sans text-[7pt] leading-tight bg-white">
+                <div className="w-full max-w-[58mm] px-1 py-2 font-sans text-[9pt] leading-snug bg-white">
                   {/* Header */}
                   <div className="text-center mb-2">
                     <div>
@@ -285,7 +285,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
                   </div>
 
                   {/* Footer */}
-                  <div className="border-t border-dashed border-gray-400 pt-3 text-center text-[9pt]">
+                  <div className="border-t border-dashed border-gray-400 pt-3 text-center text-[11pt]">
                     <div>Thank you for your purchase!</div>
                     <div className="mt-2">Please come again</div>
                   </div>
