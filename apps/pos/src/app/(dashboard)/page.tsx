@@ -73,9 +73,15 @@ export default function Page() {
   const [matchingProducts, setMatchingProducts] = useState<LocalProduct[]>([]);
   const [productToAdd, setProductToAdd] = useState<LocalProduct | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<string>("1");
+  const [showManualItemDialog, setShowManualItemDialog] = useState(false);
+  const [manualItemName, setManualItemName] = useState<string>("");
+  const [manualItemPrice, setManualItemPrice] = useState<string>("");
+  const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
+  const [manualItemSearch, setManualItemSearch] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
+  const manualItemNameRef = useRef<HTMLInputElement>(null);
 
   // Extract categories from products
   useEffect(() => {
@@ -147,6 +153,86 @@ export default function Page() {
     // Refocus barcode input
     setTimeout(() => barcodeInputRef.current?.focus(), 100);
   };
+
+  // Add manual item with custom price
+  const addManualItem = () => {
+    const itemName = manualItemName.trim();
+    const price = parseFloat(manualItemPrice);
+    const qty = parseInt(manualItemQuantity) || 1;
+
+    if (!itemName || !manualItemPrice || isNaN(price) || price <= 0) {
+      showErrorToast("Invalid Input", {
+        description: "Please enter a valid item name and price",
+      });
+      return;
+    }
+
+    if (qty <= 0) {
+      showErrorToast("Invalid Quantity", {
+        description: "Quantity must be at least 1",
+      });
+      return;
+    }
+
+    // Create a temporary product object for manual items
+    const manualProduct: LocalProduct = {
+      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: itemName,
+      sku: "MANUAL",
+      price: price,
+      cost: 0,
+      stockQuantity: 999999, // Manual items don't affect stock
+      organizationId: "manual",
+      status: "ACTIVE",
+      syncStatus: "synced",
+      lastModified: new Date(),
+    };
+
+    setOrderItems([...orderItems, { product: manualProduct, quantity: qty }]);
+
+    showSuccessToast(SUCCESS_MESSAGES.ADDED("Manual Item"), {
+      description: `${qty}x ${itemName} @ ₱${price.toFixed(2)}`,
+    });
+
+    // Reset form
+    setManualItemName("");
+    setManualItemPrice("");
+    setManualItemQuantity("1");
+    setShowManualItemDialog(false);
+
+    // Refocus barcode input
+    setTimeout(() => barcodeInputRef.current?.focus(), 100);
+  };
+
+  // Open manual item dialog
+  const openManualItemDialog = () => {
+    setManualItemName("");
+    setManualItemPrice("");
+    setManualItemQuantity("1");
+    setManualItemSearch("");
+    setShowManualItemDialog(true);
+    setTimeout(() => manualItemNameRef.current?.focus(), 100);
+  };
+
+  // Use product as price reference
+  const useProductReference = (product: LocalProduct) => {
+    setManualItemName(product.name + " (Individual)");
+    setManualItemSearch("");
+    // Don't auto-set price, let cashier decide based on the reference
+    setTimeout(() => document.getElementById('manual-price-input')?.focus(), 100);
+  };
+
+  // Filter products for manual item search
+  const manualItemSearchResults = manualItemSearch.trim()
+    ? products.filter((p) => {
+        const query = manualItemSearch.toLowerCase();
+        return (
+          p.name.toLowerCase().includes(query) ||
+          p.sku?.toLowerCase().includes(query) ||
+          p.barcode?.toLowerCase().includes(query)
+        );
+      }).slice(0, 5)
+    : [];
 
   // Handle barcode scan
   const handleBarcodeScan = (barcode: string) => {
@@ -456,6 +542,14 @@ export default function Page() {
               >
                 <Search className="h-4 w-4" />
                 Search Products
+              </Button>
+              <Button
+                variant="outline"
+                onClick={openManualItemDialog}
+                className="flex items-center gap-2 px-4 border-green-200 hover:bg-green-50"
+              >
+                <Plus className="h-4 w-4" />
+                Manual Item
               </Button>
               <div className="relative">
                 <svg
@@ -1317,6 +1411,169 @@ export default function Page() {
               className="w-full"
             >
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Item Dialog */}
+      <Dialog open={showManualItemDialog} onOpenChange={setShowManualItemDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Manual Item</DialogTitle>
+            <DialogDescription>
+              Add custom item with manual pricing for refrigeration fees, individual sales, etc.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Product Price Reference Search */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-blue-700">Search Product for Price Reference</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  value={manualItemSearch}
+                  onChange={(e) => setManualItemSearch(e.target.value)}
+                  placeholder="Search products to see prices..."
+                  className="pl-9 border-blue-200 bg-blue-50"
+                />
+              </div>
+              {manualItemSearchResults.length > 0 && (
+                <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto">
+                  {manualItemSearchResults.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => useProductReference(product)}
+                      className="w-full px-3 py-2 text-left hover:bg-gray-50 flex justify-between items-center gap-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{product.name}</div>
+                        <div className="text-xs text-gray-500">{product.sku}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-green-600">₱{product.price.toFixed(2)}</div>
+                        {product.packPrice && product.packQuantity && (
+                          <div className="text-xs text-blue-600">
+                            ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pcs
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Item Name *</label>
+              <Input
+                ref={manualItemNameRef}
+                type="text"
+                value={manualItemName}
+                onChange={(e) => setManualItemName(e.target.value)}
+                placeholder="e.g., Refrigeration Fee, Individual Item"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    document.getElementById('manual-price-input')?.focus();
+                  }
+                }}
+              />
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setManualItemName("Refrigeration Fee")}
+                >
+                  Refrigeration Fee
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setManualItemName("Additional Item")}
+                >
+                  Additional Item
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setManualItemName("Service Fee")}
+                >
+                  Service Fee
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Price *</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  ₱
+                </span>
+                <Input
+                  id="manual-price-input"
+                  type="number"
+                  value={manualItemPrice}
+                  onChange={(e) => setManualItemPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="pl-7"
+                  step="0.01"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      document.getElementById('manual-quantity-input')?.focus();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Quantity</label>
+              <Input
+                id="manual-quantity-input"
+                type="number"
+                value={manualItemQuantity}
+                onChange={(e) => setManualItemQuantity(e.target.value)}
+                placeholder="1"
+                min="1"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addManualItem();
+                  }
+                }}
+              />
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-blue-800 text-sm">
+                <span className="font-semibold">Quick Tip:</span> Manual items are one-time charges that don&apos;t affect inventory. Perfect for refrigeration fees, add-ons, or selling individual items from packs.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowManualItemDialog(false);
+                setManualItemName("");
+                setManualItemPrice("");
+                setManualItemQuantity("1");
+                setManualItemSearch("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={addManualItem}>
+              Add to Cart
             </Button>
           </DialogFooter>
         </DialogContent>
