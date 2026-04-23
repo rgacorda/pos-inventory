@@ -702,12 +702,17 @@ export default function EditDeliveryPage() {
               <div className="p-2">
                 {products
                   .filter(product => {
-                    const query = productSearchQuery.toLowerCase();
-                    return (
-                      product.name.toLowerCase().includes(query) ||
-                      product.sku.toLowerCase().includes(query) ||
-                      product.barcode?.toLowerCase().includes(query) ||
-                      product.category?.toLowerCase().includes(query)
+                    if (!productSearchQuery) return true;
+                    
+                    // Split search query into individual terms for multi-word search
+                    const searchTerms = productSearchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
+                    
+                    // Check if ALL search terms are present in any of the product fields
+                    return searchTerms.every(term => 
+                      product.name.toLowerCase().includes(term) ||
+                      product.sku.toLowerCase().includes(term) ||
+                      product.barcode?.toLowerCase().includes(term) ||
+                      product.category?.toLowerCase().includes(term)
                     );
                   })
                   .map((product) => (
@@ -740,12 +745,17 @@ export default function EditDeliveryPage() {
                     </button>
                   ))}
                 {products.filter(product => {
-                  const query = productSearchQuery.toLowerCase();
-                  return (
-                    product.name.toLowerCase().includes(query) ||
-                    product.sku.toLowerCase().includes(query) ||
-                    product.barcode?.toLowerCase().includes(query) ||
-                    product.category?.toLowerCase().includes(query)
+                  if (!productSearchQuery) return true;
+                  
+                  // Split search query into individual terms for multi-word search
+                  const searchTerms = productSearchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
+                  
+                  // Check if ALL search terms are present in any of the product fields
+                  return searchTerms.every(term => 
+                    product.name.toLowerCase().includes(term) ||
+                    product.sku.toLowerCase().includes(term) ||
+                    product.barcode?.toLowerCase().includes(term) ||
+                    product.category?.toLowerCase().includes(term)
                   );
                 }).length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">

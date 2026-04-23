@@ -267,12 +267,20 @@ export default function ProductsPage() {
     }
   };
 
-  const filteredProducts = products.filter(
-    (p) =>
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  // Split search query into individual terms for multi-word search
+  const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
+  const filteredProducts = products.filter((p) => {
+    if (searchQuery === "" || searchTerms.length === 0) return true;
+    
+    // Check if ALL search terms are present in any of the product fields
+    return searchTerms.every(term => 
+      p.name?.toLowerCase().includes(term) ||
+      p.sku?.toLowerCase().includes(term) ||
+      p.category?.toLowerCase().includes(term) ||
+      p.description?.toLowerCase().includes(term) ||
+      p.barcode?.toLowerCase().includes(term)
+    );
+  });
 
   // Handle sorting
   const handleSort = (column: string) => {

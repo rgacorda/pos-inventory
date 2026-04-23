@@ -415,12 +415,17 @@ export default function Page() {
     products?.filter((p) => {
       const matchesCategory =
         selectedCategory === "All" || p.category === selectedCategory;
+      
+      // Split search query into individual terms for multi-word search
+      const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
       const matchesSearch =
         searchQuery === "" ||
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.description &&
-          p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+        searchTerms.every(term => 
+          p.name.toLowerCase().includes(term) ||
+          p.sku.toLowerCase().includes(term) ||
+          (p.description && p.description.toLowerCase().includes(term)) ||
+          (p.barcode && p.barcode.toLowerCase().includes(term))
+        );
       return matchesCategory && matchesSearch;
     }) || [];
   // Open cash dialog or process other payments
