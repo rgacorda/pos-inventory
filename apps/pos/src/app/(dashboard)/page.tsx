@@ -83,6 +83,8 @@ export default function Page() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const manualItemNameRef = useRef<HTMLInputElement>(null);
+  const barcodeBufferRef = useRef<string>("");
+  const barcodeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Extract categories from products
   useEffect(() => {
@@ -100,6 +102,66 @@ export default function Page() {
       setCategories(uniqueCategories);
     }
   }, [products]);
+
+  // Global barcode scanner listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if dialogs are open
+      if (showQuantityDialog || showCashDialog || showPaymentDialog || 
+          showManualItemDialog || showReceiptDialog || showProductSelectionDialog) {
+        return;
+      }
+
+      // Ignore if user is typing in an input/textarea (except barcode input)
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      const isBarcodeInput = target === barcodeInputRef.current;
+      
+      if (isInput && !isBarcodeInput) {
+        return;
+      }
+
+      // Handle Enter key - trigger scan
+      if (e.key === 'Enter' && barcodeBufferRef.current.length > 0) {
+        e.preventDefault();
+        const barcode = barcodeBufferRef.current;
+        barcodeBufferRef.current = "";
+        setBarcodeInput("");
+        handleBarcodeScan(barcode);
+        return;
+      }
+
+      // Accumulate characters for barcode
+      // Ignore special keys (except numbers and letters)
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault(); // Prevent default to avoid typing in inputs
+        barcodeBufferRef.current += e.key;
+        
+        // Update visual feedback in barcode input
+        setBarcodeInput(barcodeBufferRef.current);
+        
+        // Clear buffer after 100ms of inactivity (barcode scanners are faster)
+        if (barcodeTimerRef.current) {
+          clearTimeout(barcodeTimerRef.current);
+        }
+        barcodeTimerRef.current = setTimeout(() => {
+          barcodeBufferRef.current = "";
+          setBarcodeInput("");
+        }, 100);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (barcodeTimerRef.current) {
+        clearTimeout(barcodeTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQuantityDialog, showCashDialog, showPaymentDialog, showManualItemDialog, 
+      showReceiptDialog, showProductSelectionDialog, products]);
 
   // Auto-scroll to latest item in cart
   useEffect(() => {
@@ -890,14 +952,14 @@ export default function Page() {
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Price</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
-                      <TableHead className="text-center">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredProducts.map((product) => (
                       <TableRow
                         key={product.id}
-                        className="hover:bg-gray-50"
+                        onClick={() => addToOrder(product)}
+                        className="hover:bg-blue-50 cursor-pointer transition-colors"
                       >
                         <TableCell className="font-medium">
                           {product.name}
@@ -918,16 +980,6 @@ export default function Page() {
                         </TableCell>
                         <TableCell className="text-right">
                           {product.stockQuantity}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            size="sm"
-                            onClick={() => addToOrder(product)}
-                            className="h-8"
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            Add
-                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1249,6 +1301,12 @@ export default function Page() {
                   type="number"
                   value={cashReceived}
                   onChange={(e) => setCashReceived(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && cashAmount >= total && !isProcessing) {
+                      e.preventDefault();
+                      handleCheckout(PaymentMethod.CASH);
+                    }
+                  }}
                   placeholder="0.00"
                   className="pl-7 text-lg h-12"
                   step="0.01"
@@ -1350,6 +1408,12 @@ export default function Page() {
                   type="text"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      document.getElementById('payment-customer-name')?.focus();
+                    }
+                  }}
                   placeholder="Enter transaction reference"
                   className="h-10"
                   autoFocus
@@ -1360,9 +1424,16 @@ export default function Page() {
                   Customer Name <span className="text-gray-400">(Optional)</span>
                 </label>
                 <Input
+                  id="payment-customer-name"
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      document.getElementById('payment-customer-address')?.focus();
+                    }
+                  }}
                   placeholder="Enter customer name"
                   className="h-10"
                 />
@@ -1372,9 +1443,16 @@ export default function Page() {
                   Customer Address <span className="text-gray-400">(Optional)</span>
                 </label>
                 <Input
+                  id="payment-customer-address"
                   type="text"
                   value={customerAddress}
                   onChange={(e) => setCustomerAddress(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && selectedPaymentMethod && referenceNumber.trim() && !isProcessing) {
+                      e.preventDefault();
+                      handleCheckout(selectedPaymentMethod);
+                    }
+                  }}
                   placeholder="Enter customer address"
                   className="h-10"
                 />
