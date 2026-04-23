@@ -434,11 +434,11 @@ export default function OrdersPage() {
                         <TableCell>
                           <div>
                             <p className="font-medium">
-                              {item.product?.name || "N/A"}
+                              {item.product?.name || item.name || "Unknown Item"}
                             </p>
-                            {item.product?.sku && (
+                            {(item.product?.sku || item.sku) && (
                               <p className="text-xs text-muted-foreground">
-                                SKU: {item.product.sku}
+                                SKU: {item.product?.sku || item.sku}
                               </p>
                             )}
                           </div>

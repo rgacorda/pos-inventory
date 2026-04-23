@@ -19,10 +19,14 @@ export class OrderItemEntity {
   @JoinColumn({ name: 'orderId' })
   order: OrderEntity;
 
-  // Store productId as string reference (not foreign key) to support manual items
-  // and preserve order history even if products are deleted
   @Column({ nullable: true })
   productId: string;
+
+  // Optional product relation - will be null for manual items
+  // Uses nullable: true to allow manual items that don't reference real products
+  @ManyToOne('ProductEntity', 'orderItems', { nullable: true })
+  @JoinColumn({ name: 'productId' })
+  product: any;
 
   @Column()
   sku: string;
