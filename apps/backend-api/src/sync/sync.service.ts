@@ -169,13 +169,33 @@ export class SyncService {
         await queryRunner.manager.save(OrderItemEntity, items);
 
         // Update inventory (accept sale even if stock goes negative)
+        // Skip manual items (they have IDs starting with 'manual-')
         for (const item of orderDto.items) {
-          await queryRunner.manager.decrement(
-            ProductEntity,
-            { id: item.productId },
-            'stockQuantity',
-            item.quantity,
-          );
+          // Skip inventory update for manual items
+          if (item.productId.startsWith('manual-')) {
+            this.logger.log(
+              `Skipping inventory update for manual item: ${item.name}`,
+            );
+            continue;
+          }
+
+          // Check if product exists before decrementing
+          const product = await queryRunner.manager.findOne(ProductEntity, {
+            where: { id: item.productId },
+          });
+
+          if (product) {
+            await queryRunner.manager.decrement(
+              ProductEntity,
+              { id: item.productId },
+              'stockQuantity',
+              item.quantity,
+            );
+          } else {
+            this.logger.warn(
+              `Product not found for inventory update: ${item.productId} (${item.name})`,
+            );
+          }
         }
 
         await queryRunner.commitTransaction();
@@ -193,13 +213,14 @@ export class SyncService {
         await queryRunner.release();
       }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to sync order ${orderDto.posLocalId}: ${error.message}`,
+        `Failed to sync order ${orderDto.posLocalId}: ${errorMessage}`,
       );
       return {
         posLocalId: orderDto.posLocalId,
         status: 'ERROR',
-        message: error.message,
+        message: errorMessage,
       };
     }
   }
@@ -275,13 +296,14 @@ export class SyncService {
         serverId: savedPayment.id,
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to sync payment ${paymentDto.posLocalId}: ${error.message}`,
+        `Failed to sync payment ${paymentDto.posLocalId}: ${errorMessage}`,
       );
       return {
         posLocalId: paymentDto.posLocalId,
         status: 'ERROR',
-        message: error.message,
+        message: errorMessage,
       };
     }
   }
