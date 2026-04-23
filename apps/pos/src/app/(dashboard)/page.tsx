@@ -73,6 +73,7 @@ export default function Page() {
   const [matchingProducts, setMatchingProducts] = useState<LocalProduct[]>([]);
   const [productToAdd, setProductToAdd] = useState<LocalProduct | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<string>("1");
+  const [includeAddon, setIncludeAddon] = useState<boolean>(false);
   const [showManualItemDialog, setShowManualItemDialog] = useState(false);
   const [manualItemName, setManualItemName] = useState<string>("");
   const [manualItemPrice, setManualItemPrice] = useState<string>("");
@@ -127,6 +128,11 @@ export default function Page() {
     const qty = parseInt(quantityToAdd) || 1;
     if (qty <= 0) return;
 
+    // Apply addon price if checkbox is checked
+    const productWithPrice = includeAddon && productToAdd.addonPrice
+      ? { ...productToAdd, price: productToAdd.price + productToAdd.addonPrice }
+      : productToAdd;
+
     const existingItem = orderItems.find(
       (item) => item.product.id === productToAdd.id,
     );
@@ -139,16 +145,17 @@ export default function Page() {
         ),
       );
     } else {
-      setOrderItems([...orderItems, { product: productToAdd, quantity: qty }]);
+      setOrderItems([...orderItems, { product: productWithPrice, quantity: qty }]);
     }
 
     showSuccessToast(SUCCESS_MESSAGES.ADDED("Product"), {
-      description: `${qty}x ${productToAdd.name} added to cart`,
+      description: `${qty}x ${productToAdd.name}${includeAddon && productToAdd.addonPrice ? ' (+ Refrigeration)' : ''} added to cart`,
     });
 
     setShowQuantityDialog(false);
     setProductToAdd(null);
     setQuantityToAdd("1");
+    setIncludeAddon(false);
 
     // Refocus barcode input
     setTimeout(() => barcodeInputRef.current?.focus(), 100);
@@ -972,21 +979,24 @@ export default function Page() {
                       Pack price: <span className="font-semibold">₱{productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
                     </div>
                   )}
+                  {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
+                    <div className="text-sm text-blue-600">
+                      Refrigeration fee: <span className="font-semibold">₱{productToAdd.addonPrice.toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
                 {(() => {
                   const qty = parseInt(quantityToAdd) || 0;
-                  const effectivePrice = calculateEffectivePrice(
+                  const basePrice = calculateEffectivePrice(
                     qty,
                     productToAdd.price,
                     productToAdd.packPrice,
                     productToAdd.packQuantity,
                   );
-                  const lineTotal = calculateLineSubtotalWithTieredPrice(
-                    qty,
-                    productToAdd.price,
-                    productToAdd.packPrice,
-                    productToAdd.packQuantity,
-                  );
+                  const effectivePrice = includeAddon && productToAdd.addonPrice 
+                    ? basePrice + productToAdd.addonPrice 
+                    : basePrice;
+                  const lineTotal = effectivePrice * qty;
                   const isUsingPackPrice = productToAdd.packPrice && 
                     productToAdd.packQuantity && 
                     qty >= productToAdd.packQuantity;
@@ -1003,6 +1013,11 @@ export default function Page() {
                               Using pack price
                             </div>
                           )}
+                          {includeAddon && productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
+                            <div className="text-xs text-blue-600 font-medium">
+                              + Refrigeration fee
+                            </div>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-bold text-gray-900">
@@ -1017,6 +1032,28 @@ export default function Page() {
                   ) : null;
                 })()}
               </div>
+
+              {/* ADD-ON CHECKBOX SECTION */}
+              {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
+                <div className="flex items-start space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="include-addon"
+                    checked={includeAddon}
+                    onChange={(e) => setIncludeAddon(e.target.checked)}
+                    className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label 
+                    htmlFor="include-addon" 
+                    className="text-sm text-gray-700 cursor-pointer flex-1"
+                  >
+                    <span className="font-medium">Add Refrigeration Fee (+₱{productToAdd.addonPrice.toFixed(2)})</span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      For refrigerated/chilled products
+                    </p>
+                  </label>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Quantity</label>
@@ -1083,6 +1120,7 @@ export default function Page() {
                 setShowQuantityDialog(false);
                 setProductToAdd(null);
                 setQuantityToAdd("1");
+                setIncludeAddon(false);
                 // Refocus barcode input
                 setTimeout(() => barcodeInputRef.current?.focus(), 100);
               }}

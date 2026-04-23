@@ -94,6 +94,7 @@ export default function ProductsPage() {
     cost: "",
     markupPercentage: "",
     markupFixed: "",
+    addonPrice: "0",
     taxRate: "0.08",
     stockQuantity: "",
     lowStockThreshold: "10",
@@ -149,6 +150,7 @@ export default function ProductsPage() {
       cost: "",
       markupPercentage: "",
       markupFixed: "",
+      addonPrice: "0",
       taxRate: "0",
       stockQuantity: "",
       lowStockThreshold: "10",
@@ -175,6 +177,7 @@ export default function ProductsPage() {
       cost: product.cost?.toString() || "",
       markupPercentage: product.markupPercentage?.toString() || "",
       markupFixed: product.markupFixed?.toString() || "",
+      addonPrice: product.addonPrice?.toString() || "0",
       taxRate: product.taxRate?.toString() || "0",
       stockQuantity: product.stockQuantity?.toString() || "",
       lowStockThreshold: product.lowStockThreshold?.toString() || "10",
@@ -202,6 +205,7 @@ export default function ProductsPage() {
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+        addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
         taxRate: parseFloat(formData.taxRate),
         stockQuantity: parseInt(formData.stockQuantity),
         lowStockThreshold: parseInt(formData.lowStockThreshold),
@@ -232,6 +236,7 @@ export default function ProductsPage() {
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+        addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
         taxRate: parseFloat(formData.taxRate),
         stockQuantity: parseInt(formData.stockQuantity),
         lowStockThreshold: parseInt(formData.lowStockThreshold),
@@ -1034,6 +1039,31 @@ export default function ProductsPage() {
                   )}
                 </div>
 
+                {/* Add-on Price Section */}
+                <div className="border-t pt-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="addonPrice">
+                      Add-on Price (Refrigeration Fee)
+                    </Label>
+                    <Input
+                      id="addonPrice"
+                      type="number"
+                      step="0.01"
+                      value={formData.addonPrice}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          addonPrice: e.target.value,
+                        })
+                      }
+                      placeholder="5.00"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional fee for refrigeration, cooling, etc. Cashier can choose to add this when scanning the product.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="stockQuantity">Stock Quantity *</Label>
@@ -1370,6 +1400,31 @@ export default function ProductsPage() {
                       </span>
                     </div>
                   )}
+                </div>
+
+                {/* Add-on Price Section */}
+                <div className="border-t pt-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-addonPrice">
+                      Add-on Price (Refrigeration Fee)
+                    </Label>
+                    <Input
+                      id="edit-addonPrice"
+                      type="number"
+                      step="0.01"
+                      value={formData.addonPrice}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          addonPrice: e.target.value,
+                        })
+                      }
+                      placeholder="5.00"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional fee for refrigeration, cooling, etc. Cashier can choose to add this when scanning the product.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

@@ -30,6 +30,7 @@ export interface Product extends BaseEntity {
   packQuantity?: number; // Number of items in a pack (e.g., 12 for dozen)
   cost?: number;
   taxRate: number;
+  addonPrice?: number; // Optional add-on fee (e.g., refrigeration)
   stockQuantity: number;
   lowStockThreshold?: number;
   barcode?: string;

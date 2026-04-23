@@ -97,6 +97,7 @@ export interface ProductDto {
   price: number;
   packPrice?: number;
   packQuantity?: number;
+  addonPrice?: number;
   taxRate: number;
   barcode?: string;
   imageUrl?: string;

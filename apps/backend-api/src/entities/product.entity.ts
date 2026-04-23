@@ -46,6 +46,9 @@ export class ProductEntity {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   markupFixed: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, default: 0 })
+  addonPrice: number;
+
   @Column({ type: 'decimal', precision: 5, scale: 4, default: 0 })
   taxRate: number;
 
