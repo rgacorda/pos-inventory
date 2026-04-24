@@ -45,6 +45,7 @@ import {
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
 import { TestPrinterDialog } from "@/components/test-printer-dialog";
+import { formatCurrency } from "@pos/shared-utils";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -367,6 +368,14 @@ export function Sidebar() {
             </div>
           </div>
         )}
+
+        {/* Total Sales */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+          <p className="text-xs text-blue-700 mb-1">Today's Sales</p>
+          <p className="text-lg font-semibold text-blue-900">
+            {formatCurrency(todaysSales)}
+          </p>
+        </div>
 
         {/* Test Printer */}
         <TestPrinterDialog>
