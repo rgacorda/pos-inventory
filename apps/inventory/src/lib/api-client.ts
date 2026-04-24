@@ -308,6 +308,31 @@ class APIClient {
     return response.data;
   }
 
+  // Suppliers API
+  async getSuppliers() {
+    const response = await this.client.get("/suppliers");
+    return response.data;
+  }
+
+  async getSupplier(id: string) {
+    const response = await this.client.get(`/suppliers/${id}`);
+    return response.data;
+  }
+
+  async createSupplier(data: any) {
+    const response = await this.client.post("/suppliers", data);
+    return response.data;
+  }
+
+  async updateSupplier(id: string, data: any) {
+    const response = await this.client.put(`/suppliers/${id}`, data);
+    return response.data;
+  }
+
+  async deleteSupplier(id: string) {
+    await this.client.delete(`/suppliers/${id}`);
+  }
+
   // Financials API
   async getProfitLoss(startDate: string, endDate: string) {
     const response = await this.client.get("/financials/profit-loss", {

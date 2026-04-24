@@ -16,6 +16,7 @@ import {
   IconReceipt,
   IconReportMoney,
   IconEdit,
+  IconBuildingStore,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -70,6 +71,11 @@ const data = {
           title: "Manual Items",
           url: "/manual-items",
           icon: IconEdit,
+        },
+        {
+          title: "Suppliers",
+          url: "/suppliers",
+          icon: IconBuildingStore,
         },
       ],
     },
