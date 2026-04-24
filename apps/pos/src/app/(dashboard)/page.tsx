@@ -112,12 +112,14 @@ export default function Page() {
         return;
       }
 
-      // Ignore if user is typing in an input/textarea (except barcode input)
+      // Ignore if user is typing in an input/textarea
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
       const isBarcodeInput = target === barcodeInputRef.current;
       
-      if (isInput && !isBarcodeInput) {
+      // If barcode input is focused, let it handle its own input naturally
+      // Otherwise, if any other input is focused, ignore
+      if (isInput) {
         return;
       }
 
@@ -219,8 +221,8 @@ export default function Page() {
     setQuantityToAdd("1");
     setIncludeAddon(false);
 
-    // Refocus barcode input
-    setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    // Blur barcode input to let global listener handle next scan
+    barcodeInputRef.current?.blur();
   };
 
   // Add manual item with custom price
@@ -270,8 +272,8 @@ export default function Page() {
     setManualItemQuantity("1");
     setShowManualItemDialog(false);
 
-    // Refocus barcode input
-    setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    // Blur barcode input to let global listener handle next scan
+    barcodeInputRef.current?.blur();
   };
 
   // Open manual item dialog
@@ -318,7 +320,7 @@ export default function Page() {
         description: `No product with barcode: ${barcode}`,
       });
       setBarcodeInput("");
-      setTimeout(() => barcodeInputRef.current?.focus(), 100);
+      barcodeInputRef.current?.blur();
       return;
     }
 
@@ -333,11 +335,13 @@ export default function Page() {
       // Only one product found, add directly
       addToOrder(sortedProducts[0]);
       setBarcodeInput("");
+      barcodeInputRef.current?.blur();
     } else {
       // Multiple products found, show selection dialog
       setMatchingProducts(sortedProducts);
       setShowProductSelectionDialog(true);
       setBarcodeInput("");
+      barcodeInputRef.current?.blur();
     }
   };
 
@@ -346,7 +350,7 @@ export default function Page() {
     addToOrder(product);
     setShowProductSelectionDialog(false);
     setMatchingProducts([]);
-    setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    barcodeInputRef.current?.blur();
   };
 
   // Handle barcode input key press
@@ -1178,8 +1182,8 @@ export default function Page() {
                 setProductToAdd(null);
                 setQuantityToAdd("1");
                 setIncludeAddon(false);
-                // Refocus barcode input
-                setTimeout(() => barcodeInputRef.current?.focus(), 100);
+                // Blur barcode input to let global listener handle next scan
+                barcodeInputRef.current?.blur();
               }}
             >
               Cancel
@@ -1277,7 +1281,7 @@ export default function Page() {
               onClick={() => {
                 setShowProductSelectionDialog(false);
                 setMatchingProducts([]);
-                setTimeout(() => barcodeInputRef.current?.focus(), 100);
+                barcodeInputRef.current?.blur();
               }}
             >
               Cancel
