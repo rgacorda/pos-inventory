@@ -98,6 +98,8 @@ export interface ProductDto {
   packPrice?: number;
   packQuantity?: number;
   addonPrice?: number;
+  convenienceMarkupPercentage?: number;
+  convenienceMarkup?: number;
   taxRate: number;
   barcode?: string;
   imageUrl?: string;

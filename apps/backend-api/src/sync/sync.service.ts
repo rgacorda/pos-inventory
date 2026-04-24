@@ -346,6 +346,8 @@ export class SyncService {
         packPrice: p.packPrice ? Number(p.packPrice) : undefined,
         packQuantity: p.packQuantity,
         addonPrice: p.addonPrice ? Number(p.addonPrice) : undefined,
+        convenienceMarkupPercentage: p.convenienceMarkupPercentage ? Number(p.convenienceMarkupPercentage) : undefined,
+        convenienceMarkup: p.convenienceMarkup ? Number(p.convenienceMarkup) : undefined,
         taxRate: Number(p.taxRate),
         barcode: p.barcode,
         imageUrl: p.imageUrl,

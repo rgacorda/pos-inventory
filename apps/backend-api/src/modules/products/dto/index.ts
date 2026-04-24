@@ -61,6 +61,16 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   @IsOptional()
+  convenienceMarkupPercentage?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  convenienceMarkup?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
   taxRate?: number;
 
   @IsInt()
@@ -141,6 +151,16 @@ export class UpdateProductDto {
   @Min(0)
   @IsOptional()
   addonPrice?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  convenienceMarkupPercentage?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  convenienceMarkup?: number;
 
   @IsNumber()
   @Min(0)

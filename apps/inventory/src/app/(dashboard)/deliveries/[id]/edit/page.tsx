@@ -131,6 +131,8 @@ export default function EditDeliveryPage() {
     markupPercentage: "",
     markupFixed: "",
     addonPrice: "",
+    convenienceMarkupPercentage: "",
+    convenienceMarkup: "",
     taxRate: "0",
     stockQuantity: "0",
     lowStockThreshold: "10",
@@ -221,6 +223,8 @@ export default function EditDeliveryPage() {
       markupPercentage: "",
       markupFixed: "",
       addonPrice: "",
+      convenienceMarkupPercentage: "",
+      convenienceMarkup: "",
       taxRate: "0",
       stockQuantity: "0",
       lowStockThreshold: "10",
@@ -333,6 +337,8 @@ export default function EditDeliveryPage() {
         markupPercentage: productFormData.markupPercentage ? parseFloat(productFormData.markupPercentage) : null,
         markupFixed: productFormData.markupFixed ? parseFloat(productFormData.markupFixed) : null,
         addonPrice: productFormData.addonPrice ? parseFloat(productFormData.addonPrice) : 0,
+        convenienceMarkupPercentage: productFormData.convenienceMarkupPercentage ? parseFloat(productFormData.convenienceMarkupPercentage) : null,
+        convenienceMarkup: productFormData.convenienceMarkup ? parseFloat(productFormData.convenienceMarkup) : 0,
         taxRate: parseFloat(productFormData.taxRate),
         stockQuantity: parseInt(productFormData.stockQuantity),
         lowStockThreshold: parseInt(productFormData.lowStockThreshold),
@@ -1098,6 +1104,60 @@ export default function EditDeliveryPage() {
               </div>
             </div>
 
+            {/* Convenience Markup */}
+            <div className="border-t pt-4 mt-4">
+              <h4 className="text-sm font-semibold mb-3">Convenience Store Markup (Optional)</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Convenience Markup (%)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={productFormData.convenienceMarkupPercentage}
+                    onChange={(e) =>
+                      setProductFormData({ ...productFormData, convenienceMarkupPercentage: e.target.value })
+                    }
+                    placeholder="5"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fixed Convenience Markup (₱)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={productFormData.convenienceMarkup}
+                    onChange={(e) =>
+                      setProductFormData({ ...productFormData, convenienceMarkup: e.target.value })
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Optional convenience store markup (e.g., 5% or ₱1.50)
+              </p>
+            </div>
+
+            {/* Add-on Price */}
+            <div className="border-t pt-4 mt-4">
+              <h4 className="text-sm font-semibold mb-3">Add-on Price (Optional)</h4>
+              <div className="space-y-2">
+                <Label>Refrigeration/Add-on Fee (₱)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={productFormData.addonPrice}
+                  onChange={(e) =>
+                    setProductFormData({ ...productFormData, addonPrice: e.target.value })
+                  }
+                  placeholder="0.00"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional fee for refrigeration or special handling (e.g., ₱2.00)
+                </p>
+              </div>
+            </div>
+
             {/* Pack Pricing */}
             <div className="border-t pt-4 mt-4">
               <h4 className="text-sm font-semibold mb-3">Pack/Dozen Pricing (Optional)</h4>
@@ -1131,26 +1191,6 @@ export default function EditDeliveryPage() {
                     Total price for the pack
                   </p>
                 </div>
-              </div>
-            </div>
-
-            {/* Add-on Price */}
-            <div className="border-t pt-4 mt-4">
-              <h4 className="text-sm font-semibold mb-3">Add-on Price (Optional)</h4>
-              <div className="space-y-2">
-                <Label>Refrigeration/Add-on Fee (₱)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={productFormData.addonPrice}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, addonPrice: e.target.value })
-                  }
-                  placeholder="0.00"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Optional fee for refrigeration or special handling (e.g., ₱2.00)
-                </p>
               </div>
             </div>
 

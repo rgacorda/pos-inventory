@@ -31,6 +31,8 @@ export interface Product extends BaseEntity {
   cost?: number;
   taxRate: number;
   addonPrice?: number; // Optional add-on fee (e.g., refrigeration)
+  convenienceMarkupPercentage?: number; // Optional convenience markup percentage
+  convenienceMarkup?: number; // Optional convenience markup fixed amount
   stockQuantity: number;
   lowStockThreshold?: number;
   barcode?: string;

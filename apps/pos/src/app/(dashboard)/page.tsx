@@ -74,6 +74,7 @@ export default function Page() {
   const [productToAdd, setProductToAdd] = useState<LocalProduct | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<string>("1");
   const [includeAddon, setIncludeAddon] = useState<boolean>(false);
+  const [includeConvenience, setIncludeConvenience] = useState<boolean>(false);
   const [showManualItemDialog, setShowManualItemDialog] = useState(false);
   const [manualItemName, setManualItemName] = useState<string>("");
   const [manualItemPrice, setManualItemPrice] = useState<string>("");
@@ -192,9 +193,26 @@ export default function Page() {
     const qty = parseInt(quantityToAdd) || 1;
     if (qty <= 0) return;
 
-    // Apply addon price if checkbox is checked
-    const productWithPrice = includeAddon && productToAdd.addonPrice
-      ? { ...productToAdd, price: productToAdd.price + productToAdd.addonPrice }
+    // Apply convenience markup and addon price if checkboxes are checked
+    let priceAdjustment = 0;
+    
+    if (includeConvenience) {
+      // Calculate convenience markup from percentage and fixed amount
+      const basePrice = productToAdd.price;
+      if (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) {
+        priceAdjustment += (basePrice * productToAdd.convenienceMarkupPercentage / 100);
+      }
+      if (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0) {
+        priceAdjustment += productToAdd.convenienceMarkup;
+      }
+    }
+    
+    if (includeAddon && productToAdd.addonPrice) {
+      priceAdjustment += productToAdd.addonPrice;
+    }
+    
+    const productWithPrice = priceAdjustment > 0
+      ? { ...productToAdd, price: productToAdd.price + priceAdjustment }
       : productToAdd;
 
     const existingItem = orderItems.find(
@@ -212,14 +230,23 @@ export default function Page() {
       setOrderItems([...orderItems, { product: productWithPrice, quantity: qty }]);
     }
 
+    const markupNotes = [];
+    if (includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
+                                (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0))) {
+      markupNotes.push('Convenience');
+    }
+    if (includeAddon && productToAdd.addonPrice) markupNotes.push('Refrigeration');
+    const markupText = markupNotes.length > 0 ? ` (+ ${markupNotes.join(' + ')})` : '';
+
     showSuccessToast(SUCCESS_MESSAGES.ADDED("Product"), {
-      description: `${qty}x ${productToAdd.name}${includeAddon && productToAdd.addonPrice ? ' (+ Refrigeration)' : ''} added to cart`,
+      description: `${qty}x ${productToAdd.name}${markupText} added to cart`,
     });
 
     setShowQuantityDialog(false);
     setProductToAdd(null);
     setQuantityToAdd("1");
     setIncludeAddon(false);
+    setIncludeConvenience(false);
 
     // Blur barcode input to let global listener handle next scan
     barcodeInputRef.current?.blur();
@@ -1040,6 +1067,22 @@ export default function Page() {
                       Pack price: <span className="font-semibold">₱{productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
                     </div>
                   )}
+                  {((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
+                    (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
+                    <div className="text-sm text-purple-600">
+                      Convenience markup: <span className="font-semibold">
+                        {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 
+                          ? `${productToAdd.convenienceMarkupPercentage}%` 
+                          : ''}
+                        {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 && 
+                         productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
+                          ? ' + ' : ''}
+                        {productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
+                          ? `₱${productToAdd.convenienceMarkup.toFixed(2)}` 
+                          : ''}
+                      </span>
+                    </div>
+                  )}
                   {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
                     <div className="text-sm text-blue-600">
                       Refrigeration fee: <span className="font-semibold">₱{productToAdd.addonPrice.toFixed(2)}</span>
@@ -1054,9 +1097,23 @@ export default function Page() {
                     productToAdd.packPrice,
                     productToAdd.packQuantity,
                   );
-                  const effectivePrice = includeAddon && productToAdd.addonPrice 
-                    ? basePrice + productToAdd.addonPrice 
-                    : basePrice;
+                  let effectivePrice = basePrice;
+                  
+                  // Calculate convenience markup from percentage and fixed amount
+                  if (includeConvenience) {
+                    let calculatedConvenienceMarkup = 0;
+                    if (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) {
+                      calculatedConvenienceMarkup += (basePrice * productToAdd.convenienceMarkupPercentage / 100);
+                    }
+                    if (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0) {
+                      calculatedConvenienceMarkup += productToAdd.convenienceMarkup;
+                    }
+                    effectivePrice += calculatedConvenienceMarkup;
+                  }
+                  
+                  if (includeAddon && productToAdd.addonPrice) {
+                    effectivePrice += productToAdd.addonPrice;
+                  }
                   const lineTotal = effectivePrice * qty;
                   const isUsingPackPrice = productToAdd.packPrice && 
                     productToAdd.packQuantity && 
@@ -1072,6 +1129,12 @@ export default function Page() {
                           {isUsingPackPrice && (
                             <div className="text-xs text-green-600 font-medium">
                               Using pack price
+                            </div>
+                          )}
+                          {includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
+                                                   (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
+                            <div className="text-xs text-purple-600 font-medium">
+                              + Convenience markup
                             </div>
                           )}
                           {includeAddon && productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
@@ -1093,6 +1156,41 @@ export default function Page() {
                   ) : null;
                 })()}
               </div>
+
+              {/* CONVENIENCE MARKUP CHECKBOX */}
+              {((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) ||
+                (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
+                <div className="flex items-start space-x-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="include-convenience"
+                    checked={includeConvenience}
+                    onChange={(e) => setIncludeConvenience(e.target.checked)}
+                    className="mt-1 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                  />
+                  <label 
+                    htmlFor="include-convenience" 
+                    className="text-sm text-gray-700 cursor-pointer flex-1"
+                  >
+                    <span className="font-medium">
+                      Add Convenience Markup (
+                      {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 
+                        ? `${productToAdd.convenienceMarkupPercentage}%` 
+                        : ''}
+                      {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 && 
+                       productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
+                        ? ' + ' : ''}
+                      {productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
+                        ? `+₱${productToAdd.convenienceMarkup.toFixed(2)}` 
+                        : ''}
+                      )
+                    </span>
+                    <p className="text-xs text-gray-500 mt-1">
+                      For convenience store markup
+                    </p>
+                  </label>
+                </div>
+              )}
 
               {/* ADD-ON CHECKBOX SECTION */}
               {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
@@ -1182,6 +1280,7 @@ export default function Page() {
                 setProductToAdd(null);
                 setQuantityToAdd("1");
                 setIncludeAddon(false);
+                setIncludeConvenience(false);
                 // Blur barcode input to let global listener handle next scan
                 barcodeInputRef.current?.blur();
               }}
