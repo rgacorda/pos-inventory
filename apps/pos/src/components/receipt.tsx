@@ -108,7 +108,7 @@ export function Receipt({
     <>
       {/* Receipt content for printing */}
       <div className="receipt-print-container">
-        <div className="w-full max-w-[58mm] px-1 py-2 font-sans text-[9pt] leading-snug bg-white">
+        <div className="w-full max-w-[58mm] px-1 py-2 font-sans text-[11pt] leading-snug bg-white">
           {/* Header */}
           <div className="text-center mb-2">
             <div>
