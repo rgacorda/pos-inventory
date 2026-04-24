@@ -167,6 +167,11 @@ class APIClient {
     return response.data;
   }
 
+  async getManualItems() {
+    const response = await this.client.get("/orders/manual-items");
+    return response.data;
+  }
+
   // Payments API
   async getPayments(filters?: any) {
     const response = await this.client.get("/payments", { params: filters });

@@ -47,6 +47,11 @@ export class OrdersController {
     return this.ordersService.getOrderStats(user);
   }
 
+  @Get('manual-items')
+  async getManualItems(@CurrentUser() user: any) {
+    return this.ordersService.getManualItems(user);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ordersService.findOne(id, user);

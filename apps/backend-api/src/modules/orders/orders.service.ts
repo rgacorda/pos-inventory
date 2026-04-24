@@ -276,4 +276,28 @@ export class OrdersService {
       totalRevenue,
     };
   }
+
+  async getManualItems(requestingUser: any) {
+    const query = this.orderItemsRepository
+      .createQueryBuilder('item')
+      .leftJoinAndSelect('item.order', 'order')
+      .where('item.sku = :sku', { sku: 'MANUAL' })
+      .orderBy('order.createdAt', 'DESC');
+
+    // Filter by organization
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      query.andWhere('order.organizationId = :orgId', {
+        orgId: requestingUser.organizationId,
+      });
+    }
+
+    // Cashiers can only see their own manual items
+    if (requestingUser.role === UserRole.CASHIER) {
+      query.andWhere('order.cashierId = :cashierId', {
+        cashierId: requestingUser.id,
+      });
+    }
+
+    return query.getMany();
+  }
 }
