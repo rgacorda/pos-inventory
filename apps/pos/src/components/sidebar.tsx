@@ -32,6 +32,8 @@ import {
   Wifi,
   WifiOff,
   Printer,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -62,6 +64,8 @@ export function Sidebar() {
   const [isTerminalDialogOpen, setIsTerminalDialogOpen] = useState(false);
   const [availableTerminals, setAvailableTerminals] = useState<any[]>([]);
   const [isLoadingTerminals, setIsLoadingTerminals] = useState(false);
+  const [showSales, setShowSales] = useState(false);
+  const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const todaysSales =
     todaysOrders?.reduce((sum, order) => sum + (order.totalAmount || 0), 0) ||
@@ -156,6 +160,33 @@ export function Sidebar() {
       });
     }
   };
+
+  const toggleSalesVisibility = () => {
+    // Clear existing timeout
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+    }
+
+    // Toggle visibility
+    setShowSales(!showSales);
+
+    // Set auto-hide timeout only when showing
+    if (!showSales) {
+      const timeout = setTimeout(() => {
+        setShowSales(false);
+      }, 3000); // Hide after 3 seconds
+      setHideTimeout(timeout);
+    }
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+    };
+  }, [hideTimeout]);
 
   return (
     <div className="flex w-64 flex-col border-r bg-white">
@@ -371,9 +402,23 @@ export function Sidebar() {
 
         {/* Total Sales */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-          <p className="text-xs text-blue-700 mb-1">Today's Sales</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-blue-700">Today's Sales</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-blue-100"
+              onClick={toggleSalesVisibility}
+            >
+              {showSales ? (
+                <EyeOff className="h-3.5 w-3.5 text-blue-600" />
+              ) : (
+                <Eye className="h-3.5 w-3.5 text-blue-600" />
+              )}
+            </Button>
+          </div>
           <p className="text-lg font-semibold text-blue-900">
-            {formatCurrency(todaysSales)}
+            {showSales ? formatCurrency(todaysSales) : "••••••"}
           </p>
         </div>
 

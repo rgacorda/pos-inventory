@@ -823,6 +823,16 @@ export default function Page() {
                 ₱{total.toFixed(2)}
               </span>
             </div>
+            {orderItems.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>Total Items</span>
+                  <span className="font-medium">
+                    {orderItems.reduce((sum, item) => sum + item.quantity, 0)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

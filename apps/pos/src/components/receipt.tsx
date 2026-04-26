@@ -161,11 +161,6 @@ export function Receipt({
           <div className="border-b border-dashed border-gray-400 my-2" />
           <div>
             <div className="flex justify-between mb-1">
-              <span>Total Items:</span>
-              <span>{items.reduce((sum, item) => sum + item.quantity, 0)}</span>
-            </div>
-            <div className="border-b border-dashed border-gray-400 my-2" />
-            <div className="flex justify-between mb-1">
               <span>Subtotal:</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
@@ -217,6 +212,10 @@ export function Receipt({
                 )}
               </>
             )}
+            <div className="flex justify-between">
+              <span>Total Items:</span>
+              <span>{items.reduce((sum, item) => sum + item.quantity, 0)}</span>
+            </div>
           </div>
 
           {/* Footer */}
