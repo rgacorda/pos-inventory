@@ -1614,6 +1614,21 @@ export default function Page() {
               Print receipt for this transaction
             </DialogDescription>
           </DialogHeader>
+          
+          {/* Change Due Banner */}
+          {lastReceipt?.change && lastReceipt.change > 0 && (
+            <div className="bg-green-100 border-2 border-green-500 rounded-lg p-6 mb-4 mt-4">
+              <div className="text-center">
+                <p className="text-sm text-green-700 font-semibold uppercase tracking-wide mb-2">
+                  Change Due
+                </p>
+                <p className="text-5xl font-bold text-green-700">
+                  ₱{lastReceipt.change.toFixed(2)}
+                </p>
+              </div>
+            </div>
+          )}
+          
           <div className="py-4">
             {lastReceipt && (
               <Receipt
