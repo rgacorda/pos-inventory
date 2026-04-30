@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTodaysOrders, usePaymentsByOrder } from "@/hooks/useDatabase";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
 import { LocalOrder } from "@/lib/db";
@@ -12,13 +12,32 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { Receipt } from "@/components/receipt";
+import { Printer } from "lucide-react";
 
 export default function OrdersPage() {
   const orders = useTodaysOrders();
   const [selectedOrder, setSelectedOrder] = useState<LocalOrder | null>(null);
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
+
+  // Sort orders by date (newest first)
+  const sortedOrders = useMemo(() => {
+    if (!orders) return null;
+    return [...orders].sort((a, b) => {
+      const dateA = new Date(a.localCreatedAt).getTime();
+      const dateB = new Date(b.localCreatedAt).getTime();
+      return dateB - dateA; // Descending order (newest first)
+    });
+  }, [orders]);
+
+  const handleReprint = () => {
+    setShowReceiptDialog(true);
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -28,18 +47,18 @@ export default function OrdersPage() {
 
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
-          {!orders ? (
+          {!sortedOrders ? (
             <div className="text-center text-gray-600 py-8 text-lg">
               Loading transactions...
             </div>
-          ) : orders.length === 0 ? (
+          ) : sortedOrders.length === 0 ? (
             <div className="text-center text-gray-600 py-8 text-lg">
               No transactions yet today
             </div>
           ) : (
             <DataTable
               columns={columns}
-              data={orders}
+              data={sortedOrders}
               onRowClick={setSelectedOrder}
             />
           )}
@@ -201,6 +220,59 @@ export default function OrdersPage() {
               </div>
             </div>
           )}
+          <DialogFooter className="px-6 pb-6">
+            <Button
+              variant="outline"
+              onClick={handleReprint}
+              className="w-full"
+            >
+              <Printer className="h-4 w-4 mr-2" />
+              Reprint Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reprint Receipt Dialog */}
+      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reprint Receipt</DialogTitle>
+            <DialogDescription>
+              Print receipt for this transaction
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {selectedOrder && payments && payments.length > 0 && (
+              <Receipt
+                orderNumber={selectedOrder.orderNumber}
+                items={selectedOrder.items || []}
+                subtotal={selectedOrder.subtotal}
+                taxAmount={selectedOrder.taxAmount}
+                discountAmount={selectedOrder.discountAmount}
+                totalAmount={selectedOrder.totalAmount}
+                paymentMethod={payments[0].method}
+                paymentReference={payments[0].reference}
+                customerName={selectedOrder.customerName}
+                customerAddress={selectedOrder.customerAddress}
+                cashierName={selectedOrder.cashierId || "Staff"}
+                terminalName={selectedOrder.terminalId || "Terminal"}
+                dateTime={selectedOrder.localCreatedAt}
+                onPrintComplete={() => {
+                  setShowReceiptDialog(false);
+                }}
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowReceiptDialog(false)}
+              className="w-full"
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
