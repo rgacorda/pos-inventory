@@ -13,8 +13,18 @@ export function Providers({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 60 * 1000, // 1 minute
             gcTime: 5 * 60 * 1000, // 5 minutes
-            retry: 1,
+            retry: (failureCount, error: any) => {
+              // Don't retry if offline
+              if (!navigator.onLine) return false;
+              // Don't retry on 4xx errors
+              if (error?.response?.status >= 400 && error?.response?.status < 500) {
+                return false;
+              }
+              // Retry up to 2 times for other errors
+              return failureCount < 2;
+            },
             refetchOnWindowFocus: false,
+            refetchOnReconnect: true, // Refetch when connection is restored
           },
         },
       })
@@ -27,16 +37,35 @@ export function Providers({ children }: { children: ReactNode }) {
       
       const token = apiClient.getAccessToken();
       
-      // If logged in, start auto-sync
-      if (token) {
+      // If logged in and online, start auto-sync
+      if (token && navigator.onLine) {
         syncService.startAutoSync(60000); // Sync every 60 seconds
       }
     };
 
     checkAuth();
 
+    // Handle online/offline events
+    const handleOnline = () => {
+      console.log('Connection restored, starting sync...');
+      const token = apiClient.getAccessToken();
+      if (token) {
+        syncService.startAutoSync(60000);
+      }
+    };
+
+    const handleOffline = () => {
+      console.log('Connection lost, stopping sync...');
+      syncService.stopAutoSync();
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     return () => {
       syncService.stopAutoSync();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 

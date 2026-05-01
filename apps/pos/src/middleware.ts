@@ -22,12 +22,7 @@ export function middleware(request: NextRequest) {
   if (token && isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
-    const response = NextResponse.redirect(url);
-    // Add cache-control to prevent back button issues
-    response.headers.set("Cache-Control", "no-store, must-revalidate");
-    response.headers.set("Pragma", "no-cache");
-    response.headers.set("Expires", "0");
-    return response;
+    return NextResponse.redirect(url);
   }
 
   // If user is not logged in (no token) and trying to access protected routes
@@ -35,21 +30,11 @@ export function middleware(request: NextRequest) {
   if (!token && isProtectedPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    const response = NextResponse.redirect(url);
-    // Add cache-control to prevent back button issues
-    response.headers.set("Cache-Control", "no-store, must-revalidate");
-    response.headers.set("Pragma", "no-cache");
-    response.headers.set("Expires", "0");
-    return response;
+    return NextResponse.redirect(url);
   }
 
-  // Add cache-control headers to all responses to prevent back button cache
-  const response = NextResponse.next();
-  response.headers.set("Cache-Control", "no-store, must-revalidate");
-  response.headers.set("Pragma", "no-cache");
-  response.headers.set("Expires", "0");
-  
-  return response;
+  // Allow normal response with caching for assets
+  return NextResponse.next();
 }
 
 // Configure which routes should use the middleware
