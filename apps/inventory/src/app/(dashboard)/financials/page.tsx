@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,10 +55,25 @@ interface ProfitLossData {
 }
 
 export default function FinancialsPage() {
+  const router = useRouter();
   const [data, setData] = useState<ProfitLossData | null>(null);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState<Date>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date>(endOfMonth(new Date()));
+
+  // Redirect MANAGER users
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const user = localStorage.getItem("user");
+      if (user) {
+        const userData = JSON.parse(user);
+        if (userData.role === "MANAGER") {
+          router.push("/products");
+          return;
+        }
+      }
+    }
+  }, [router]);
 
   useEffect(() => {
     fetchProfitLoss();

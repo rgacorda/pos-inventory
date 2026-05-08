@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import {
   showErrorFromException,
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
 export default function Page() {
+  const router = useRouter();
   const [todayStats, setTodayStats] = useState({
     revenue: 0,
     orders: 0,
@@ -41,6 +43,20 @@ export default function Page() {
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Redirect MANAGER users to products page
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const user = localStorage.getItem("user");
+      if (user) {
+        const userData = JSON.parse(user);
+        if (userData.role === "MANAGER") {
+          router.push("/products");
+          return;
+        }
+      }
+    }
+  }, [router]);
 
   useEffect(() => {
     loadDashboardData();

@@ -46,6 +46,7 @@ const data = {
           title: "Dashboard",
           url: "/",
           icon: IconDashboard,
+          excludedRoles: ["MANAGER"], // Hide from MANAGER role
         },
       ],
     },
@@ -86,11 +87,13 @@ const data = {
           title: "Expenses",
           url: "/expenses",
           icon: IconReceipt,
+          excludedRoles: ["MANAGER"], // Hide from MANAGER role
         },
         {
           title: "Financials",
           url: "/financials",
           icon: IconReportMoney,
+          excludedRoles: ["MANAGER"], // Hide from MANAGER role
         },
       ],
     },
@@ -122,6 +125,7 @@ const data = {
           title: "Reports",
           url: "/reports",
           icon: IconChartBar,
+          excludedRoles: ["MANAGER"], // Hide from MANAGER role
         },
       ],
     },
@@ -162,8 +166,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     .map((group: any) => ({
       ...group,
       items: group.items.filter((item: any) => {
+        // If item has requiredRole, check if user has that exact role
         if (item.requiredRole) {
           return currentUser?.role === item.requiredRole;
+        }
+        // If item has excludedRoles, check if user's role is NOT in the list
+        if (item.excludedRoles && Array.isArray(item.excludedRoles)) {
+          return !item.excludedRoles.includes(currentUser?.role);
         }
         return true;
       }),

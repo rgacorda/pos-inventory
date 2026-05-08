@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -71,6 +72,7 @@ import {
 import { format, parseISO, startOfDay, eachDayOfInterval } from "date-fns";
 
 export default function ReportsPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [startDate, setStartDate] = useState<Date>(
@@ -91,6 +93,20 @@ export default function ReportsPage() {
   const [terminalPerformance, setTerminalPerformance] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [hourlySales, setHourlySales] = useState<any[]>([]);
+
+  // Redirect MANAGER users
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const user = localStorage.getItem("user");
+      if (user) {
+        const userData = JSON.parse(user);
+        if (userData.role === "MANAGER") {
+          router.push("/products");
+          return;
+        }
+      }
+    }
+  }, [router]);
 
   useEffect(() => {
     loadReportData();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +91,7 @@ const EXPENSE_TYPES = [
 ];
 
 export default function ExpensesPage() {
+  const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -105,6 +107,20 @@ export default function ExpensesPage() {
   const [uploading, setUploading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Redirect MANAGER users
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const user = localStorage.getItem("user");
+      if (user) {
+        const userData = JSON.parse(user);
+        if (userData.role === "MANAGER") {
+          router.push("/products");
+          return;
+        }
+      }
+    }
+  }, [router]);
 
   const [formData, setFormData] = useState({
     type: "ELECTRICITY" as
