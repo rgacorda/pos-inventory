@@ -6,8 +6,9 @@ export function formatCurrency(
   currency: string = "PHP",
 ): string {
   return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency,
+    style: "decimal",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
 }
 

@@ -127,6 +127,7 @@ export function Receipt({
           <div className="mb-2">
             {/* <div>Order: {orderNumber}</div> */}
             <div>Date: {formatDateTime(dateTime)}</div>
+            <div>Cashier: {cashierName}</div>
           </div>
 
           {/* Customer Info */}
@@ -143,15 +144,12 @@ export function Receipt({
           <div className="border-b border-dashed border-gray-400 my-2" />
           <div>
             {items.map((item, index) => (
-              <div key={index} className="flex justify-between gap-1 mb-1">
-                <span className="flex-1 min-w-0">
+              <div key={index} className="flex justify-between gap-2 mb-1">
+                <span className="break-words flex-1 min-w-0">
                   {item.name}
                 </span>
-                <span className="whitespace-nowrap">
-                  x{item.quantity}
-                </span>
-                <span className="whitespace-nowrap">
-                  {formatCurrency(item.total)}
+                <span className="whitespace-nowrap flex-shrink-0">
+                  x{item.quantity} {formatCurrency(item.total)}
                 </span>
               </div>
             ))}

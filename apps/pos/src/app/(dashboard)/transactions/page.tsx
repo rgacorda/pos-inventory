@@ -25,6 +25,16 @@ export default function OrdersPage() {
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
 
+  // Get current user name for cashier field
+  const getUserName = () => {
+    if (typeof window !== "undefined") {
+      const userStr = localStorage.getItem("user");
+      const userData = userStr ? JSON.parse(userStr) : null;
+      return userData?.name || "Staff";
+    }
+    return "Staff";
+  };
+
   // Sort orders by date (newest first)
   const sortedOrders = useMemo(() => {
     if (!orders) return null;
@@ -255,7 +265,7 @@ export default function OrdersPage() {
                 paymentReference={payments[0].reference}
                 customerName={selectedOrder.customerName}
                 customerAddress={selectedOrder.customerAddress}
-                cashierName={selectedOrder.cashierId || "Staff"}
+                cashierName={getUserName()}
                 terminalName={selectedOrder.terminalId || "Terminal"}
                 dateTime={selectedOrder.localCreatedAt}
                 onPrintComplete={() => {
