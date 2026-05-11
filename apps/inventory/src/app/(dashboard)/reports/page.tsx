@@ -94,6 +94,12 @@ export default function ReportsPage() {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [hourlySales, setHourlySales] = useState<any[]>([]);
 
+  // Products tab UI state
+  const [productSearch, setProductSearch] = useState("");
+  const [productPage, setProductPage] = useState(1);
+  const PRODUCTS_PER_PAGE = 25;
+  const [chartTopN, setChartTopN] = useState(20);
+
   // Redirect MANAGER users
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -149,14 +155,25 @@ export default function ReportsPage() {
         totalProfit,
       });
 
+      // Build a product lookup map for name resolution
+      const productMap: { [key: string]: any } = {};
+      products.forEach((p: any) => {
+        productMap[p.id] = p;
+      });
+
       // Calculate top products
       const productSales: { [key: string]: any } = {};
       filteredOrders.forEach((order: any) => {
         order.items?.forEach((item: any) => {
           const productId = item.productId;
           if (!productSales[productId]) {
+            // Prefer the embedded product object, fall back to the products list
+            const resolvedProduct =
+              (item.product?.name ? item.product : null) ??
+              productMap[productId] ??
+              item.product;
             productSales[productId] = {
-              product: item.product,
+              product: resolvedProduct,
               totalQuantity: 0,
               totalRevenue: 0,
             };
@@ -167,9 +184,9 @@ export default function ReportsPage() {
         });
       });
 
-      const topProductsArray = Object.values(productSales)
-        .sort((a: any, b: any) => b.totalRevenue - a.totalRevenue)
-        .slice(0, 10);
+      const topProductsArray = Object.values(productSales).sort(
+        (a: any, b: any) => b.totalRevenue - a.totalRevenue,
+      );
 
       setTopProducts(topProductsArray);
       setRecentOrders(filteredOrders.slice(0, 10));
@@ -381,8 +398,48 @@ export default function ReportsPage() {
               </Button>
             </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 pt-4">
-            <Calendar className="h-5 w-5 text-muted-foreground" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap sm:gap-4 pt-4">
+            <Calendar className="h-5 w-5 text-muted-foreground hidden sm:block" />
+            {/* Quick range buttons */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  setStartDate(startOfDay(today));
+                  setEndDate(today);
+                }}
+              >
+                Today
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  const weekAgo = new Date();
+                  weekAgo.setDate(now.getDate() - 6);
+                  setStartDate(startOfDay(weekAgo));
+                  setEndDate(now);
+                }}
+              >
+                Weekly
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  const monthAgo = new Date();
+                  monthAgo.setDate(now.getDate() - 29);
+                  setStartDate(startOfDay(monthAgo));
+                  setEndDate(now);
+                }}
+              >
+                Monthly
+              </Button>
+            </div>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -558,127 +615,171 @@ export default function ReportsPage() {
                 </CardContent>
               </Card>
 
-              {/* Recent Orders */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Orders</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {recentOrders.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">
-                      No orders for selected period
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Order ID</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Terminal</TableHead>
-                          <TableHead>Items</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {recentOrders.map((order: any) => (
-                          <TableRow key={order.id}>
-                            <TableCell className="font-medium">
-                              #{order.id}
-                            </TableCell>
-                            <TableCell>
-                              {new Date(order.createdAt).toLocaleDateString()}
-                            </TableCell>
-                            <TableCell>
-                              {order.terminal?.name || "N/A"}
-                            </TableCell>
-                            <TableCell>{order.items?.length || 0}</TableCell>
-                            <TableCell className="text-right font-semibold">
-                              ₱{Number(order.totalAmount || 0).toFixed(2)}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                className={
-                                  order.status === "COMPLETED"
-                                    ? "bg-green-600 hover:bg-green-700"
-                                    : order.status === "PENDING"
-                                      ? "bg-yellow-600 hover:bg-yellow-700"
-                                      : "bg-red-600 hover:bg-red-700"
-                                }
-                              >
-                                {order.status}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
             </TabsContent>
 
             {/* Products Tab */}
             <TabsContent value="products" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Top Selling Products</CardTitle>
-                  <CardDescription>Best performers by revenue</CardDescription>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <CardTitle>Top Selling Products</CardTitle>
+                      <CardDescription>
+                        Best performers by revenue —{" "}
+                        {topProducts.length} product
+                        {topProducts.length !== 1 ? "s" : ""} sold in period
+                      </CardDescription>
+                    </div>
+                    <Input
+                      placeholder="Search by name or SKU…"
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setProductPage(1);
+                      }}
+                      className="w-full sm:w-64"
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {topProducts.length === 0 ? (
                     <p className="text-center text-muted-foreground py-8">
                       No sales data for selected period
                     </p>
-                  ) : (
-                    <div className="space-y-4">
-                      {topProducts.map((item: any, index: number) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-4 border rounded-lg"
-                        >
-                          <div className="flex items-center gap-4">
-                            <Badge
-                              variant={
-                                index === 0
-                                  ? "default"
-                                  : index === 1 || index === 2
-                                    ? "secondary"
-                                    : "outline"
-                              }
-                            >
-                              #{index + 1}
-                            </Badge>
-                            <div>
-                              <p className="font-medium">
-                                {item.product?.name || "Unknown Product"}
-                              </p>
-                              {item.product?.sku && (
-                                <p className="text-xs text-muted-foreground">
-                                  SKU: {item.product.sku}
-                                </p>
-                              )}
+                  ) : (() => {
+                      const filtered = topProducts.filter((item: any) => {
+                        if (!productSearch) return true;
+                        const q = productSearch.toLowerCase();
+                        return (
+                          item.product?.name?.toLowerCase().includes(q) ||
+                          item.product?.sku?.toLowerCase().includes(q)
+                        );
+                      });
+                      const totalPages = Math.max(
+                        1,
+                        Math.ceil(filtered.length / PRODUCTS_PER_PAGE),
+                      );
+                      const safePage = Math.min(productPage, totalPages);
+                      const pageItems = filtered.slice(
+                        (safePage - 1) * PRODUCTS_PER_PAGE,
+                        safePage * PRODUCTS_PER_PAGE,
+                      );
+                      const globalOffset = (safePage - 1) * PRODUCTS_PER_PAGE;
+
+                      return (
+                        <>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-12">Rank</TableHead>
+                                <TableHead>Product</TableHead>
+                                <TableHead>SKU</TableHead>
+                                <TableHead className="text-right">
+                                  Units Sold
+                                </TableHead>
+                                <TableHead className="text-right">
+                                  Revenue
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {pageItems.map((item: any, i: number) => {
+                                const rank = globalOffset + i;
+                                return (
+                                  <TableRow key={rank}>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          rank === 0
+                                            ? "default"
+                                            : rank <= 2
+                                              ? "secondary"
+                                              : "outline"
+                                        }
+                                      >
+                                        #{rank + 1}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="font-medium">
+                                      {item.product?.name || "Unknown Product"}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground text-sm">
+                                      {item.product?.sku || "—"}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      {item.totalQuantity}
+                                    </TableCell>
+                                    <TableCell className="text-right font-semibold">
+                                      ₱
+                                      {Number(item.totalRevenue || 0).toFixed(
+                                        2,
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+
+                          {/* Pagination */}
+                          <div className="flex items-center justify-between pt-4 text-sm text-muted-foreground">
+                            <span>
+                              Showing{" "}
+                              {filtered.length === 0
+                                ? 0
+                                : globalOffset + 1}
+                              –
+                              {Math.min(
+                                globalOffset + PRODUCTS_PER_PAGE,
+                                filtered.length,
+                              )}{" "}
+                              of {filtered.length}
+                            </span>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={safePage <= 1}
+                                onClick={() => setProductPage((p) => p - 1)}
+                              >
+                                Previous
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={safePage >= totalPages}
+                                onClick={() => setProductPage((p) => p + 1)}
+                              >
+                                Next
+                              </Button>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="font-semibold">
-                              ₱{Number(item.totalRevenue || 0).toFixed(2)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {item.totalQuantity} units sold
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        </>
+                      );
+                    })()}
                 </CardContent>
               </Card>
 
               {/* Product Performance Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Top 10 Products Revenue</CardTitle>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle>Top Products Revenue Chart</CardTitle>
+                    <Select
+                      value={String(chartTopN)}
+                      onValueChange={(v) => setChartTopN(Number(v))}
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">Top 10</SelectItem>
+                        <SelectItem value="20">Top 20</SelectItem>
+                        <SelectItem value="50">Top 50</SelectItem>
+                        <SelectItem value="100">Top 100</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {topProducts.length === 0 ? (
@@ -686,9 +787,12 @@ export default function ReportsPage() {
                       No data available
                     </p>
                   ) : (
-                    <ResponsiveContainer width="100%" height={400}>
+                    <ResponsiveContainer
+                      width="100%"
+                      height={Math.max(300, chartTopN * 28)}
+                    >
                       <BarChart
-                        data={topProducts.slice(0, 10)}
+                        data={topProducts.slice(0, chartTopN)}
                         layout="vertical"
                       >
                         <CartesianGrid strokeDasharray="3 3" />
@@ -696,12 +800,14 @@ export default function ReportsPage() {
                         <YAxis
                           type="category"
                           dataKey="product.name"
-                          width={150}
+                          width={180}
+                          tick={{ fontSize: 12 }}
                         />
                         <Tooltip />
                         <Bar
                           dataKey="totalRevenue"
                           fill="hsl(var(--primary))"
+                          name="Revenue"
                         />
                       </BarChart>
                     </ResponsiveContainer>
