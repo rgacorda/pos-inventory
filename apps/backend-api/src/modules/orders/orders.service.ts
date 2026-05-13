@@ -4,21 +4,28 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, QueryFailedError } from 'typeorm';
+import { Repository, QueryFailedError, DataSource } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
+import { ProductEntity } from '../../entities/product.entity';
 import { CreateOrderDto, UpdateOrderDto } from './dto';
 import { UserRole, OrderStatus } from '@pos/shared-types';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(OrderEntity)
     private ordersRepository: Repository<OrderEntity>,
     @InjectRepository(OrderItemEntity)
     private orderItemsRepository: Repository<OrderItemEntity>,
+    @InjectRepository(ProductEntity)
+    private productsRepository: Repository<ProductEntity>,
+    private dataSource: DataSource,
   ) {}
 
   async create(createOrderDto: CreateOrderDto, requestingUser: any) {
@@ -231,12 +238,78 @@ export class OrdersService {
       throw new ForbiddenException('Insufficient permissions to void orders');
     }
 
-    if (order.status === OrderStatus.SYNCED) {
-      throw new BadRequestException('Cannot void synced orders');
+    // Cannot void already voided orders
+    if (order.status === OrderStatus.VOID) {
+      throw new BadRequestException('Order is already voided');
     }
 
-    order.status = OrderStatus.VOID;
-    return this.ordersRepository.save(order);
+    // Use transaction to ensure atomic operation
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Load order items
+      const items = await queryRunner.manager.find(OrderItemEntity, {
+        where: { orderId: order.id },
+      });
+
+      this.logger.log(`Voiding order ${order.orderNumber} with ${items.length} items`);
+
+      // Restore stock for each item (except manual items)
+      let restoredCount = 0;
+      for (const item of items) {
+        // Skip manual items (they don't affect stock)
+        if (item.productId.startsWith('manual-')) {
+          this.logger.log(`Skipping stock restoration for manual item: ${item.name}`);
+          continue;
+        }
+
+        // Check if product exists
+        const product = await queryRunner.manager.findOne(ProductEntity, {
+          where: { id: item.productId },
+        });
+
+        if (product) {
+          // Restore stock by adding back the quantity
+          await queryRunner.manager.increment(
+            ProductEntity,
+            { id: item.productId },
+            'stockQuantity',
+            item.quantity,
+          );
+          
+          this.logger.log(
+            `Restored ${item.quantity} units of ${item.name} (${item.sku}) - Stock: ${product.stockQuantity} → ${product.stockQuantity + item.quantity}`,
+          );
+          restoredCount++;
+        } else {
+          this.logger.warn(
+            `Product not found for stock restoration: ${item.productId} (${item.name})`,
+          );
+        }
+      }
+
+      // Update order status and void info
+      order.status = OrderStatus.VOID;
+      order.voidedBy = requestingUser.id;
+      order.voidedAt = new Date();
+
+      await queryRunner.manager.save(OrderEntity, order);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Order ${order.orderNumber} voided successfully. Stock restored for ${restoredCount} items.`,
+      );
+
+      return this.findOne(order.id, requestingUser);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Failed to void order ${order.orderNumber}:`, error);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async getOrderStats(requestingUser: any) {
@@ -256,16 +329,23 @@ export class OrdersService {
       });
     }
 
+    // Exclude voided orders from all statistics
+    query.andWhere('order.status != :voidStatus', { voidStatus: OrderStatus.VOID });
+
     const [totalOrders, completedOrders, totalRevenue] = await Promise.all([
       query.getCount(),
       query
         .clone()
-        .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
+        .andWhere('order.status IN (:...statuses)', { 
+          statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED] 
+        })
         .getCount(),
       query
         .clone()
         .select('SUM(order.totalAmount)', 'total')
-        .andWhere('order.status = :status', { status: OrderStatus.COMPLETED })
+        .andWhere('order.status IN (:...statuses)', { 
+          statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED] 
+        })
         .getRawOne()
         .then((result) => parseFloat(result?.total || 0)),
     ]);
@@ -282,6 +362,7 @@ export class OrdersService {
       .createQueryBuilder('item')
       .leftJoinAndSelect('item.order', 'order')
       .where('item.sku = :sku', { sku: 'MANUAL' })
+      .andWhere('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
       .orderBy('order.createdAt', 'DESC');
 
     // Filter by organization

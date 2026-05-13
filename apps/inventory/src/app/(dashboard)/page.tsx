@@ -82,10 +82,10 @@ export default function Page() {
         apiClient.getOrders(),
       ]);
 
-      // Calculate today's stats
+      // Calculate today's stats (excluding voided orders)
       const todayOrders = ordersData.filter((order: any) => {
         const orderDate = new Date(order.createdAt);
-        return orderDate >= today;
+        return orderDate >= today && order.status !== "VOID";
       });
 
       const todayRevenue = todayOrders.reduce(
@@ -125,8 +125,9 @@ export default function Page() {
       );
       setLowStockProducts(lowStock.slice(0, 5));
 
-      // Get recent orders
-      setRecentOrders(ordersData.slice(0, 5));
+      // Get recent orders (excluding voided orders)
+      const nonVoidedOrders = ordersData.filter((order: any) => order.status !== "VOID");
+      setRecentOrders(nonVoidedOrders.slice(0, 5));
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("dashboard data"));
     } finally {

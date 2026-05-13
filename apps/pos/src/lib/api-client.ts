@@ -133,6 +133,11 @@ class APIClient {
     return response.data;
   }
 
+  async voidOrder(orderId: string): Promise<any> {
+    const response = await this.client.post(`/orders/${orderId}/void`);
+    return response.data;
+  }
+
   isOnline(): boolean {
     if (typeof navigator === "undefined") return true;
     return navigator.onLine;
@@ -324,7 +329,54 @@ export class SyncService {
       }
 
       // Get pending items
-      const { orders, payments } = await dbHelpers.getPendingSyncItems();
+      const { orders: allPendingOrders, payments } = await dbHelpers.getPendingSyncItems();
+
+      // Apply 5-minute delay for orders to allow time for voiding mistakes
+      const now = new Date();
+      const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+      
+      console.log(`🔍 Sync check:`, {
+        currentTime: now.toISOString(),
+        fiveMinutesAgo: fiveMinutesAgo.toISOString(),
+        totalPending: allPendingOrders.length
+      });
+      
+      const orders = allPendingOrders.filter(order => {
+        // Ensure we're working with Date objects
+        const orderTime = order.localCreatedAt instanceof Date 
+          ? order.localCreatedAt 
+          : new Date(order.localCreatedAt);
+        
+        const nowTime = now.getTime();
+        const orderTimeMs = orderTime.getTime();
+        const fiveMinutesAgoMs = fiveMinutesAgo.getTime();
+        
+        const ageInMs = nowTime - orderTimeMs;
+        const ageInMinutes = ageInMs / (60 * 1000);
+        const shouldSync = orderTimeMs <= fiveMinutesAgoMs;
+        
+        console.log(`  📦 ${order.orderNumber}:`, {
+          localCreatedAt: order.localCreatedAt,
+          localCreatedAtType: typeof order.localCreatedAt,
+          orderTimeISO: orderTime.toISOString(),
+          orderTimeMs: orderTimeMs,
+          nowMs: nowTime,
+          fiveMinutesAgoMs: fiveMinutesAgoMs,
+          ageInMinutes: ageInMinutes.toFixed(2),
+          shouldSync: shouldSync,
+          comparison: `${orderTimeMs} <= ${fiveMinutesAgoMs}`,
+        });
+        
+        return shouldSync;
+      });
+
+      // Log summary
+      const heldOrders = allPendingOrders.length - orders.length;
+      if (heldOrders > 0) {
+        console.log(`⏱️ Holding ${heldOrders} order(s) for 5-minute void window`);
+      } else if (allPendingOrders.length > 0) {
+        console.log(`✅ All ${allPendingOrders.length} order(s) are ready to sync`);
+      }
 
       if (orders.length === 0 && payments.length === 0) {
         console.log("No items to sync");
@@ -411,8 +463,55 @@ export class SyncService {
       }
 
       // Get all failed and pending items (including from previous days)
-      const { orders, payments } =
+      const { orders: allOrders, payments: allPayments } =
         await dbHelpers.getFailedAndPendingSyncItems();
+
+      // Apply 5-minute delay for pending orders (but not for error status orders - those should retry immediately)
+      const now = new Date();
+      const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+      
+      const orders = allOrders.filter(order => {
+        // If order has error status, allow immediate retry
+        if (order.syncStatus === 'error') {
+          console.log(`  🔄 ${order.orderNumber}: error status → immediate retry`);
+          return true;
+        }
+        
+        // For pending orders, apply 5-minute rule
+        const orderTime = order.localCreatedAt instanceof Date 
+          ? order.localCreatedAt 
+          : new Date(order.localCreatedAt);
+        const orderTimeMs = orderTime.getTime();
+        const shouldSync = orderTimeMs <= fiveMinutesAgo.getTime();
+        
+        if (!shouldSync) {
+          console.log(`  ⏱️ ${order.orderNumber}: pending, only ${((now.getTime() - orderTimeMs) / 60000).toFixed(1)}m old → hold for void window`);
+        }
+        
+        return shouldSync;
+      });
+
+      // For payments, also apply 5-minute delay for pending ones (immediate retry for errors)
+      const payments = allPayments.filter(payment => {
+        // If payment has error status, allow immediate retry
+        if (payment.syncStatus === 'error') {
+          console.log(`  🔄 Payment ${payment.posLocalId}: error status → immediate retry`);
+          return true;
+        }
+        
+        // For pending payments, apply 5-minute rule (same as orders)
+        const paymentTime = payment.localCreatedAt instanceof Date 
+          ? payment.localCreatedAt 
+          : new Date(payment.localCreatedAt);
+        const paymentTimeMs = paymentTime.getTime();
+        const shouldSync = paymentTimeMs <= fiveMinutesAgo.getTime();
+        
+        if (!shouldSync) {
+          console.log(`  ⏱️ Payment ${payment.posLocalId}: pending, only ${((now.getTime() - paymentTimeMs) / 60000).toFixed(1)}m old → hold for void window`);
+        }
+        
+        return shouldSync;
+      });
 
       if (orders.length === 0 && payments.length === 0) {
         console.log("No failed or pending items to retry");
@@ -421,6 +520,12 @@ export class SyncService {
           this.stopAutoRetry();
         }
         return true;
+      }
+
+      const heldOrders = allOrders.length - orders.length;
+      const heldPayments = allPayments.length - payments.length;
+      if (heldOrders > 0 || heldPayments > 0) {
+        console.log(`⏱️ Retry: Holding ${heldOrders} order(s) and ${heldPayments} payment(s) for 5-minute void window`);
       }
 
       console.log(
@@ -542,6 +647,7 @@ export class SyncService {
       if (localOrder) {
         if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
           await db.orders.update(localOrder.id!, {
+            serverId: result.serverId, // Store server UUID for future API calls
             syncStatus: "synced",
             syncError: undefined,
           });
@@ -564,6 +670,7 @@ export class SyncService {
       if (localPayment) {
         if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
           await db.payments.update(localPayment.id!, {
+            serverId: result.serverId, // Store server UUID for future API calls
             syncStatus: "synced",
             syncError: undefined,
           });

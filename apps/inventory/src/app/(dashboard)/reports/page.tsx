@@ -127,10 +127,10 @@ export default function ReportsPage() {
         apiClient.getPayments(),
       ]);
 
-      // Filter orders by date range
+      // Filter orders by date range (excluding voided orders)
       const filteredOrders = orders.filter((order: any) => {
         const orderDate = new Date(order.createdAt);
-        return orderDate >= startDate && orderDate <= endDate;
+        return orderDate >= startDate && orderDate <= endDate && order.status !== "VOID";
       });
 
       // Calculate stats

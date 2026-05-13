@@ -36,10 +36,12 @@ export const columns: ColumnDef<LocalOrder>[] = [
               ? "bg-green-100 text-green-700"
               : status === "PENDING"
                 ? "bg-yellow-100 text-yellow-700"
-                : "bg-gray-100 text-gray-700"
+                : status === "VOID"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-gray-100 text-gray-700"
           }`}
         >
-          {status}
+          {status === "VOID" ? "✗ VOIDED" : status}
         </span>
       );
     },
@@ -49,6 +51,17 @@ export const columns: ColumnDef<LocalOrder>[] = [
     header: "Sync",
     cell: ({ row }) => {
       const syncStatus = row.getValue("syncStatus") as string;
+      const orderStatus = row.original.status as string;
+
+      // Voided orders are never synced — show a neutral indicator
+      if (orderStatus === "VOID") {
+        return (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-500">
+            — N/A
+          </span>
+        );
+      }
+
       return (
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
@@ -77,8 +90,10 @@ export const columns: ColumnDef<LocalOrder>[] = [
     header: "Total",
     cell: ({ row }) => {
       const amount = parseFloat(row.getValue("totalAmount"));
+      const status = row.getValue("status") as string;
+      const isVoided = status === "VOID";
       return (
-        <span className="font-semibold text-gray-900">
+        <span className={`font-semibold ${isVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
           {formatCurrency(amount)}
         </span>
       );

@@ -224,11 +224,14 @@ export class PaymentsService {
   }
 
   async getPaymentStats(requestingUser: any) {
-    const query = this.paymentsRepository.createQueryBuilder('payment');
+    const query = this.paymentsRepository
+      .createQueryBuilder('payment')
+      .leftJoin('payment.order', 'order')
+      .where('order.status != :voidStatus', { voidStatus: 'VOID' });
 
     // Filter by organization
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('payment.organizationId = :orgId', {
+      query.andWhere('payment.organizationId = :orgId', {
         orgId: requestingUser.organizationId,
       });
     }

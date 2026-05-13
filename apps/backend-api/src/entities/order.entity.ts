@@ -77,6 +77,16 @@ export class OrderEntity {
   @Column({ type: 'timestamp', nullable: true })
   syncedAt: Date;
 
+  @Column({ nullable: true })
+  voidedBy: string;
+
+  @ManyToOne('UserEntity', { nullable: true })
+  @JoinColumn({ name: 'voidedBy' })
+  voider: any;
+
+  @Column({ type: 'timestamp', nullable: true })
+  voidedAt: Date;
+
   @OneToMany(() => OrderItemEntity, (item) => item.order, { cascade: true })
   items: OrderItemEntity[];
 

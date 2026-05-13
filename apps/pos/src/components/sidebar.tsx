@@ -84,6 +84,18 @@ export function Sidebar() {
     return () => clearInterval(interval);
   }, []);
 
+  // Also refresh counts when todaysOrders changes (e.g., after voiding)
+  useEffect(() => {
+    const refreshCounts = async () => {
+      const counts = await dbHelpers.getFailedItemsCount();
+      setFailedCount(counts);
+    };
+    
+    if (todaysOrders !== null) {
+      refreshCounts();
+    }
+  }, [todaysOrders]);
+
   // Load terminal ID on mount
   useEffect(() => {
     const loadTerminalId = async () => {

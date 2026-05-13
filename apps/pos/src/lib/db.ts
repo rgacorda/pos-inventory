@@ -12,6 +12,7 @@ export interface LocalOrder extends Omit<
   "id" | "createdAt" | "updatedAt"
 > {
   id?: number;
+  serverId?: string; // UUID from server after sync
   syncStatus: "pending" | "syncing" | "synced" | "error";
   syncError?: string;
   localCreatedAt: Date;
@@ -23,6 +24,7 @@ export interface LocalPayment extends Omit<
   "id" | "createdAt" | "updatedAt"
 > {
   id?: number;
+  serverId?: string; // UUID from server after sync
   syncStatus: "pending" | "syncing" | "synced" | "error";
   syncError?: string;
   localCreatedAt: Date;
@@ -88,6 +90,17 @@ export class POSDatabase extends Dexie {
       syncMetadata: "++id, key, updatedAt",
       organization: "id, updatedAt",
     });
+
+    // Version 4: Add serverId field to store server UUID after sync
+    this.version(4).stores({
+      orders:
+        "++id, posLocalId, serverId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName",
+      payments:
+        "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
+    });
   }
 }
 
@@ -95,22 +108,38 @@ export const db = new POSDatabase();
 
 // Helper functions for common operations
 export const dbHelpers = {
-  // Get all pending items for sync
+  // Get posLocalIds of all voided orders (used to exclude their payments from sync)
+  async getVoidedOrderPosLocalIds(): Promise<Set<string>> {
+    const voidedOrders = await db.orders
+      .where("status")
+      .equals("VOID")
+      .toArray();
+    return new Set(voidedOrders.map(o => o.posLocalId));
+  },
+
+  // Get all pending items for sync (excluding voided orders and their payments)
   async getPendingSyncItems() {
-    const orders = await db.orders
+    const allPendingOrders = await db.orders
       .where("syncStatus")
       .equals("pending")
       .toArray();
 
-    const payments = await db.payments
+    // Filter out voided orders
+    const orders = allPendingOrders.filter(order => order.status !== "VOID");
+
+    const allPendingPayments = await db.payments
       .where("syncStatus")
       .equals("pending")
       .toArray();
+
+    // Filter out payments whose parent order is voided
+    const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
+    const payments = allPendingPayments.filter(p => !voidedOrderIds.has(p.orderId));
 
     return { orders, payments };
   },
 
-  // Get all failed and pending items for retry (including previous days)
+  // Get all failed and pending items for retry (including previous days, excluding voided orders and their payments)
   async getFailedAndPendingSyncItems() {
     const pendingOrders = await db.orders
       .where("syncStatus")
@@ -132,37 +161,107 @@ export const dbHelpers = {
       .equals("error")
       .toArray();
 
+    // Filter out voided orders from both pending and error lists
+    const nonVoidedPendingOrders = pendingOrders.filter(order => order.status !== "VOID");
+    const nonVoidedErrorOrders = errorOrders.filter(order => order.status !== "VOID");
+
+    // Filter out payments whose parent order is voided
+    const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
+    const nonVoidedPendingPayments = pendingPayments.filter(p => !voidedOrderIds.has(p.orderId));
+    const nonVoidedErrorPayments = errorPayments.filter(p => !voidedOrderIds.has(p.orderId));
+
     return {
-      orders: [...pendingOrders, ...errorOrders],
-      payments: [...pendingPayments, ...errorPayments],
+      orders: [...nonVoidedPendingOrders, ...nonVoidedErrorOrders],
+      payments: [...nonVoidedPendingPayments, ...nonVoidedErrorPayments],
     };
   },
 
-  // Get count of failed items
+  // Get count of failed items (excludes pending orders within 5-minute void window, voided orders, and payments for voided orders)
   async getFailedItemsCount() {
-    const errorOrders = await db.orders
+    // Get voided order IDs once to reuse across all payment filters
+    const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
+
+    // Get error orders (excluding voided ones)
+    const allErrorOrders = await db.orders
       .where("syncStatus")
       .equals("error")
-      .count();
+      .toArray();
+    
+    const errorOrders = allErrorOrders.filter(order => order.status !== "VOID").length;
 
-    const errorPayments = await db.payments
+    // Get error payments (excluding those for voided orders)
+    const allErrorPayments = await db.payments
       .where("syncStatus")
       .equals("error")
-      .count();
+      .toArray();
 
-    const pendingOrders = await db.orders
+    const errorPayments = allErrorPayments.filter(p => !voidedOrderIds.has(p.orderId)).length;
+
+    // For pending orders, only count those older than 5 minutes (excluding voided ones)
+    // (recent orders are still in void window, not "failed")
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    
+    const allPendingOrders = await db.orders
       .where("syncStatus")
       .equals("pending")
-      .count();
+      .toArray();
+    
+    const pendingOrders = allPendingOrders.filter(order => {
+      // Exclude voided orders (they keep pending status but should never sync)
+      if (order.status === "VOID") return false;
+      
+      const orderTime = order.localCreatedAt instanceof Date 
+        ? order.localCreatedAt 
+        : new Date(order.localCreatedAt);
+      return orderTime <= fiveMinutesAgo;
+    }).length;
 
-    const pendingPayments = await db.payments
+    // For pending payments, only count those older than 5 minutes and not for voided orders
+    const allPendingPayments = await db.payments
       .where("syncStatus")
       .equals("pending")
-      .count();
+      .toArray();
+    
+    const pendingPayments = allPendingPayments.filter(payment => {
+      // Exclude payments whose parent order is voided
+      if (voidedOrderIds.has(payment.orderId)) return false;
+
+      const paymentTime = payment.localCreatedAt instanceof Date 
+        ? payment.localCreatedAt 
+        : new Date(payment.localCreatedAt);
+      return paymentTime <= fiveMinutesAgo;
+    }).length;
+
+    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders (>5min), ${pendingPayments} pending payments (>5min)`);
+
+    // Log details of error items for debugging
+    if (errorOrders > 0) {
+      const errorOrderDetails = allErrorOrders
+        .filter(o => o.status !== "VOID")
+        .map(o => ({
+          orderNumber: o.orderNumber,
+          status: o.status,
+          syncError: o.syncError,
+          age: `${Math.round((Date.now() - new Date(o.localCreatedAt).getTime()) / 60000)}min`,
+        }));
+      console.log(`❌ Orders with sync errors:`, errorOrderDetails);
+    }
+    if (errorPayments > 0) {
+      const errorPaymentDetails = allErrorPayments
+        .filter(p => !voidedOrderIds.has(p.orderId))
+        .map(p => ({
+          posLocalId: p.posLocalId,
+          orderId: p.orderId,
+          syncError: p.syncError,
+          age: `${Math.round((Date.now() - new Date(p.localCreatedAt).getTime()) / 60000)}min`,
+        }));
+      console.log(`❌ Payments with sync errors:`, errorPaymentDetails);
+    }
 
     return {
-      failed: errorOrders + errorPayments,
-      pending: pendingOrders + pendingPayments,
+      failed: errorOrders + errorPayments, // Only actual errors
+      pending: pendingOrders + pendingPayments, // Old pending items (for monitoring)
       total: errorOrders + errorPayments + pendingOrders + pendingPayments,
     };
   },

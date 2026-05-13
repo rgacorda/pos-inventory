@@ -57,6 +57,8 @@ export interface Order extends BaseEntity {
   status: OrderStatus;
   completedAt?: Date;
   syncedAt?: Date;
+  voidedBy?: string;
+  voidedAt?: Date;
   items: OrderItem[];
 }
 

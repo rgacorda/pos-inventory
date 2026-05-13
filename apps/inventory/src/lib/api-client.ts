@@ -172,6 +172,11 @@ class APIClient {
     return response.data;
   }
 
+  async voidOrder(orderId: string) {
+    const response = await this.client.post(`/orders/${orderId}/void`);
+    return response.data;
+  }
+
   // Payments API
   async getPayments(filters?: any) {
     const response = await this.client.get("/payments", { params: filters });

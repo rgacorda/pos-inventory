@@ -30,9 +30,20 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -46,10 +57,14 @@ import {
   Eye,
   ShoppingCart,
   Calendar as CalendarIcon,
+  XCircle,
 } from "lucide-react";
 import {
   showErrorFromException,
+  showSuccessToast,
+  showErrorToast,
   ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
 } from "@/lib/toast-utils";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
@@ -61,6 +76,8 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showVoidConfirm, setShowVoidConfirm] = useState(false);
+  const [isVoiding, setIsVoiding] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -83,6 +100,41 @@ export default function OrdersPage() {
   const viewOrderDetails = (order: any) => {
     setSelectedOrder(order);
     setShowDetailsModal(true);
+  };
+
+  const handleVoidOrder = async () => {
+    if (!selectedOrder) return;
+
+    setIsVoiding(true);
+    try {
+      await apiClient.voidOrder(selectedOrder.id);
+      
+      showSuccessToast("Order Voided Successfully", {
+        description: "Stock has been restored for all items in this order.",
+      });
+
+      // Refresh orders list
+      await loadOrders();
+      
+      // Close dialogs
+      setShowVoidConfirm(false);
+      setShowDetailsModal(false);
+      setSelectedOrder(null);
+    } catch (error: any) {
+      console.error("Failed to void order:", error);
+      showErrorToast("Void Failed", {
+        description: error.response?.data?.message || "Unable to void order. Please try again.",
+      });
+    } finally {
+      setIsVoiding(false);
+    }
+  };
+
+  const canVoidOrder = (order: any) => {
+    if (!order) return false;
+    // Can only void SYNCED orders (COMPLETED orders haven't reached here yet)
+    // Cannot void already voided orders
+    return order.status === "SYNCED" && order.status !== "VOID";
   };
 
   const filteredOrders = orders.filter((order) => {
@@ -194,6 +246,8 @@ export default function OrdersPage() {
               <SelectContent>
                 <SelectItem value="ALL">All Status</SelectItem>
                 <SelectItem value="COMPLETED">Completed</SelectItem>
+                <SelectItem value="SYNCED">Synced</SelectItem>
+                <SelectItem value="VOID">Voided</SelectItem>
                 <SelectItem value="PENDING">Pending</SelectItem>
                 <SelectItem value="CANCELLED">Cancelled</SelectItem>
               </SelectContent>
@@ -238,12 +292,16 @@ export default function OrdersPage() {
                           className={
                             order.status === "COMPLETED"
                               ? "bg-green-600 hover:bg-green-700"
-                              : order.status === "PENDING"
-                                ? "bg-yellow-600 hover:bg-yellow-700"
-                                : "bg-red-600 hover:bg-red-700"
+                              : order.status === "SYNCED"
+                                ? "bg-blue-600 hover:bg-blue-700"
+                                : order.status === "VOID"
+                                  ? "bg-red-600 hover:bg-red-700"
+                                  : order.status === "PENDING"
+                                    ? "bg-yellow-600 hover:bg-yellow-700"
+                                    : "bg-gray-600 hover:bg-gray-700"
                           }
                         >
-                          {order.status}
+                          {order.status === "VOID" ? "✗ VOIDED" : order.status}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -343,12 +401,16 @@ export default function OrdersPage() {
                     className={
                       selectedOrder.status === "COMPLETED"
                         ? "mt-1 bg-green-600 hover:bg-green-700"
-                        : selectedOrder.status === "PENDING"
-                          ? "mt-1 bg-yellow-600 hover:bg-yellow-700"
-                          : "mt-1 bg-red-600 hover:bg-red-700"
+                        : selectedOrder.status === "SYNCED"
+                          ? "mt-1 bg-blue-600 hover:bg-blue-700"
+                          : selectedOrder.status === "VOID"
+                            ? "mt-1 bg-red-600 hover:bg-red-700"
+                            : selectedOrder.status === "PENDING"
+                              ? "mt-1 bg-yellow-600 hover:bg-yellow-700"
+                              : "mt-1 bg-gray-600 hover:bg-gray-700"
                     }
                   >
-                    {selectedOrder.status}
+                    {selectedOrder.status === "VOID" ? "✗ VOIDED" : selectedOrder.status}
                   </Badge>
                 </div>
                 <div>
@@ -484,8 +546,65 @@ export default function OrdersPage() {
               </div>
             </div>
           )}
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            {canVoidOrder(selectedOrder) && (
+              <Button
+                variant="destructive"
+                onClick={() => setShowVoidConfirm(true)}
+                className="w-full sm:w-auto"
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Void & Refund Order
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Void Confirmation Dialog */}
+      <AlertDialog open={showVoidConfirm} onOpenChange={setShowVoidConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void & Refund Order?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>Are you sure you want to void this order and process a refund?</p>
+                <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800">
+                  <strong>This will:</strong>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>Mark the order as VOIDED</li>
+                    <li><strong>Restore stock</strong> for all items in the order</li>
+                    <li>Record void audit trail (who voided, when)</li>
+                    <li>Keep order visible for financial records</li>
+                  </ul>
+                </div>
+                {selectedOrder && (
+                  <div className="bg-gray-50 border rounded p-3 text-sm">
+                    <p className="font-medium">Order Details:</p>
+                    <p className="mt-1">Order ID: <strong>{selectedOrder.orderNumber}</strong></p>
+                    <p>Total Amount: <strong>₱{Number(selectedOrder.totalAmount || 0).toFixed(2)}</strong></p>
+                    <p>Items: <strong>{selectedOrder.items?.length || 0}</strong></p>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      Created: {new Date(selectedOrder.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                <p className="text-sm font-medium text-red-600">This action cannot be undone!</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVoiding}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleVoidOrder}
+              disabled={isVoiding}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isVoiding ? "Voiding..." : "Yes, Void & Refund Order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
