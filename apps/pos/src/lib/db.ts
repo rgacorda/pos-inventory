@@ -51,12 +51,20 @@ export interface OrganizationData {
   updatedAt: Date;
 }
 
+export interface UnknownBarcode {
+  id?: number;
+  barcode: string;
+  scannedAt: Date;
+  scanCount: number;
+}
+
 export class POSDatabase extends Dexie {
   orders!: Table<LocalOrder, number>;
   payments!: Table<LocalPayment, number>;
   products!: Table<LocalProduct, string>;
   syncMetadata!: Table<SyncMetadata, number>;
   organization!: Table<OrganizationData, string>;
+  unknownBarcodes!: Table<UnknownBarcode, number>;
 
   constructor() {
     super("POSDatabase");
@@ -100,6 +108,18 @@ export class POSDatabase extends Dexie {
       products: "id, sku, barcode, category, status, lastSyncedAt",
       syncMetadata: "++id, key, updatedAt",
       organization: "id, updatedAt",
+    });
+
+    // Version 5: Add unknownBarcodes table for barcodes with no matching product
+    this.version(5).stores({
+      orders:
+        "++id, posLocalId, serverId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName",
+      payments:
+        "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
+      unknownBarcodes: "++id, &barcode, scannedAt",
     });
   }
 }
@@ -396,5 +416,38 @@ export const dbHelpers = {
   async getOrganization() {
     const allOrgs = await db.organization.toArray();
     return allOrgs.length > 0 ? allOrgs[0] : null;
+  },
+
+  // Save an unmatched barcode (upsert: increment scan count if already exists)
+  async saveUnknownBarcode(barcode: string) {
+    const existing = await db.unknownBarcodes
+      .where("barcode")
+      .equals(barcode)
+      .first();
+    if (existing && existing.id != null) {
+      await db.unknownBarcodes.update(existing.id, {
+        scannedAt: new Date(),
+        scanCount: existing.scanCount + 1,
+      });
+    } else {
+      await db.unknownBarcodes.add({
+        barcode,
+        scannedAt: new Date(),
+        scanCount: 1,
+      });
+    }
+  },
+
+  // Get all unknown barcodes sorted by most recently scanned
+  async getUnknownBarcodes() {
+    const all = await db.unknownBarcodes.toArray();
+    return all.sort(
+      (a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime()
+    );
+  },
+
+  // Dismiss (delete) a saved unknown barcode by id
+  async dismissUnknownBarcode(id: number) {
+    await db.unknownBarcodes.delete(id);
   },
 };

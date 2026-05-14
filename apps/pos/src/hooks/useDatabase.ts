@@ -41,3 +41,7 @@ export function usePaymentsByOrder(orderPosLocalId: string | null) {
     [orderPosLocalId]
   );
 }
+
+export function useUnknownBarcodes() {
+  return useLiveQuery(() => dbHelpers.getUnknownBarcodes(), []);
+}

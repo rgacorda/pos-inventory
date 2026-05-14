@@ -80,10 +80,13 @@ export default function Page() {
   const [manualItemPrice, setManualItemPrice] = useState<string>("");
   const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
+  const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
+  const [manualItemBarcodeError, setManualItemBarcodeError] = useState<string>("");
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
   const manualItemNameRef = useRef<HTMLInputElement>(null);
+  const manualItemBarcodeRef = useRef<HTMLInputElement>(null);
   const barcodeBufferRef = useRef<string>("");
   const barcodeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -297,6 +300,8 @@ export default function Page() {
     setManualItemName("");
     setManualItemPrice("");
     setManualItemQuantity("1");
+    setManualItemBarcode("");
+    setManualItemBarcodeError("");
     setShowManualItemDialog(false);
 
     // Blur barcode input to let global listener handle next scan
@@ -309,8 +314,36 @@ export default function Page() {
     setManualItemPrice("");
     setManualItemQuantity("1");
     setManualItemSearch("");
+    setManualItemBarcode("");
+    setManualItemBarcodeError("");
     setShowManualItemDialog(true);
-    setTimeout(() => manualItemNameRef.current?.focus(), 100);
+    setTimeout(() => manualItemBarcodeRef.current?.focus(), 100);
+  };
+
+  // Handle barcode scan inside manual item dialog
+  const handleManualItemBarcodeScan = async (barcode: string) => {
+    const trimmed = barcode.trim();
+    if (!trimmed || !products) return;
+
+    const matched = products.filter((p) => p.barcode === trimmed);
+
+    if (matched.length === 0) {
+      // Persist the unmatched barcode so managers can register it later
+      await dbHelpers.saveUnknownBarcode(trimmed);
+      setManualItemBarcodeError(
+        `No product found for barcode: ${trimmed}. Barcode saved for manager review.`
+      );
+      return;
+    }
+
+    // Prefer product with stock; otherwise use first match
+    const product = matched.sort((a, b) => b.stockQuantity - a.stockQuantity)[0];
+
+    setManualItemBarcodeError("");
+    setManualItemName(product.name);
+    setManualItemPrice(product.price.toFixed(2));
+    setManualItemSearch("");
+    setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
   };
 
   // Use product as price reference
@@ -1676,9 +1709,50 @@ export default function Page() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Barcode Input */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                </svg>
+                Scan Barcode to Identify Product <span className="text-red-500">*</span>
+              </label>
+              <Input
+                ref={manualItemBarcodeRef}
+                type="text"
+                value={manualItemBarcode}
+                onChange={(e) => {
+                  setManualItemBarcode(e.target.value);
+                  setManualItemBarcodeError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleManualItemBarcodeScan(manualItemBarcode);
+                  }
+                }}
+                placeholder="Scan or type barcode, then press Enter..."
+                className={`h-11 font-mono ${manualItemBarcodeError ? "border-red-400 bg-red-50 focus-visible:ring-red-400" : "border-gray-300"}`}
+              />
+              {manualItemBarcodeError && (
+                <p className="text-xs text-red-600 flex items-center gap-1">
+                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                  {manualItemBarcodeError}
+                </p>
+              )}
+              {manualItemName && !manualItemBarcodeError && manualItemBarcode && (
+                <p className="text-xs text-green-700 flex items-center gap-1 font-medium">
+                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                  Product identified: {manualItemName}
+                </p>
+              )}
+            </div>
+
+            <Separator />
+
             {/* Product Price Reference Search */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-blue-700">Search Product for Price Reference</label>
+              <label className="text-sm font-medium text-blue-700">Or Search Product for Price Reference</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
@@ -1818,6 +1892,8 @@ export default function Page() {
                 setManualItemPrice("");
                 setManualItemQuantity("1");
                 setManualItemSearch("");
+                setManualItemBarcode("");
+                setManualItemBarcodeError("");
               }}
             >
               Cancel
