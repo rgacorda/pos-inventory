@@ -18,12 +18,10 @@ import {
   IconTrendingUp,
   IconShoppingCart,
   IconCash,
-  IconAlertTriangle,
   IconUsers,
   IconPackage,
   IconReceipt,
 } from "@tabler/icons-react";
-import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
 export default function Page() {
@@ -40,8 +38,6 @@ export default function Page() {
     activeProducts: 0,
     totalUsers: 0,
   });
-  const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
-  const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Redirect MANAGER users to products page
@@ -116,18 +112,6 @@ export default function Page() {
         activeProducts,
         totalUsers: usersData.length,
       });
-
-      // Find low stock products
-      const lowStock = productsData.filter(
-        (p: any) =>
-          p.status === "ACTIVE" &&
-          p.stockQuantity <= (p.lowStockThreshold || 10),
-      );
-      setLowStockProducts(lowStock.slice(0, 5));
-
-      // Get recent orders (excluding voided orders)
-      const nonVoidedOrders = ordersData.filter((order: any) => order.status !== "VOID");
-      setRecentOrders(nonVoidedOrders.slice(0, 5));
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("dashboard data"));
     } finally {
@@ -274,90 +258,6 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Low Stock Alerts & Recent Orders */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Low Stock Alerts */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <IconAlertTriangle className="h-5 w-5 text-orange-500" />
-              Low Stock Alerts
-            </CardTitle>
-            <CardDescription>Products running low on inventory</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {lowStockProducts.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">
-                All products are well stocked
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {lowStockProducts.map((product) => (
-                  <div
-                    key={product.id}
-                    className="flex items-center justify-between p-2 rounded-lg border"
-                  >
-                    <div>
-                      <p className="font-medium text-sm">{product.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        SKU: {product.sku}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        product.stockQuantity === 0
-                          ? "destructive"
-                          : "secondary"
-                      }
-                    >
-                      {product.stockQuantity} left
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent Orders */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Orders</CardTitle>
-            <CardDescription>Latest transactions</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {recentOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">
-                No orders yet
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {recentOrders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="flex items-center justify-between p-2 rounded-lg border"
-                  >
-                    <div>
-                      <p className="font-medium text-sm">{order.orderNumber}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {format(new Date(order.createdAt), "MMM d, h:mm a")}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-sm">
-                        ₱{Number(order.totalAmount).toFixed(2)}
-                      </p>
-                      <Badge variant="outline" className="text-xs">
-                        {order.status}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
