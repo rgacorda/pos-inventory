@@ -135,13 +135,11 @@ export default function FinancialsPage() {
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Financial Reports</h1>
-          <p className="text-muted-foreground mt-1">
-            Profit & Loss Statement and financial metrics
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold">Financial Reports</h1>
+        <p className="text-muted-foreground mt-1">
+          Profit & Loss Statement and financial metrics
+        </p>
       </div>
 
       {/* Date Range Selector */}
@@ -150,11 +148,11 @@ export default function FinancialsPage() {
           <CardTitle className="text-lg">Select Period</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="justify-start">
+                  <Button variant="outline" className="w-full sm:w-auto justify-start">
                     <IconCalendar className="mr-2 h-4 w-4" />
                     {format(startDate, "PPP")}
                   </Button>
@@ -167,10 +165,10 @@ export default function FinancialsPage() {
                   />
                 </PopoverContent>
               </Popover>
-              <span className="flex items-center px-2">to</span>
+              <span className="text-sm text-muted-foreground text-center sm:px-2">to</span>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="justify-start">
+                  <Button variant="outline" className="w-full sm:w-auto justify-start">
                     <IconCalendar className="mr-2 h-4 w-4" />
                     {format(endDate, "PPP")}
                   </Button>
@@ -184,8 +182,9 @@ export default function FinancialsPage() {
                 </PopoverContent>
               </Popover>
             </div>
-            <Separator orientation="vertical" className="h-8" />
-            <div className="flex gap-2">
+            <Separator orientation="vertical" className="hidden sm:block h-8" />
+            <Separator className="block sm:hidden" />
+            <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={setThisMonth}>
                 This Month
               </Button>
