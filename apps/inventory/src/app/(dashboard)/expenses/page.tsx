@@ -337,7 +337,7 @@ export default function ExpensesPage() {
     <div className="px-4 lg:px-6 space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle>Expenses</CardTitle>
               <CardDescription>
@@ -367,15 +367,15 @@ export default function ExpensesPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 pt-4">
+          <div className="flex flex-wrap items-center gap-3 pt-4">
             <Input
               placeholder="Search by recipient, description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="max-w-sm"
+              className="w-full sm:max-w-sm"
             />
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue placeholder="Filter by type" />
               </SelectTrigger>
               <SelectContent>
@@ -477,13 +477,13 @@ export default function ExpensesPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
             Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
             {Math.min(currentPage * itemsPerPage, filteredExpenses.length)} of{" "}
             {filteredExpenses.length} results
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"

@@ -381,7 +381,7 @@ export default function ProductsPage() {
       {/* Product Inventory Card */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle>Product Inventory</CardTitle>
               <CardDescription>
@@ -619,13 +619,13 @@ export default function ProductsPage() {
           </div>
           {/* Pagination */}
           {!loading && totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
                 {Math.min(currentPage * itemsPerPage, sortedProducts.length)}{" "}
                 of {sortedProducts.length} results
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -747,13 +747,13 @@ export default function ProductsPage() {
             </div>
             {/* Low Stock Pagination */}
             {lowStockTotalPages > 1 && (
-              <div className="flex items-center justify-between pt-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
                 <p className="text-sm text-muted-foreground">
                   Showing {(lowStockPage - 1) * itemsPerPage + 1} to{" "}
                   {Math.min(lowStockPage * itemsPerPage, lowStockProducts.length)}{" "}
                   of {lowStockProducts.length} low stock items
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"

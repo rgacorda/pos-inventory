@@ -214,7 +214,7 @@ export default function TerminalsPage() {
     <div className="px-4 lg:px-6 space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle>POS Terminals</CardTitle>
               <CardDescription>
@@ -340,13 +340,13 @@ export default function TerminalsPage() {
           </div>
           {/* Pagination */}
           {!loading && totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
                 {Math.min(currentPage * itemsPerPage, filteredTerminals.length)}{" "}
                 of {filteredTerminals.length} results
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"

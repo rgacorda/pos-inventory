@@ -175,7 +175,7 @@ export default function OrdersPage() {
     <div className="px-4 lg:px-6 space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle>All Orders</CardTitle>
               <CardDescription>
@@ -187,8 +187,8 @@ export default function OrdersPage() {
               Refresh
             </Button>
           </div>
-          <div className="flex items-center gap-4 pt-4">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap items-center gap-3 pt-4">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
@@ -202,7 +202,7 @@ export default function OrdersPage() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className="w-[260px] justify-start text-left font-normal"
+                  className="w-full sm:w-[260px] justify-start text-left font-normal"
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dateRange?.from ? (
@@ -240,7 +240,7 @@ export default function OrdersPage() {
               </Button>
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -324,13 +324,13 @@ export default function OrdersPage() {
           </div>
           {/* Pagination */}
           {!loading && totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
                 {Math.min(currentPage * itemsPerPage, filteredOrders.length)} of{" "}
                 {filteredOrders.length} results
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"

@@ -552,13 +552,15 @@ export default function ReportsPage() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="products">Products</TabsTrigger>
-              <TabsTrigger value="performance">Performance</TabsTrigger>
-              <TabsTrigger value="payments">Payments</TabsTrigger>
-              <TabsTrigger value="patterns">Patterns</TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto">
+              <TabsList className="grid w-full grid-cols-5 min-w-[480px]">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="products">Products</TabsTrigger>
+                <TabsTrigger value="performance">Performance</TabsTrigger>
+                <TabsTrigger value="payments">Payments</TabsTrigger>
+                <TabsTrigger value="patterns">Patterns</TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-4">
@@ -722,7 +724,7 @@ export default function ReportsPage() {
                           </Table>
 
                           {/* Pagination */}
-                          <div className="flex items-center justify-between pt-4 text-sm text-muted-foreground">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4 text-sm text-muted-foreground">
                             <span>
                               Showing{" "}
                               {filtered.length === 0
