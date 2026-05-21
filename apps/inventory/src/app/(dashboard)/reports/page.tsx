@@ -69,7 +69,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { format, parseISO, startOfDay, eachDayOfInterval } from "date-fns";
+import { format, parseISO, startOfDay, endOfDay, eachDayOfInterval } from "date-fns";
 
 export default function ReportsPage() {
   const router = useRouter();
@@ -127,10 +127,17 @@ export default function ReportsPage() {
         apiClient.getPayments(),
       ]);
 
+      const rangeStart = startOfDay(startDate);
+      const rangeEnd = endOfDay(endDate);
+
       // Filter orders by date range (excluding voided orders)
       const filteredOrders = orders.filter((order: any) => {
         const orderDate = new Date(order.createdAt);
-        return orderDate >= startDate && orderDate <= endDate && order.status !== "VOID";
+        return (
+          orderDate >= rangeStart &&
+          orderDate <= rangeEnd &&
+          order.status !== "VOID"
+        );
       });
 
       // Calculate stats
@@ -193,8 +200,8 @@ export default function ReportsPage() {
 
       // Calculate sales trend (daily)
       const datesInRange = eachDayOfInterval({
-        start: startDate,
-        end: endDate,
+        start: rangeStart,
+        end: startOfDay(endDate),
       });
 
       const dailySales = datesInRange.map((date) => {
@@ -266,7 +273,7 @@ export default function ReportsPage() {
       // Calculate payment methods breakdown
       const filteredPayments = payments.filter((payment: any) => {
         const paymentDate = new Date(payment.createdAt);
-        return paymentDate >= startDate && paymentDate <= endDate;
+        return paymentDate >= rangeStart && paymentDate <= rangeEnd;
       });
 
       const paymentMethodStats: { [key: string]: number } = {};
@@ -453,7 +460,7 @@ export default function ReportsPage() {
                 <CalendarComponent
                   mode="single"
                   selected={startDate}
-                  onSelect={(date) => date && setStartDate(date)}
+                  onSelect={(date) => date && setStartDate(startOfDay(date))}
                 />
               </PopoverContent>
             </Popover>
@@ -471,7 +478,7 @@ export default function ReportsPage() {
                 <CalendarComponent
                   mode="single"
                   selected={endDate}
-                  onSelect={(date) => date && setEndDate(date)}
+                  onSelect={(date) => date && setEndDate(endOfDay(date))}
                 />
               </PopoverContent>
             </Popover>
