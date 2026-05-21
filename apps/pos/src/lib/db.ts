@@ -196,7 +196,7 @@ export const dbHelpers = {
     };
   },
 
-  // Get count of failed items (excludes pending orders within 5-minute void window, voided orders, and payments for voided orders)
+  // Get count of failed items (excludes pending orders within 2-minute void window, voided orders, and payments for voided orders)
   async getFailedItemsCount() {
     // Get voided order IDs once to reuse across all payment filters
     const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
@@ -217,10 +217,10 @@ export const dbHelpers = {
 
     const errorPayments = allErrorPayments.filter(p => !voidedOrderIds.has(p.orderId)).length;
 
-    // For pending orders, only count those older than 5 minutes (excluding voided ones)
+    // For pending orders, only count those older than 2 minutes (excluding voided ones)
     // (recent orders are still in void window, not "failed")
     const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
     
     const allPendingOrders = await db.orders
       .where("syncStatus")
@@ -234,10 +234,10 @@ export const dbHelpers = {
       const orderTime = order.localCreatedAt instanceof Date 
         ? order.localCreatedAt 
         : new Date(order.localCreatedAt);
-      return orderTime <= fiveMinutesAgo;
+      return orderTime <= twoMinutesAgo;
     }).length;
 
-    // For pending payments, only count those older than 5 minutes and not for voided orders
+    // For pending payments, only count those older than 2 minutes and not for voided orders
     const allPendingPayments = await db.payments
       .where("syncStatus")
       .equals("pending")
@@ -250,10 +250,10 @@ export const dbHelpers = {
       const paymentTime = payment.localCreatedAt instanceof Date 
         ? payment.localCreatedAt 
         : new Date(payment.localCreatedAt);
-      return paymentTime <= fiveMinutesAgo;
+      return paymentTime <= twoMinutesAgo;
     }).length;
 
-    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders (>5min), ${pendingPayments} pending payments (>5min)`);
+    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders (>2min), ${pendingPayments} pending payments (>2min)`);
 
     // Log details of error items for debugging
     if (errorOrders > 0) {
