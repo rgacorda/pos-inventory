@@ -48,6 +48,7 @@ import {
 } from "@/lib/toast-utils";
 import { TestPrinterDialog } from "@/components/test-printer-dialog";
 import { formatCurrency } from "@pos/shared-utils";
+import { OrderStatus } from "@pos/shared-types";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -68,8 +69,9 @@ export function Sidebar() {
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const todaysSales =
-    todaysOrders?.reduce((sum, order) => sum + (order.totalAmount || 0), 0) ||
-    0;
+    todaysOrders
+      ?.filter((order) => order.status !== OrderStatus.VOID)
+      .reduce((sum, order) => sum + (order.totalAmount || 0), 0) ?? 0;
 
   // Check for failed items on mount and periodically
   useEffect(() => {
