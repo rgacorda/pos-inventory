@@ -34,7 +34,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { Plus, Trash2, CreditCard, QrCode, Minus, Search } from "lucide-react";
+import { Plus, Trash2, CreditCard, QrCode, Minus, Search, Eye, EyeOff } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
@@ -82,6 +82,7 @@ export default function Page() {
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
   const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
   const [manualItemBarcodeError, setManualItemBarcodeError] = useState<string>("");
+  const [showItemCounts, setShowItemCounts] = useState(false);
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
@@ -859,9 +860,25 @@ export default function Page() {
             {orderItems.length > 0 && (
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="flex justify-between text-sm text-gray-500">
-                  <span>Total Items</span>
+                  <span className="flex items-center gap-1.5">
+                    Total Items
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 hover:bg-gray-100"
+                      onClick={() => setShowItemCounts(!showItemCounts)}
+                    >
+                      {showItemCounts ? (
+                        <EyeOff className="h-3.5 w-3.5 text-gray-600" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5 text-gray-600" />
+                      )}
+                    </Button>
+                  </span>
                   <span className="font-medium">
-                    {orderItems.reduce((sum, item) => sum + item.quantity, 0)}
+                    {showItemCounts
+                      ? orderItems.reduce((sum, item) => sum + item.quantity, 0)
+                      : "•••"}
                   </span>
                 </div>
               </div>
@@ -1009,6 +1026,19 @@ export default function Page() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 px-3 flex items-center gap-2"
+                onClick={() => setShowItemCounts(!showItemCounts)}
+              >
+                {showItemCounts ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+                Stock
+              </Button>
             </div>
 
             {/* Products Table */}
@@ -1030,7 +1060,9 @@ export default function Page() {
                       <TableHead>SKU</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Price</TableHead>
-                      <TableHead className="text-right">Stock</TableHead>
+                      {showItemCounts && (
+                        <TableHead className="text-right">Stock</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1057,9 +1089,11 @@ export default function Page() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          {product.stockQuantity}
-                        </TableCell>
+                        {showItemCounts && (
+                          <TableCell className="text-right">
+                            {product.stockQuantity}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1344,10 +1378,27 @@ export default function Page() {
       <Dialog open={showProductSelectionDialog} onOpenChange={setShowProductSelectionDialog}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Select Product</DialogTitle>
-            <DialogDescription>
-              Multiple products found with this barcode. Choose one to add to order.
-            </DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Select Product</DialogTitle>
+                <DialogDescription>
+                  Multiple products found with this barcode. Choose one to add to order.
+                </DialogDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 flex items-center gap-2 flex-shrink-0"
+                onClick={() => setShowItemCounts(!showItemCounts)}
+              >
+                {showItemCounts ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+                Stock
+              </Button>
+            </div>
           </DialogHeader>
           <div className="max-h-[500px] overflow-auto">
             <Table>
@@ -1357,7 +1408,9 @@ export default function Page() {
                   <TableHead>SKU</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
+                  {showItemCounts && (
+                    <TableHead className="text-right">Stock</TableHead>
+                  )}
                   <TableHead className="text-center">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1365,17 +1418,17 @@ export default function Page() {
                 {matchingProducts.map((product) => (
                   <TableRow 
                     key={product.id}
-                    className={product.stockQuantity === 0 ? "opacity-50" : ""}
+                    className={showItemCounts && product.stockQuantity === 0 ? "opacity-50" : ""}
                   >
                     <TableCell className="font-medium">
                       <div>
                         {product.name}
-                        {product.stockQuantity === 0 && (
+                        {showItemCounts && product.stockQuantity === 0 && (
                           <span className="ml-2 text-xs text-red-600 font-semibold">
                             OUT OF STOCK
                           </span>
                         )}
-                        {product.stockQuantity > 0 && matchingProducts.findIndex(p => p.stockQuantity > 0) === matchingProducts.findIndex(p => p.id === product.id) && (
+                        {showItemCounts && product.stockQuantity > 0 && matchingProducts.findIndex(p => p.stockQuantity > 0) === matchingProducts.findIndex(p => p.id === product.id) && (
                           <span className="ml-2 text-xs text-green-600 font-semibold">
                             ✓ HAS STOCK
                           </span>
@@ -1396,11 +1449,13 @@ export default function Page() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <span className={product.stockQuantity > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
-                        {product.stockQuantity}
-                      </span>
-                    </TableCell>
+                    {showItemCounts && (
+                      <TableCell className="text-right">
+                        <span className={product.stockQuantity > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
+                          {product.stockQuantity}
+                        </span>
+                      </TableCell>
+                    )}
                     <TableCell className="text-center">
                       <Button
                         size="sm"
