@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { dbHelpers } from "@/lib/db";
+import { CartProvider } from "@/contexts/cart-context";
 
 export default function DashboardLayout({
   children,
@@ -54,9 +55,11 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      {children}
-    </div>
+    <CartProvider>
+      <div className="flex h-screen">
+        <Sidebar />
+        {children}
+      </div>
+    </CartProvider>
   );
 }

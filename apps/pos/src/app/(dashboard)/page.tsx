@@ -37,34 +37,37 @@ import {
 import { Plus, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
+import { useCart, OrderItem } from "@/contexts/cart-context";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
 import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 
-interface OrderItem {
-  product: LocalProduct;
-  quantity: number;
-}
-
 export default function Page() {
   const products = useProducts();
   const todaysOrders = useTodaysOrders();
+  const {
+    orderItems,
+    setOrderItems,
+    selectedPaymentMethod,
+    setSelectedPaymentMethod,
+    customerName,
+    setCustomerName,
+    customerAddress,
+    setCustomerAddress,
+    referenceNumber,
+    setReferenceNumber,
+    clearCart,
+  } = useCart();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [categories, setCategories] = useState<string[]>(["All"]);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] =
-    useState<PaymentMethod | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showCashDialog, setShowCashDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [cashReceived, setCashReceived] = useState<string>("");
-  const [customerName, setCustomerName] = useState<string>("");
-  const [customerAddress, setCustomerAddress] = useState<string>("");
-  const [referenceNumber, setReferenceNumber] = useState<string>("");
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [lastReceipt, setLastReceipt] = useState<any>(null);
   const [barcodeInput, setBarcodeInput] = useState<string>("");
@@ -447,15 +450,6 @@ export default function Page() {
       e.preventDefault();
       handleBarcodeScan(barcodeInput);
     }
-  };
-
-  // Clear cart
-  const clearCart = () => {
-    setOrderItems([]);
-    setSelectedPaymentMethod(null);
-    setCustomerName("");
-    setCustomerAddress("");
-    setReferenceNumber("");
   };
 
   // Handle void PIN numpad input
