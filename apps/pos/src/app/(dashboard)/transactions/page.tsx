@@ -3,8 +3,7 @@
 import { useState, useMemo } from "react";
 import { useTodaysOrders, usePaymentsByOrder } from "@/hooks/useDatabase";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
-import { LocalOrder, db } from "@/lib/db";
-import { apiClient } from "@/lib/api-client";
+import { LocalOrder } from "@/lib/db";
 import { DataTable } from "./data-table";
 import { columns } from "./columns";
 import {
@@ -15,34 +14,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Receipt } from "@/components/receipt";
-import { Printer, XCircle } from "lucide-react";
-import {
-  showSuccessToast,
-  showErrorToast,
-  SUCCESS_MESSAGES,
-  ERROR_MESSAGES,
-} from "@/lib/toast-utils";
-import { OrderStatus } from "@pos/shared-types";
+import { Printer } from "lucide-react";
 
 export default function OrdersPage() {
   const orders = useTodaysOrders();
   const [selectedOrder, setSelectedOrder] = useState<LocalOrder | null>(null);
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
-  const [showVoidConfirm, setShowVoidConfirm] = useState(false);
-  const [isVoiding, setIsVoiding] = useState(false);
   const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
 
   // Get current user name for cashier field
@@ -67,106 +47,6 @@ export default function OrdersPage() {
 
   const handleReprint = () => {
     setShowReceiptDialog(true);
-  };
-
-  const handleVoidTransaction = async () => {
-    if (!selectedOrder) return;
-
-    // Only pending/error orders can be voided
-    // Synced orders must be refunded through inventory system
-    if (selectedOrder.syncStatus === "synced") {
-      showErrorToast("Cannot Void Synced Transaction", {
-        description: "This transaction has been synced to the server. Please process a refund through the inventory system.",
-      });
-      setShowVoidConfirm(false);
-      return;
-    }
-
-    // Block voiding while sync is actively in progress — the order is already
-    // being sent to the server in this cycle. Wait for the cycle to finish.
-    if (selectedOrder.syncStatus === "syncing") {
-      showErrorToast("Sync In Progress", {
-        description: "This transaction is currently being synced. Please wait a moment and try again.",
-      });
-      setShowVoidConfirm(false);
-      return;
-    }
-
-    setIsVoiding(true);
-    
-    // Store order data before closing modal (selectedOrder might become stale)
-    const orderToVoid = {
-      id: selectedOrder.id,
-      orderNumber: selectedOrder.orderNumber,
-      posLocalId: selectedOrder.posLocalId,
-    };
-    
-    console.log(`Starting void for order ${orderToVoid.orderNumber}`, orderToVoid);
-
-    try {
-      // Validate we have required IDs
-      if (!orderToVoid.id || !orderToVoid.posLocalId) {
-        throw new Error("Missing required order identifiers");
-      }
-
-      // Step 1: Mark order as VOID and set syncStatus to "synced" so it is
-      // permanently removed from all sync queues. Setting syncStatus to "synced"
-      // signals "no further sync action needed" — the order was cancelled locally
-      // and should never be sent to the server.
-      await db.orders.update(orderToVoid.id, {
-        status: OrderStatus.VOID,
-        syncStatus: "synced",
-        syncError: undefined,
-        localUpdatedAt: new Date(),
-      });
-      
-      // Verify the update was successful
-      const updatedOrder = await db.orders.get(orderToVoid.id);
-      console.log(`✓ Order ${orderToVoid.orderNumber} marked as VOID. Verification:`, {
-        status: updatedOrder?.status,
-        syncStatus: updatedOrder?.syncStatus,
-      });
-      
-      if (updatedOrder?.status !== "VOID") {
-        throw new Error(`Update verification failed: status=${updatedOrder?.status}`);
-      }
-
-      // Step 2: Payments are excluded from sync automatically because:
-      // a) the order is now syncStatus "synced" so it won't be in any sync payload
-      // b) dbHelpers filter payments by voided order IDs as an extra safety net
-      console.log(`✓ Order voided and removed from sync queue`);
-
-
-      // Step 3: Show success message
-      showSuccessToast("Transaction Voided", {
-        description: "Transaction voided successfully (was not yet synced to server).",
-      });
-
-      // Step 4: Close dialogs and clear selection
-      setShowVoidConfirm(false);
-      setSelectedOrder(null);
-      
-      console.log(`✅ Void complete for order ${orderToVoid.orderNumber}`);
-    } catch (error: any) {
-      console.error("Failed to void transaction:", error);
-      showErrorToast("Void Failed", {
-        description: error.message || "Unable to void transaction. Please try again.",
-      });
-    } finally {
-      setIsVoiding(false);
-    }
-  };
-
-  // Check if order can be voided
-  const canVoidOrder = (order: LocalOrder | null) => {
-    if (!order) return false;
-    // Cannot void already-voided orders
-    if (order.status === OrderStatus.VOID) return false;
-    // Cannot void synced orders — must use refund in inventory system
-    if (order.syncStatus === "synced") return false;
-    // Cannot void while a sync cycle is actively sending this order to the server
-    if (order.syncStatus === "syncing") return false;
-    return true;
   };
 
   return (
@@ -353,22 +233,6 @@ export default function OrdersPage() {
             </div>
           )}
           <DialogFooter className="px-6 pb-6 flex-col sm:flex-row gap-2">
-            {canVoidOrder(selectedOrder) && (
-              <Button
-                variant="destructive"
-                onClick={() => setShowVoidConfirm(true)}
-                className="w-full sm:w-auto"
-              >
-                <XCircle className="h-4 w-4 mr-2" />
-                Void Transaction
-              </Button>
-            )}
-            {selectedOrder?.syncStatus === "synced" && selectedOrder?.status !== OrderStatus.VOID && (
-              <div className="w-full text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded p-3">
-                <strong>Note:</strong> This transaction has been synced to the server. 
-                To reverse it, please process a <strong>Refund</strong> through the Inventory System.
-              </div>
-            )}
             <Button
               variant="outline"
               onClick={handleReprint}
@@ -380,50 +244,6 @@ export default function OrdersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Void Confirmation Dialog */}
-      <AlertDialog open={showVoidConfirm} onOpenChange={setShowVoidConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Void Transaction?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>Are you sure you want to void this transaction?</p>
-                <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800">
-                  <strong>This will:</strong>
-                  <ul className="list-disc list-inside mt-1 space-y-1">
-                    <li>Mark the transaction as VOIDED</li>
-                    <li>Prevent it from syncing to the server</li>
-                    <li>No stock changes (transaction hasn't reached server yet)</li>
-                    <li>Keep transaction visible for audit trail</li>
-                  </ul>
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
-                  <strong>Note:</strong> Voiding is only available within 5 minutes of transaction creation (before sync). 
-                  For synced transactions, use the <strong>Refund Process</strong> in the Inventory System to return stock and void.
-                </div>
-                {selectedOrder && (
-                  <p className="text-sm font-medium pt-2">
-                    Transaction: {selectedOrder.orderNumber}<br />
-                    Amount: {formatCurrency(selectedOrder.totalAmount)}<br />
-                    Status: {selectedOrder.syncStatus === "synced" ? "✓ Synced to server" : "⏳ Pending sync"}
-                  </p>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isVoiding}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleVoidTransaction}
-              disabled={isVoiding}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {isVoiding ? "Voiding..." : "Yes, Void Transaction"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Reprint Receipt Dialog */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>

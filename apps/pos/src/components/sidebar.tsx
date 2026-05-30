@@ -34,6 +34,7 @@ import {
   Printer,
   Eye,
   EyeOff,
+  Delete,
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -67,6 +68,9 @@ export function Sidebar() {
   const [isLoadingTerminals, setIsLoadingTerminals] = useState(false);
   const [showSales, setShowSales] = useState(false);
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [newVoidPin, setNewVoidPin] = useState<string>("");
+  const [voidPinSaved, setVoidPinSaved] = useState(false);
+  const [voidPinError, setVoidPinError] = useState<string>("");
 
   const todaysSales =
     todaysOrders
@@ -175,6 +179,22 @@ export function Sidebar() {
     }
   };
 
+  const handleSaveVoidPin = async () => {
+    if (newVoidPin.length !== 4) {
+      setVoidPinError("PIN must be exactly 4 digits.");
+      return;
+    }
+    try {
+      await dbHelpers.setVoidPin(newVoidPin);
+      setNewVoidPin("");
+      setVoidPinError("");
+      setVoidPinSaved(true);
+      setTimeout(() => setVoidPinSaved(false), 3000);
+    } catch {
+      setVoidPinError("Failed to save PIN. Try again.");
+    }
+  };
+
   const toggleSalesVisibility = () => {
     // Clear existing timeout
     if (hideTimeout) {
@@ -201,6 +221,44 @@ export function Sidebar() {
       }
     };
   }, [hideTimeout]);
+
+  // Keyboard support for the void PIN numpad when the settings dialog is open
+  useEffect(() => {
+    if (!isTerminalDialogOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is focused on a text input (e.g. terminal ID field)
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+
+      if (e.key >= "0" && e.key <= "9") {
+        setNewVoidPin((prev) => {
+          if (prev.length >= 4) return prev;
+          setVoidPinError("");
+          setVoidPinSaved(false);
+          return prev + e.key;
+        });
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        setNewVoidPin((prev) => prev.slice(0, -1));
+        setVoidPinError("");
+      } else if (e.key === "Enter") {
+        // Trigger save — handled via handleSaveVoidPin which reads current state
+        document.getElementById("void-pin-set-btn")?.click();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isTerminalDialogOpen]);
+
+  // Reset PIN entry when settings dialog closes
+  useEffect(() => {
+    if (!isTerminalDialogOpen) {
+      setNewVoidPin("");
+      setVoidPinError("");
+      setVoidPinSaved(false);
+    }
+  }, [isTerminalDialogOpen]);
 
   return (
     <div className="flex w-64 flex-col border-r bg-white">
@@ -314,6 +372,96 @@ export function Sidebar() {
                     </SelectContent>
                   </Select>
                 )}
+              </div>
+              <div className="pt-2">
+                <Separator className="mb-4" />
+                <p className="text-sm font-medium text-gray-700 mb-1">Change Void PIN</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  4-digit PIN required to void orders at the POS (default: 0000).
+                  Use numpad or keyboard digits.
+                </p>
+
+                {/* PIN dot indicators */}
+                <div className="flex justify-center gap-3 mb-3">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className={`w-10 h-10 border-2 rounded-lg flex items-center justify-center text-xl transition-colors ${
+                        i < newVoidPin.length
+                          ? voidPinSaved
+                            ? "border-green-500 bg-green-50 text-green-600"
+                            : "border-blue-500 bg-blue-50 text-blue-600"
+                          : "border-gray-300 bg-gray-50"
+                      }`}
+                    >
+                      {i < newVoidPin.length ? "●" : ""}
+                    </div>
+                  ))}
+                </div>
+
+                {voidPinError && (
+                  <p className="text-xs text-red-600 text-center mb-2">{voidPinError}</p>
+                )}
+                {voidPinSaved && (
+                  <p className="text-xs text-green-600 text-center mb-2">✓ Void PIN updated</p>
+                )}
+
+                {/* Numpad */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                    <Button
+                      key={n}
+                      variant="outline"
+                      size="sm"
+                      className="h-10 text-base font-semibold"
+                      disabled={newVoidPin.length >= 4}
+                      onClick={() => {
+                        if (newVoidPin.length < 4) {
+                          setNewVoidPin((prev) => prev + n.toString());
+                          setVoidPinError("");
+                          setVoidPinSaved(false);
+                        }
+                      }}
+                    >
+                      {n}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10"
+                    onClick={() => {
+                      setNewVoidPin((prev) => prev.slice(0, -1));
+                      setVoidPinError("");
+                    }}
+                  >
+                    <Delete className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 text-base font-semibold"
+                    disabled={newVoidPin.length >= 4}
+                    onClick={() => {
+                      if (newVoidPin.length < 4) {
+                        setNewVoidPin((prev) => prev + "0");
+                        setVoidPinError("");
+                        setVoidPinSaved(false);
+                      }
+                    }}
+                  >
+                    0
+                  </Button>
+                  <Button
+                    id="void-pin-set-btn"
+                    size="sm"
+                    className="h-10 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={newVoidPin.length !== 4}
+                    onClick={handleSaveVoidPin}
+                  >
+                    Set PIN
+                  </Button>
+                </div>
               </div>
               <DialogFooter>
                 <Button

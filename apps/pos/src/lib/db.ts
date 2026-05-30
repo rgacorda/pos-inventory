@@ -450,4 +450,34 @@ export const dbHelpers = {
   async dismissUnknownBarcode(id: number) {
     await db.unknownBarcodes.delete(id);
   },
+
+  // Get void PIN (defaults to "0000" if never set)
+  async getVoidPin(): Promise<string> {
+    const metadata = await db.syncMetadata
+      .where("key")
+      .equals("voidPin")
+      .first();
+    return metadata ? metadata.value : "0000";
+  },
+
+  // Set void PIN
+  async setVoidPin(pin: string) {
+    const existing = await db.syncMetadata
+      .where("key")
+      .equals("voidPin")
+      .first();
+
+    if (existing) {
+      await db.syncMetadata.update(existing.id!, {
+        value: pin,
+        updatedAt: new Date(),
+      });
+    } else {
+      await db.syncMetadata.add({
+        key: "voidPin",
+        value: pin,
+        updatedAt: new Date(),
+      });
+    }
+  },
 };

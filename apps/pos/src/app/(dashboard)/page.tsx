@@ -34,7 +34,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { Plus, Trash2, CreditCard, QrCode, Minus, Search, Eye, EyeOff } from "lucide-react";
+import { Plus, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
@@ -83,6 +83,9 @@ export default function Page() {
   const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
   const [manualItemBarcodeError, setManualItemBarcodeError] = useState<string>("");
   const [showItemCounts, setShowItemCounts] = useState(false);
+  const [showVoidPinDialog, setShowVoidPinDialog] = useState(false);
+  const [voidPinEntry, setVoidPinEntry] = useState("");
+  const [voidPinError, setVoidPinError] = useState("");
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
@@ -111,9 +114,10 @@ export default function Page() {
   // Global barcode scanner listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if dialogs are open
-      if (showQuantityDialog || showCashDialog || showPaymentDialog || 
-          showManualItemDialog || showReceiptDialog || showProductSelectionDialog) {
+      // Ignore if dialogs are open (including the void PIN dialog)
+      if (showQuantityDialog || showCashDialog || showPaymentDialog ||
+          showManualItemDialog || showReceiptDialog || showProductSelectionDialog ||
+          showVoidPinDialog) {
         return;
       }
 
@@ -167,8 +171,31 @@ export default function Page() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showQuantityDialog, showCashDialog, showPaymentDialog, showManualItemDialog, 
-      showReceiptDialog, showProductSelectionDialog, products]);
+  }, [showQuantityDialog, showCashDialog, showPaymentDialog, showManualItemDialog,
+      showReceiptDialog, showProductSelectionDialog, showVoidPinDialog, products]);
+
+  // Keyboard support for the void PIN numpad dialog
+  useEffect(() => {
+    if (!showVoidPinDialog) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        handleVoidPinInput(e.key);
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        handleVoidPinBackspace();
+      } else if (e.key === "Escape") {
+        setVoidPinEntry("");
+        setVoidPinError("");
+        setShowVoidPinDialog(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVoidPinDialog, voidPinEntry]);
 
   // Auto-scroll to latest item in cart
   useEffect(() => {
@@ -422,26 +449,6 @@ export default function Page() {
     }
   };
 
-  // Remove item from order
-  const removeFromOrder = (productId: string) => {
-    setOrderItems(orderItems.filter((item) => item.product.id !== productId));
-  };
-
-  // Update item quantity
-  const updateQuantity = (productId: string, delta: number) => {
-    setOrderItems(
-      orderItems
-        .map((item) => {
-          if (item.product.id === productId) {
-            const newQuantity = item.quantity + delta;
-            return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
-          }
-          return item;
-        })
-        .filter((item) => item.quantity > 0),
-    );
-  };
-
   // Clear cart
   const clearCart = () => {
     setOrderItems([]);
@@ -449,6 +456,40 @@ export default function Page() {
     setCustomerName("");
     setCustomerAddress("");
     setReferenceNumber("");
+  };
+
+  // Handle void PIN numpad input
+  const handleVoidPinInput = async (digit: string) => {
+    if (voidPinEntry.length >= 4) return;
+    const newPin = voidPinEntry + digit;
+    setVoidPinEntry(newPin);
+
+    if (newPin.length === 4) {
+      const storedPin = await dbHelpers.getVoidPin();
+      if (newPin === storedPin) {
+        clearCart();
+        setShowVoidPinDialog(false);
+        setVoidPinEntry("");
+        setVoidPinError("");
+        showSuccessToast("Order Voided", {
+          description: "The current order has been cleared.",
+        });
+      } else {
+        setVoidPinError("Incorrect PIN. Try again.");
+        setTimeout(() => setVoidPinEntry(""), 600);
+      }
+    }
+  };
+
+  const handleVoidPinBackspace = () => {
+    setVoidPinEntry((prev) => prev.slice(0, -1));
+    setVoidPinError("");
+  };
+
+  const openVoidDialog = () => {
+    setVoidPinEntry("");
+    setVoidPinError("");
+    setShowVoidPinDialog(true);
   };
 
   // Calculate totals with tiered pricing
@@ -742,10 +783,9 @@ export default function Page() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product</TableHead>
-                      <TableHead className="text-center">Quantity</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-center">Qty</TableHead>
+                      <TableHead className="text-right">Unit Price</TableHead>
                       <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-center">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -764,28 +804,8 @@ export default function Page() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 w-8 p-0"
-                              onClick={() => updateQuantity(item.product.id!, -1)}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <span className="text-base font-semibold w-12 text-center">
-                              {item.quantity}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 w-8 p-0"
-                              onClick={() => updateQuantity(item.product.id!, 1)}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
+                        <TableCell className="text-center">
+                          <span className="text-base font-semibold">{item.quantity}</span>
                         </TableCell>
                         <TableCell className="text-right">
                           <div>
@@ -797,8 +817,8 @@ export default function Page() {
                                 item.product.packQuantity,
                               ).toFixed(2)}
                             </div>
-                            {item.product.packPrice && 
-                             item.product.packQuantity && 
+                            {item.product.packPrice &&
+                             item.product.packQuantity &&
                              item.quantity >= item.product.packQuantity && (
                               <div className="text-xs text-green-600 font-medium">
                                 Pack price
@@ -815,16 +835,6 @@ export default function Page() {
                               item.product.packQuantity,
                             ).toFixed(2)}
                           </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => removeFromOrder(item.product.id!)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -971,12 +981,12 @@ export default function Page() {
             </div>
             {orderItems.length > 0 && (
               <Button
-                variant="ghost"
-                className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
-                onClick={clearCart}
+                variant="outline"
+                className="w-full border-red-300 text-red-600 hover:text-red-700 hover:bg-red-50 hover:border-red-400"
+                onClick={openVoidDialog}
               >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Clear Order
+                <Ban className="h-4 w-4 mr-2" />
+                Void Order
               </Button>
             )}
             {isProcessing && (
@@ -1751,6 +1761,93 @@ export default function Page() {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void Order PIN Dialog */}
+      <Dialog
+        open={showVoidPinDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVoidPinEntry("");
+            setVoidPinError("");
+          }
+          setShowVoidPinDialog(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-center">Supervisor Authorization</DialogTitle>
+            <DialogDescription className="text-center">
+              Enter the 4-digit void PIN to cancel this order
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-5">
+            {/* PIN dot display */}
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className={`w-12 h-12 border-2 rounded-xl flex items-center justify-center text-2xl transition-colors ${
+                    i < voidPinEntry.length
+                      ? voidPinError
+                        ? "border-red-500 bg-red-50 text-red-600"
+                        : "border-red-500 bg-red-50 text-red-600"
+                      : "border-gray-300 bg-gray-50"
+                  }`}
+                >
+                  {i < voidPinEntry.length ? "●" : ""}
+                </div>
+              ))}
+            </div>
+
+            {voidPinError && (
+              <p className="text-center text-sm text-red-600 font-medium animate-pulse">
+                {voidPinError}
+              </p>
+            )}
+
+            {/* Numpad */}
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                <Button
+                  key={n}
+                  variant="outline"
+                  className="h-14 text-xl font-semibold hover:bg-gray-100"
+                  onClick={() => handleVoidPinInput(n.toString())}
+                  disabled={voidPinEntry.length >= 4}
+                >
+                  {n}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                className="h-14 hover:bg-gray-100"
+                onClick={handleVoidPinBackspace}
+              >
+                <Delete className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="outline"
+                className="h-14 text-xl font-semibold hover:bg-gray-100"
+                onClick={() => handleVoidPinInput("0")}
+                disabled={voidPinEntry.length >= 4}
+              >
+                0
+              </Button>
+              <Button
+                variant="ghost"
+                className="h-14 text-sm text-gray-500 hover:bg-gray-100"
+                onClick={() => {
+                  setVoidPinEntry("");
+                  setVoidPinError("");
+                  setShowVoidPinDialog(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
