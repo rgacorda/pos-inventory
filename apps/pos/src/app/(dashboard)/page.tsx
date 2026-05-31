@@ -1818,19 +1818,19 @@ export default function Page() {
 
       {/* Receipt Dialog */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[min(90dvh,90vh)] flex-col overflow-hidden sm:max-w-md">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Order Completed</DialogTitle>
             <DialogDescription>
               Print receipt for this transaction
             </DialogDescription>
           </DialogHeader>
-          
-          {/* Change Due Banner */}
+
+          {/* Change Due Banner — pinned above scrollable receipt */}
           {lastReceipt?.change && lastReceipt.change > 0 && (
-            <div className="bg-green-100 border-2 border-green-500 rounded-lg p-6 mb-4 mt-4">
+            <div className="mt-2 shrink-0 rounded-lg border-2 border-green-500 bg-green-100 p-6">
               <div className="text-center">
-                <p className="text-sm text-green-700 font-semibold uppercase tracking-wide mb-2">
+                <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-green-700">
                   Change Due
                 </p>
                 <p className="text-5xl font-bold text-green-700">
@@ -1839,8 +1839,8 @@ export default function Page() {
               </div>
             </div>
           )}
-          
-          <div className="py-4">
+
+          <div className="min-h-0 flex-1 overflow-y-auto py-4">
             {lastReceipt && (
               <Receipt
                 orderNumber={lastReceipt.orderNumber}
@@ -1865,7 +1865,7 @@ export default function Page() {
               />
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               variant="outline"
               onClick={() => setShowReceiptDialog(false)}
