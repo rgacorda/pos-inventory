@@ -59,6 +59,8 @@ export interface Order extends BaseEntity {
   syncedAt?: Date;
   voidedBy?: string;
   voidedAt?: Date;
+  exchangeRef?: string;        // order number of the original transaction being exchanged
+  exchangedAt?: Date;
   items: OrderItem[];
 }
 

@@ -34,14 +34,20 @@ export const columns: ColumnDef<LocalOrder>[] = [
           className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
             status === "COMPLETED"
               ? "bg-green-100 text-green-700"
-              : status === "PENDING"
-                ? "bg-yellow-100 text-yellow-700"
-                : status === "VOID"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-gray-100 text-gray-700"
+              : status === "EXCHANGE"
+                ? "bg-orange-100 text-orange-700"
+                : status === "PENDING"
+                  ? "bg-yellow-100 text-yellow-700"
+                  : status === "VOID"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-700"
           }`}
         >
-          {status === "VOID" ? "✗ VOIDED" : status}
+          {status === "VOID"
+            ? "✗ VOIDED"
+            : status === "EXCHANGE"
+              ? "⇄ EXCHANGE"
+              : status}
         </span>
       );
     },
@@ -92,8 +98,17 @@ export const columns: ColumnDef<LocalOrder>[] = [
       const amount = parseFloat(row.getValue("totalAmount"));
       const status = row.getValue("status") as string;
       const isVoided = status === "VOID";
+      const isExchange = status === "EXCHANGE";
       return (
-        <span className={`font-semibold ${isVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
+        <span
+          className={`font-semibold ${
+            isVoided
+              ? "line-through text-gray-400"
+              : isExchange
+                ? "text-orange-700"
+                : "text-gray-900"
+          }`}
+        >
           {formatCurrency(amount)}
         </span>
       );

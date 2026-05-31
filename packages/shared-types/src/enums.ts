@@ -6,6 +6,7 @@ export enum OrderStatus {
   COMPLETED = "COMPLETED",
   SYNCED = "SYNCED",
   VOID = "VOID",
+  EXCHANGE = "EXCHANGE",
 }
 
 /**

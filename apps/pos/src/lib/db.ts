@@ -12,11 +12,14 @@ export interface LocalOrder extends Omit<
   "id" | "createdAt" | "updatedAt"
 > {
   id?: number;
-  serverId?: string; // UUID from server after sync
+  serverId?: string;          // UUID from server after sync
   syncStatus: "pending" | "syncing" | "synced" | "error";
   syncError?: string;
   localCreatedAt: Date;
   localUpdatedAt: Date;
+  // Exchange fields
+  exchangeRef?: string;       // original order number this exchange references
+  originalServerId?: string;  // server UUID of original order (used to call /orders/{id}/exchange)
 }
 
 export interface LocalPayment extends Omit<
@@ -114,6 +117,18 @@ export class POSDatabase extends Dexie {
     this.version(5).stores({
       orders:
         "++id, posLocalId, serverId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName",
+      payments:
+        "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
+      unknownBarcodes: "++id, &barcode, scannedAt",
+    });
+
+    // Version 6: Add exchangeRef index to orders for exchange feature
+    this.version(6).stores({
+      orders:
+        "++id, posLocalId, serverId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName, exchangeRef",
       payments:
         "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
       products: "id, sku, barcode, category, status, lastSyncedAt",

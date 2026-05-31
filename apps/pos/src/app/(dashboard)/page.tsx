@@ -34,16 +34,19 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { Plus, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete } from "lucide-react";
+import { Plus, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
+import { syncService, apiClient } from "@/lib/api-client";
 import { useCart, OrderItem } from "@/contexts/cart-context";
+import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
 import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 
 export default function Page() {
+  const router = useRouter();
   const products = useProducts();
   const todaysOrders = useTodaysOrders();
   const {
@@ -58,6 +61,11 @@ export default function Page() {
     referenceNumber,
     setReferenceNumber,
     clearCart,
+    exchangeCredit,
+    exchangeRef,
+    originalOrderServerId,
+    exchangedItems,
+    clearExchange,
   } = useCart();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
@@ -508,7 +516,12 @@ export default function Page() {
     return sum + itemTax;
   }, 0);
 
-  const total = subtotal + tax;
+  const grossTotal = subtotal + tax;
+  // When an exchange credit is active, the effective amount due can be negative
+  // (meaning we owe the customer change)
+  const amountDue = Math.max(0, grossTotal - exchangeCredit);
+  const changeFromCredit = Math.max(0, exchangeCredit - grossTotal);
+  const total = grossTotal;
 
   // Filter products by category and search
   const filteredProducts =
@@ -531,6 +544,11 @@ export default function Page() {
   // Open cash dialog or process other payments
   const handlePaymentClick = (paymentMethod: PaymentMethod) => {
     setSelectedPaymentMethod(paymentMethod);
+    // If exchange credit covers everything, skip to processing directly
+    if (changeFromCredit > 0) {
+      handleCheckout(paymentMethod);
+      return;
+    }
     if (paymentMethod === PaymentMethod.CASH) {
       setShowCashDialog(true);
       setCashReceived("");
@@ -544,9 +562,9 @@ export default function Page() {
     setCashReceived(amount.toString());
   };
 
-  // Calculate change
+  // Calculate change (uses amountDue which already accounts for exchange credit)
   const cashAmount = parseFloat(cashReceived) || 0;
-  const change = cashAmount - total;
+  const change = cashAmount - amountDue;
   // Process checkout
   const handleCheckout = async (paymentMethod: PaymentMethod) => {
     if (orderItems.length === 0) return;
@@ -566,6 +584,7 @@ export default function Page() {
         throw new Error("Terminal ID not set");
       }
 
+      const isExchange = exchangeCredit > 0 && exchangeRef;
       const orderPosLocalId = uuidv4();
       const orderNumber = `ORD-${Date.now()}`;
       const now = new Date();
@@ -600,6 +619,10 @@ export default function Page() {
         };
       });
 
+      // Exchange credit applied as a discount so financials stay correct
+      const creditApplied = isExchange ? Math.min(exchangeCredit, grossTotal) : 0;
+      const finalTotal = Math.max(0, grossTotal - creditApplied);
+
       // Create order in IndexedDB
       const orderId = await db.orders.add({
         posLocalId: orderPosLocalId,
@@ -611,16 +634,21 @@ export default function Page() {
         items,
         subtotal,
         taxAmount: tax,
-        discountAmount: 0,
-        totalAmount: total,
-        status: OrderStatus.COMPLETED,
+        discountAmount: creditApplied,
+        totalAmount: finalTotal,
+        status: isExchange ? OrderStatus.EXCHANGE : OrderStatus.COMPLETED,
         completedAt: now,
         syncStatus: "pending",
         localCreatedAt: now,
         localUpdatedAt: now,
+        // Exchange-specific fields
+        ...(isExchange && {
+          exchangeRef: exchangeRef!,
+          originalOrderServerId: originalOrderServerId ?? undefined,
+        }),
       });
 
-      // Create payment in IndexedDB
+      // Create payment in IndexedDB (amount = what the customer actually paid)
       const paymentPosLocalId = uuidv4();
       const paymentNumber = `PAY-${Date.now()}`;
       await db.payments.add({
@@ -629,7 +657,7 @@ export default function Page() {
         orderId: orderPosLocalId,
         terminalId,
         method: paymentMethod,
-        amount: total,
+        amount: finalTotal,
         status: PaymentStatus.COMPLETED,
         reference: referenceNumber.trim() || undefined,
         processedAt: now,
@@ -638,7 +666,23 @@ export default function Page() {
         localUpdatedAt: now,
       });
 
-      console.log(`Order created: ${orderNumber}, Payment: ${paymentMethod}`);
+      console.log(`Order created: ${orderNumber}, Payment: ${paymentMethod}${isExchange ? ` [EXCHANGE of ${exchangeRef}]` : ""}`);
+
+      // If the original order was already synced to the server, notify the server
+      if (isExchange && originalOrderServerId && apiClient.isOnline() && apiClient.getAccessToken()) {
+        try {
+          await apiClient.exchangeOrder(originalOrderServerId, {
+            newOrderPosLocalId: orderPosLocalId,
+            returnedItems: exchangedItems,
+            creditAmount: creditApplied,
+            exchangedAt: now,
+          });
+          console.log(`✓ Server notified of exchange for order ${originalOrderServerId}`);
+        } catch (err) {
+          // Non-blocking — the new exchange transaction will still sync normally
+          console.warn("Could not notify server of exchange (will retry via sync):", err);
+        }
+      }
 
       // Get terminal and user info
       const terminal = await dbHelpers.getTerminalId();
@@ -656,21 +700,25 @@ export default function Page() {
         })),
         subtotal,
         taxAmount: tax,
-        discountAmount: 0,
-        totalAmount: total,
+        discountAmount: creditApplied,
+        totalAmount: finalTotal,
         paymentMethod: paymentMethod,
         paymentReference: referenceNumber.trim() || undefined,
         customerName: customerName.trim() || undefined,
         customerAddress: customerAddress.trim() || undefined,
         cashReceived: paymentMethod === PaymentMethod.CASH ? cashAmount : undefined,
-        change: paymentMethod === PaymentMethod.CASH ? change : undefined,
+        change: paymentMethod === PaymentMethod.CASH
+          ? (changeFromCredit > 0 ? changeFromCredit : change)
+          : undefined,
         cashierName: userData?.name || "Cashier",
         terminalName: terminal || "TERMINAL-001",
         dateTime: now,
+        exchangeRef: isExchange ? exchangeRef : undefined,
       });
 
-      // Clear cart after successful order
+      // Clear cart and any active exchange after successful order
       clearCart();
+      clearExchange();
       setShowCashDialog(false);
       setShowPaymentDialog(false);
       setCashReceived("");
@@ -682,13 +730,17 @@ export default function Page() {
       setShowReceiptDialog(true);
 
       // Show success feedback
-      if (paymentMethod === PaymentMethod.CASH && change > 0) {
+      if (changeFromCredit > 0) {
+        showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Exchange"), {
+          description: `Give customer change: ₱${changeFromCredit.toFixed(2)}`,
+        });
+      } else if (paymentMethod === PaymentMethod.CASH && change > 0) {
         showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Order"), {
           description: `Change: ₱${change.toFixed(2)}`,
         });
       } else {
         showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Order"), {
-          description: `Total: ₱${total.toFixed(2)}`,
+          description: `Total: ₱${finalTotal.toFixed(2)}`,
         });
       }
     } catch (error) {
@@ -845,6 +897,29 @@ export default function Page() {
       <div className="flex w-96 flex-col border-l h-screen bg-gray-50">
         {/* Total Summary at Top */}
         <div className="border-b bg-white shadow-sm p-6 flex-shrink-0">
+          {/* Exchange credit banner */}
+          {exchangeCredit > 0 && exchangeRef && (
+            <div className="mb-4 bg-orange-50 border border-orange-300 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 text-orange-700 text-sm font-medium mb-1">
+                <ArrowLeftRight className="h-4 w-4" />
+                Exchange in progress
+              </div>
+              <div className="text-xs text-orange-600">
+                Ref: <strong>{exchangeRef}</strong>
+              </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-orange-700">Return Credit</span>
+                <span className="font-bold text-orange-700">-₱{exchangeCredit.toFixed(2)}</span>
+              </div>
+              <button
+                onClick={() => clearExchange()}
+                className="text-xs text-orange-500 underline mt-1 hover:text-orange-700"
+              >
+                Cancel exchange
+              </button>
+            </div>
+          )}
+
           <div className="space-y-3">
             <div className="flex justify-between text-sm text-gray-600">
               <span>Subtotal</span>
@@ -854,11 +929,19 @@ export default function Page() {
               <span>Tax</span>
               <span>₱{tax.toFixed(2)}</span>
             </div>
+            {exchangeCredit > 0 && (
+              <div className="flex justify-between text-sm text-orange-600 font-medium">
+                <span>Exchange Credit</span>
+                <span>-₱{Math.min(exchangeCredit, grossTotal).toFixed(2)}</span>
+              </div>
+            )}
             <Separator />
             <div className="flex justify-between items-center">
-              <span className="text-lg font-semibold text-gray-900">Total</span>
-              <span className="text-3xl font-bold text-gray-900">
-                ₱{total.toFixed(2)}
+              <span className="text-lg font-semibold text-gray-900">
+                {changeFromCredit > 0 ? "Change to Give" : "Amount Due"}
+              </span>
+              <span className={`text-3xl font-bold ${changeFromCredit > 0 ? "text-orange-600" : "text-gray-900"}`}>
+                ₱{changeFromCredit > 0 ? changeFromCredit.toFixed(2) : amountDue.toFixed(2)}
               </span>
             </div>
             {orderItems.length > 0 && (
@@ -1512,7 +1595,7 @@ export default function Page() {
                   value={cashReceived}
                   onChange={(e) => setCashReceived(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && cashAmount >= total && !isProcessing) {
+                    if (e.key === "Enter" && cashAmount >= amountDue && !isProcessing) {
                       e.preventDefault();
                       handleCheckout(PaymentMethod.CASH);
                     }
@@ -1527,27 +1610,27 @@ export default function Page() {
             <div className="grid grid-cols-3 gap-2">
               <Button
                 variant="outline"
-                onClick={() => handleQuickAmount(Math.ceil(total))}
+                onClick={() => handleQuickAmount(Math.ceil(amountDue))}
                 className="h-12"
               >
-                ₱{Math.ceil(total)}
+                ₱{Math.ceil(amountDue)}
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleQuickAmount(Math.ceil(total / 10) * 10)}
+                onClick={() => handleQuickAmount(Math.ceil(amountDue / 10) * 10)}
                 className="h-12"
               >
-                ₱{Math.ceil(total / 10) * 10}
+                ₱{Math.ceil(amountDue / 10) * 10}
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleQuickAmount(Math.ceil(total / 50) * 50)}
+                onClick={() => handleQuickAmount(Math.ceil(amountDue / 50) * 50)}
                 className="h-12"
               >
-                ₱{Math.ceil(total / 50) * 50}
+                ₱{Math.ceil(amountDue / 50) * 50}
               </Button>
             </div>
-            {cashAmount >= total && (
+            {cashAmount >= amountDue && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                 <div className="flex justify-between items-center">
                   <span className="text-green-800 font-medium">Change:</span>
@@ -1557,11 +1640,10 @@ export default function Page() {
                 </div>
               </div>
             )}
-            {cashAmount > 0 && cashAmount < total && (
+            {cashAmount > 0 && cashAmount < amountDue && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                 <p className="text-red-800 text-sm text-center">
-                  Insufficient amount. Need ₱{(total - cashAmount).toFixed(2)}{" "}
-                  more
+                  Insufficient amount. Need ₱{(amountDue - cashAmount).toFixed(2)} more
                 </p>
               </div>
             )}
@@ -1578,7 +1660,7 @@ export default function Page() {
             </Button>
             <Button
               onClick={() => handleCheckout(PaymentMethod.CASH)}
-              disabled={cashAmount < total || isProcessing}
+              disabled={cashAmount < amountDue || isProcessing}
               className="bg-green-600 hover:bg-green-700"
             >
               {isProcessing ? "Processing..." : "Complete Payment"}
@@ -1603,9 +1685,9 @@ export default function Page() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Total:</span>
+                <span className="text-gray-600">Amount Due:</span>
                 <span className="font-semibold text-lg">
-                  ₱{total.toFixed(2)}
+                  ₱{amountDue.toFixed(2)}
                 </span>
               </div>
             </div>

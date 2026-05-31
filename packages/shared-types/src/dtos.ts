@@ -28,6 +28,24 @@ export interface CreateOrderDto {
   discountAmount: number;
   totalAmount: number;
   completedAt: Date;
+  exchangeRef?: string;
+}
+
+/**
+ * DTO for notifying the server that an order has been exchanged.
+ * Sent to POST /orders/{serverId}/exchange after the new exchange
+ * transaction is created locally.
+ */
+export interface ExchangeOrderDto {
+  newOrderPosLocalId: string;
+  returnedItems: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
+  creditAmount: number;
+  exchangedAt: Date;
 }
 
 /**

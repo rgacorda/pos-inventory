@@ -7,6 +7,7 @@ import type {
   CreatePaymentDto,
   LoginDto,
   AuthResponseDto,
+  ExchangeOrderDto,
 } from "@pos/shared-types";
 
 class APIClient {
@@ -135,6 +136,11 @@ class APIClient {
 
   async voidOrder(orderId: string): Promise<any> {
     const response = await this.client.post(`/orders/${orderId}/void`);
+    return response.data;
+  }
+
+  async exchangeOrder(serverId: string, data: ExchangeOrderDto): Promise<any> {
+    const response = await this.client.post(`/orders/${serverId}/exchange`, data);
     return response.data;
   }
 
@@ -724,6 +730,7 @@ export class SyncService {
       discountAmount: order.discountAmount,
       totalAmount: order.totalAmount,
       completedAt: order.completedAt,
+      exchangeRef: order.exchangeRef,
     };
   }
 
