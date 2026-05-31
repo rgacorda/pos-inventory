@@ -343,6 +343,7 @@ export class SyncService {
         description: p.description,
         category: p.category,
         price: Number(p.price),
+        cost: p.cost ? Number(p.cost) : undefined,
         packPrice: p.packPrice ? Number(p.packPrice) : undefined,
         packQuantity: p.packQuantity,
         addonPrice: p.addonPrice ? Number(p.addonPrice) : undefined,

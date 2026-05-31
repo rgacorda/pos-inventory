@@ -89,6 +89,9 @@ export default function Page() {
   const [showManualItemDialog, setShowManualItemDialog] = useState(false);
   const [manualItemName, setManualItemName] = useState<string>("");
   const [manualItemPrice, setManualItemPrice] = useState<string>("");
+  const [manualItemPriceType, setManualItemPriceType] = useState<"selling" | "cost" | "custom">("custom");
+  const [manualItemRefSellingPrice, setManualItemRefSellingPrice] = useState<number | null>(null);
+  const [manualItemRefCostPrice, setManualItemRefCostPrice] = useState<number | null>(null);
   const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
   const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
@@ -297,10 +300,32 @@ export default function Page() {
   // Add manual item with custom price
   const addManualItem = () => {
     const itemName = manualItemName.trim();
-    const price = parseFloat(manualItemPrice);
     const qty = parseInt(manualItemQuantity) || 1;
 
-    if (!itemName || !manualItemPrice || isNaN(price) || price <= 0) {
+    let price: number;
+    if (manualItemPriceType === "selling") {
+      if (manualItemRefSellingPrice === null) {
+        showErrorToast("Invalid Input", { description: "No product selected for selling price" });
+        return;
+      }
+      price = manualItemRefSellingPrice;
+    } else if (manualItemPriceType === "cost") {
+      if (manualItemRefCostPrice === null) {
+        showErrorToast("Invalid Input", { description: "No cost price available for this product" });
+        return;
+      }
+      price = manualItemRefCostPrice;
+    } else {
+      price = parseFloat(manualItemPrice);
+      if (!manualItemPrice || isNaN(price) || price <= 0) {
+        showErrorToast("Invalid Input", {
+          description: "Please enter a valid item name and price",
+        });
+        return;
+      }
+    }
+
+    if (!itemName) {
       showErrorToast("Invalid Input", {
         description: "Please enter a valid item name and price",
       });
@@ -338,6 +363,9 @@ export default function Page() {
     // Reset form
     setManualItemName("");
     setManualItemPrice("");
+    setManualItemPriceType("custom");
+    setManualItemRefSellingPrice(null);
+    setManualItemRefCostPrice(null);
     setManualItemQuantity("1");
     setManualItemBarcode("");
     setManualItemBarcodeError("");
@@ -351,6 +379,9 @@ export default function Page() {
   const openManualItemDialog = () => {
     setManualItemName("");
     setManualItemPrice("");
+    setManualItemPriceType("custom");
+    setManualItemRefSellingPrice(null);
+    setManualItemRefCostPrice(null);
     setManualItemQuantity("1");
     setManualItemSearch("");
     setManualItemBarcode("");
@@ -380,7 +411,10 @@ export default function Page() {
 
     setManualItemBarcodeError("");
     setManualItemName(product.name);
-    setManualItemPrice(product.price.toFixed(2));
+    setManualItemRefSellingPrice(product.price);
+    setManualItemRefCostPrice(product.cost ?? null);
+    setManualItemPriceType("selling");
+    setManualItemPrice("");
     setManualItemSearch("");
     setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
   };
@@ -388,9 +422,12 @@ export default function Page() {
   // Use product as price reference
   const useProductReference = (product: LocalProduct) => {
     setManualItemName(product.name + " (Individual)");
+    setManualItemRefSellingPrice(product.price);
+    setManualItemRefCostPrice(product.cost ?? null);
+    setManualItemPriceType("selling");
+    setManualItemPrice("");
     setManualItemSearch("");
-    // Don't auto-set price, let cashier decide based on the reference
-    setTimeout(() => document.getElementById('manual-price-input')?.focus(), 100);
+    setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
   };
 
   // Filter products for manual item search
@@ -2067,26 +2104,79 @@ export default function Page() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Price *</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  ₱
-                </span>
-                <Input
-                  id="manual-price-input"
-                  type="number"
-                  value={manualItemPrice}
-                  onChange={(e) => setManualItemPrice(e.target.value)}
-                  placeholder="0.00"
-                  className="pl-7"
-                  step="0.01"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      document.getElementById('manual-quantity-input')?.focus();
-                    }
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManualItemPriceType("selling")}
+                  disabled={manualItemRefSellingPrice === null}
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    manualItemPriceType === "selling"
+                      ? "border-green-500 bg-green-50 text-green-800"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Selling</span>
+                  <span className="font-bold">
+                    {manualItemRefSellingPrice !== null ? `₱${manualItemRefSellingPrice.toFixed(2)}` : "—"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualItemPriceType("cost")}
+                  disabled={manualItemRefCostPrice === null}
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    manualItemPriceType === "cost"
+                      ? "border-orange-500 bg-orange-50 text-orange-800"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Cost</span>
+                  <span className="font-bold">
+                    {manualItemRefCostPrice !== null ? `₱${manualItemRefCostPrice.toFixed(2)}` : "—"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualItemPriceType("custom");
+                    setTimeout(() => document.getElementById("manual-price-input")?.focus(), 50);
                   }}
-                />
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors ${
+                    manualItemPriceType === "custom"
+                      ? "border-blue-500 bg-blue-50 text-blue-800"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Custom</span>
+                  <span className="font-bold">Input</span>
+                </button>
               </div>
+              {manualItemPriceType === "custom" && (
+                <div className="relative mt-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₱</span>
+                  <Input
+                    id="manual-price-input"
+                    type="number"
+                    value={manualItemPrice}
+                    onChange={(e) => setManualItemPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="pl-7"
+                    step="0.01"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        document.getElementById("manual-quantity-input")?.focus();
+                      }
+                    }}
+                  />
+                </div>
+              )}
+              {manualItemPriceType !== "custom" && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {manualItemPriceType === "selling" ? "Using the product's selling price." : "Using the product's cost price."}
+                  {" "}Switch to <button type="button" className="underline text-blue-600" onClick={() => { setManualItemPriceType("custom"); setTimeout(() => document.getElementById("manual-price-input")?.focus(), 50); }}>Custom</button> to enter a different amount.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Quantity</label>
@@ -2118,6 +2208,9 @@ export default function Page() {
                 setShowManualItemDialog(false);
                 setManualItemName("");
                 setManualItemPrice("");
+                setManualItemPriceType("custom");
+                setManualItemRefSellingPrice(null);
+                setManualItemRefCostPrice(null);
                 setManualItemQuantity("1");
                 setManualItemSearch("");
                 setManualItemBarcode("");
