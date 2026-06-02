@@ -34,7 +34,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { Plus, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight } from "lucide-react";
+import { Plus, Trash2, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
@@ -100,6 +100,8 @@ export default function Page() {
   const [showVoidPinDialog, setShowVoidPinDialog] = useState(false);
   const [voidPinEntry, setVoidPinEntry] = useState("");
   const [voidPinError, setVoidPinError] = useState("");
+  const [pinAction, setPinAction] = useState<"void" | "removeItem" | null>(null);
+  const [itemToRemove, setItemToRemove] = useState<string | null>(null);
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +204,8 @@ export default function Page() {
       } else if (e.key === "Escape") {
         setVoidPinEntry("");
         setVoidPinError("");
+        setPinAction(null);
+        setItemToRemove(null);
         setShowVoidPinDialog(false);
       }
     };
@@ -497,7 +501,21 @@ export default function Page() {
     }
   };
 
-  // Handle void PIN numpad input
+  // Remove a single item from the cart (used after PIN is confirmed)
+  const removeFromOrder = (productId: string) => {
+    setOrderItems((prev) => prev.filter((item) => item.product.id !== productId));
+  };
+
+  // Open the supervisor PIN dialog for a given action
+  const openPinDialog = (action: "void" | "removeItem", productId?: string) => {
+    setPinAction(action);
+    setItemToRemove(productId ?? null);
+    setVoidPinEntry("");
+    setVoidPinError("");
+    setShowVoidPinDialog(true);
+  };
+
+  // Handle void / remove-item PIN numpad input
   const handleVoidPinInput = async (digit: string) => {
     if (voidPinEntry.length >= 4) return;
     const newPin = voidPinEntry + digit;
@@ -506,13 +524,24 @@ export default function Page() {
     if (newPin.length === 4) {
       const storedPin = await dbHelpers.getVoidPin();
       if (newPin === storedPin) {
-        clearCart();
         setShowVoidPinDialog(false);
         setVoidPinEntry("");
         setVoidPinError("");
-        showSuccessToast("Order Voided", {
-          description: "The current order has been cleared.",
-        });
+
+        if (pinAction === "void") {
+          clearCart();
+          showSuccessToast("Order Voided", {
+            description: "The current order has been cleared.",
+          });
+        } else if (pinAction === "removeItem" && itemToRemove) {
+          removeFromOrder(itemToRemove);
+          showSuccessToast("Item Removed", {
+            description: "Item has been removed from the order.",
+          });
+        }
+
+        setPinAction(null);
+        setItemToRemove(null);
       } else {
         setVoidPinError("Incorrect PIN. Try again.");
         setTimeout(() => setVoidPinEntry(""), 600);
@@ -525,11 +554,8 @@ export default function Page() {
     setVoidPinError("");
   };
 
-  const openVoidDialog = () => {
-    setVoidPinEntry("");
-    setVoidPinError("");
-    setShowVoidPinDialog(true);
-  };
+  // Kept for backward compat — used by the Void Order button
+  const openVoidDialog = () => openPinDialog("void");
 
   // Calculate totals with tiered pricing
   const subtotal = orderItems.reduce((sum, item) => {
@@ -869,6 +895,7 @@ export default function Page() {
                       <TableHead className="text-center">Qty</TableHead>
                       <TableHead className="text-right">Unit Price</TableHead>
                       <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-center w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -918,6 +945,17 @@ export default function Page() {
                               item.product.packQuantity,
                             ).toFixed(2)}
                           </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => openPinDialog("removeItem", item.product.id!)}
+                            title="Remove item (requires PIN)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1884,6 +1922,8 @@ export default function Page() {
           if (!open) {
             setVoidPinEntry("");
             setVoidPinError("");
+            setPinAction(null);
+            setItemToRemove(null);
           }
           setShowVoidPinDialog(open);
         }}
@@ -1892,7 +1932,9 @@ export default function Page() {
           <DialogHeader>
             <DialogTitle className="text-center">Supervisor Authorization</DialogTitle>
             <DialogDescription className="text-center">
-              Enter the 4-digit void PIN to cancel this order
+              {pinAction === "removeItem"
+                ? "Enter PIN to remove this item from the order"
+                : "Enter the 4-digit void PIN to cancel this order"}
             </DialogDescription>
           </DialogHeader>
           <div className="py-2 space-y-5">
@@ -1954,6 +1996,8 @@ export default function Page() {
                 onClick={() => {
                   setVoidPinEntry("");
                   setVoidPinError("");
+                  setPinAction(null);
+                  setItemToRemove(null);
                   setShowVoidPinDialog(false);
                 }}
               >

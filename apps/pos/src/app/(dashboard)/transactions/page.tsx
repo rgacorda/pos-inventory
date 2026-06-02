@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTodaysOrders, usePaymentsByOrder } from "@/hooks/useDatabase";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
-import { LocalOrder } from "@/lib/db";
+import { LocalOrder, dbHelpers } from "@/lib/db";
 import { DataTable } from "./data-table";
 import { columns } from "./columns";
 import {
@@ -18,7 +18,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Receipt } from "@/components/receipt";
-import { Printer, ArrowLeftRight } from "lucide-react";
+import { Printer, ArrowLeftRight, Delete } from "lucide-react";
 import {
   showSuccessToast,
   showErrorToast,
@@ -36,6 +36,34 @@ export default function OrdersPage() {
   const [showExchangeDialog, setShowExchangeDialog] = useState(false);
   const [selectedReturnItems, setSelectedReturnItems] = useState<Set<number>>(new Set());
   const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
+
+  // Exchange PIN gate
+  const [showExchangePinDialog, setShowExchangePinDialog] = useState(false);
+  const [exchangePinEntry, setExchangePinEntry] = useState("");
+  const [exchangePinError, setExchangePinError] = useState("");
+
+  // Keyboard support for the exchange PIN dialog
+  useEffect(() => {
+    if (!showExchangePinDialog) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        handleExchangePinInput(e.key);
+      } else if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        handleExchangePinBackspace();
+      } else if (e.key === "Escape") {
+        setExchangePinEntry("");
+        setExchangePinError("");
+        setShowExchangePinDialog(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showExchangePinDialog, exchangePinEntry]);
 
   const getUserName = () => {
     if (typeof window !== "undefined") {
@@ -78,9 +106,36 @@ export default function OrdersPage() {
     });
   };
 
+  // Opens PIN dialog first; item selection opens after correct PIN
   const handleOpenExchange = () => {
-    setSelectedReturnItems(new Set());
-    setShowExchangeDialog(true);
+    setExchangePinEntry("");
+    setExchangePinError("");
+    setShowExchangePinDialog(true);
+  };
+
+  const handleExchangePinInput = async (digit: string) => {
+    if (exchangePinEntry.length >= 4) return;
+    const newPin = exchangePinEntry + digit;
+    setExchangePinEntry(newPin);
+
+    if (newPin.length === 4) {
+      const storedPin = await dbHelpers.getVoidPin();
+      if (newPin === storedPin) {
+        setShowExchangePinDialog(false);
+        setExchangePinEntry("");
+        setExchangePinError("");
+        setSelectedReturnItems(new Set());
+        setShowExchangeDialog(true);
+      } else {
+        setExchangePinError("Incorrect PIN. Try again.");
+        setTimeout(() => setExchangePinEntry(""), 600);
+      }
+    }
+  };
+
+  const handleExchangePinBackspace = () => {
+    setExchangePinEntry((prev) => prev.slice(0, -1));
+    setExchangePinError("");
   };
 
   const handleProceedExchange = () => {
@@ -331,6 +386,91 @@ export default function OrdersPage() {
               Reprint Receipt
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Exchange PIN Gate ── */}
+      <Dialog
+        open={showExchangePinDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setExchangePinEntry("");
+            setExchangePinError("");
+          }
+          setShowExchangePinDialog(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-center">Supervisor Authorization</DialogTitle>
+            <DialogDescription className="text-center">
+              Enter the 4-digit PIN to proceed with the exchange
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-5">
+            {/* PIN dot display */}
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className={`w-12 h-12 border-2 rounded-xl flex items-center justify-center text-2xl transition-colors ${
+                    i < exchangePinEntry.length
+                      ? "border-orange-500 bg-orange-50 text-orange-600"
+                      : "border-gray-300 bg-gray-50"
+                  }`}
+                >
+                  {i < exchangePinEntry.length ? "●" : ""}
+                </div>
+              ))}
+            </div>
+
+            {exchangePinError && (
+              <p className="text-center text-sm text-red-600 font-medium animate-pulse">
+                {exchangePinError}
+              </p>
+            )}
+
+            {/* Numpad */}
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                <Button
+                  key={n}
+                  variant="outline"
+                  className="h-14 text-xl font-semibold hover:bg-gray-100"
+                  onClick={() => handleExchangePinInput(n.toString())}
+                  disabled={exchangePinEntry.length >= 4}
+                >
+                  {n}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                className="h-14 hover:bg-gray-100"
+                onClick={handleExchangePinBackspace}
+              >
+                <Delete className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="outline"
+                className="h-14 text-xl font-semibold hover:bg-gray-100"
+                onClick={() => handleExchangePinInput("0")}
+                disabled={exchangePinEntry.length >= 4}
+              >
+                0
+              </Button>
+              <Button
+                variant="ghost"
+                className="h-14 text-sm text-gray-500 hover:bg-gray-100"
+                onClick={() => {
+                  setExchangePinEntry("");
+                  setExchangePinError("");
+                  setShowExchangePinDialog(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
