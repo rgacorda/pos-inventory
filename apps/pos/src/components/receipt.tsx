@@ -64,44 +64,58 @@ export function Receipt({
     loadOrganization();
   }, []);
 
-  useEffect(() => {
-    // Inject print styles into document head
-    const styleId = "receipt-print-styles";
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement("style");
-      style.id = styleId;
-      style.textContent = `
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          .receipt-print-container,
-          .receipt-print-container * {
-            visibility: visible;
-          }
-          .receipt-print-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            max-width: 58mm;
-          }
-          @page {
-            size: 58mm auto;
-            margin: 0;
-          }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  }, []);
-
   const handlePrint = () => {
-    window.print();
-    if (onPrintComplete) {
-      // Delay callback to ensure print dialog is processed
-      setTimeout(onPrintComplete, 500);
+    const receiptEl = document.querySelector(".receipt-print-container");
+
+    // Build an isolated print iframe so @page auto-height equals the receipt
+    // content only — not the background page (e.g. a long transaction list).
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText =
+      "position:fixed;right:0;bottom:0;width:0;height:0;border:none;visibility:hidden;";
+    document.body.appendChild(iframe);
+
+    const iframeDoc =
+      iframe.contentDocument || iframe.contentWindow?.document;
+
+    if (!iframeDoc || !receiptEl) {
+      // Fallback to in-page print
+      document.body.removeChild(iframe);
+      window.print();
+      if (onPrintComplete) setTimeout(onPrintComplete, 500);
+      return;
     }
+
+    // Copy all <style> and <link rel="stylesheet"> tags from the host page so
+    // Tailwind classes render correctly inside the iframe.
+    const headStyles = Array.from(
+      document.querySelectorAll('style, link[rel="stylesheet"]')
+    )
+      .map((el) => el.outerHTML)
+      .join("\n");
+
+    iframeDoc.open();
+    iframeDoc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  ${headStyles}
+  <style>
+    @page { size: 58mm auto; margin: 0; }
+    html, body { margin: 0; padding: 0; height: auto; }
+  </style>
+</head>
+<body>${receiptEl.innerHTML}</body>
+</html>`);
+    iframeDoc.close();
+
+    // Give styles a moment to apply before printing.
+    setTimeout(() => {
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+        if (onPrintComplete) onPrintComplete();
+      }, 500);
+    }, 300);
   };
 
   return (
@@ -144,13 +158,18 @@ export function Receipt({
           <div className="border-b border-dashed border-gray-400 my-2" />
           <div>
             {items.map((item, index) => (
-              <div key={index} className="flex justify-between gap-2 mb-1">
-                <span className="break-words flex-1 min-w-0">
-                  {item.name}
-                </span>
-                <span className="whitespace-nowrap flex-shrink-0">
-                  x{item.quantity} {formatCurrency(item.total)}
-                </span>
+              <div key={index} className="mb-1">
+                <div className="flex justify-between gap-2">
+                  <span className="break-words flex-1 min-w-0">
+                    {item.name}
+                  </span>
+                  <span className="whitespace-nowrap flex-shrink-0">
+                    {formatCurrency(item.total)}
+                  </span>
+                </div>
+                <div className="text-gray-500 text-[9pt]">
+                  {formatCurrency(item.unitPrice)} x {item.quantity}
+                </div>
               </div>
             ))}
           </div>

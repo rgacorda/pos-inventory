@@ -1,8 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { LocalProduct } from "@/lib/db";
 import { PaymentMethod } from "@pos/shared-types";
+
+const CART_STORAGE_KEY = "pos_cart_state";
 
 export interface OrderItem {
   product: LocalProduct;
@@ -14,6 +16,36 @@ export interface ExchangedItem {
   quantity: number;
   unitPrice: number;
   total: number;
+}
+
+interface PersistedCartState {
+  orderItems: OrderItem[];
+  selectedPaymentMethod: PaymentMethod | null;
+  customerName: string;
+  customerAddress: string;
+  referenceNumber: string;
+  exchangeCredit: number;
+  exchangeRef: string | null;
+  originalOrderServerId: string | null;
+  exchangedItems: ExchangedItem[];
+}
+
+function loadCartFromStorage(): PersistedCartState | null {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedCartState;
+  } catch {
+    return null;
+  }
+}
+
+function saveCartToStorage(state: PersistedCartState) {
+  try {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage quota exceeded or unavailable – fail silently
+  }
 }
 
 interface CartContextValue {
@@ -46,17 +78,61 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null);
 
-export function CartProvider({ children }: { children: ReactNode }) {
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [customerName, setCustomerName] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
-  const [referenceNumber, setReferenceNumber] = useState("");
+// Memoised so localStorage.getItem + JSON.parse happen exactly once at startup
+let _cachedInitialState: PersistedCartState | null = null;
+function getInitialState(): PersistedCartState {
+  if (_cachedInitialState) return _cachedInitialState;
+  const saved = loadCartFromStorage();
+  _cachedInitialState = {
+    orderItems: saved?.orderItems ?? [],
+    selectedPaymentMethod: saved?.selectedPaymentMethod ?? null,
+    customerName: saved?.customerName ?? "",
+    customerAddress: saved?.customerAddress ?? "",
+    referenceNumber: saved?.referenceNumber ?? "",
+    exchangeCredit: saved?.exchangeCredit ?? 0,
+    exchangeRef: saved?.exchangeRef ?? null,
+    originalOrderServerId: saved?.originalOrderServerId ?? null,
+    exchangedItems: saved?.exchangedItems ?? [],
+  };
+  return _cachedInitialState;
+}
 
-  const [exchangeCredit, setExchangeCredit] = useState(0);
-  const [exchangeRef, setExchangeRef] = useState<string | null>(null);
-  const [originalOrderServerId, setOriginalOrderServerId] = useState<string | null>(null);
-  const [exchangedItems, setExchangedItems] = useState<ExchangedItem[]>([]);
+export function CartProvider({ children }: { children: ReactNode }) {
+  const [orderItems, setOrderItems] = useState<OrderItem[]>(() => getInitialState().orderItems);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(() => getInitialState().selectedPaymentMethod);
+  const [customerName, setCustomerName] = useState(() => getInitialState().customerName);
+  const [customerAddress, setCustomerAddress] = useState(() => getInitialState().customerAddress);
+  const [referenceNumber, setReferenceNumber] = useState(() => getInitialState().referenceNumber);
+
+  const [exchangeCredit, setExchangeCredit] = useState(() => getInitialState().exchangeCredit);
+  const [exchangeRef, setExchangeRef] = useState<string | null>(() => getInitialState().exchangeRef);
+  const [originalOrderServerId, setOriginalOrderServerId] = useState<string | null>(() => getInitialState().originalOrderServerId);
+  const [exchangedItems, setExchangedItems] = useState<ExchangedItem[]>(() => getInitialState().exchangedItems);
+
+  // Persist cart state to localStorage whenever it changes
+  useEffect(() => {
+    saveCartToStorage({
+      orderItems,
+      selectedPaymentMethod,
+      customerName,
+      customerAddress,
+      referenceNumber,
+      exchangeCredit,
+      exchangeRef,
+      originalOrderServerId,
+      exchangedItems,
+    });
+  }, [
+    orderItems,
+    selectedPaymentMethod,
+    customerName,
+    customerAddress,
+    referenceNumber,
+    exchangeCredit,
+    exchangeRef,
+    originalOrderServerId,
+    exchangedItems,
+  ]);
 
   const clearCart = () => {
     setOrderItems([]);
