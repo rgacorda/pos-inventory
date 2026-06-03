@@ -167,7 +167,7 @@ export function Receipt({
           )}
 
           {/* Items */}
-          <div className="border-b border-dashed border-gray-400 my-2" />
+          <div className="border-b border-dashed border-gray-400 my-2  text-[9pt]" />
           <div>
             {items.map((item, index) => (
               <div key={index} className="mb-1">
@@ -179,7 +179,7 @@ export function Receipt({
                     {formatCurrency(item.total)}
                   </span>
                 </div>
-                <div className="text-gray-500 text-[9pt]">
+                <div className="text-gray-500">
                   {formatCurrency(item.unitPrice)} x {item.quantity}
                 </div>
               </div>
