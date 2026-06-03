@@ -102,9 +102,21 @@ export function Receipt({
   <style>
     @page { size: 58mm auto; margin: 0; }
     html, body { margin: 0; padding: 0; height: auto; }
+    /* Override the host page's print styles so receipt is fully visible
+       and in normal flow (so @page auto-height = receipt content height). */
+    @media print {
+      body * { visibility: visible !important; }
+      .receipt-print-container {
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        width: 58mm !important;
+        max-width: 58mm !important;
+      }
+    }
   </style>
 </head>
-<body>${receiptEl.innerHTML}</body>
+<body>${receiptEl.outerHTML}</body>
 </html>`);
     iframeDoc.close();
 
