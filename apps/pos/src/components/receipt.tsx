@@ -100,7 +100,7 @@ export function Receipt({
   <meta charset="utf-8">
   ${headStyles}
   <style>
-    @page { size: 58mm auto; margin: 0; }
+    @page { size: 58mm auto; margin: 2mm; }
     html, body { margin: 0; padding: 0; height: auto; }
     /* Override the host page's print styles so receipt is fully visible
        and in normal flow (so @page auto-height = receipt content height). */
