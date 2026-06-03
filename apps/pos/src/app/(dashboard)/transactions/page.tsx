@@ -572,12 +572,12 @@ export default function OrdersPage() {
 
       {/* ── Reprint Receipt Dialog ── */}
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[min(90dvh,90vh)] flex-col overflow-hidden sm:max-w-md">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Reprint Receipt</DialogTitle>
             <DialogDescription>Print receipt for this transaction</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto py-4">
             {selectedOrder && payments && payments.length > 0 && (
               <Receipt
                 orderNumber={selectedOrder.orderNumber}
@@ -597,7 +597,7 @@ export default function OrdersPage() {
               />
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               variant="outline"
               onClick={() => setShowReceiptDialog(false)}
