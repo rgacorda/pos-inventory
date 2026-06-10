@@ -539,7 +539,7 @@ export default function ExpensesPage() {
               Record a new operating expense
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
             <div className="space-y-2">
               <Label>Expense Type</Label>
               <Select
@@ -667,7 +667,7 @@ export default function ExpensesPage() {
             <DialogTitle>Edit Expense</DialogTitle>
             <DialogDescription>Update expense information</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
             <div className="space-y-2">
               <Label>Expense Type</Label>
               <Select

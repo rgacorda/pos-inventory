@@ -45,6 +45,8 @@ Follow these parts in order:
 6. **Part 6:** Deploy All Services (Steps 6.1 - 6.3)
 7. **Part 7:** SSL/HTTPS Setup (Steps 7.1 - 7.5)
 8. **Part 8:** Maintenance & Operations
+9. **Part 9:** Add Another Website (already-running server) — safe, incremental steps
+10. **Part 10:** Rename Docker network & Compose profiles
 
 **Result:** Your apps will be accessible at:
 - `https://api.yourdomain.com`
@@ -684,6 +686,8 @@ networks:
 
 **✅ Checkpoint:** Complete docker-compose configuration is ready!
 
+> **Optional:** For a generic network name (`production-network`) and optional second-site stacks (`profiles`), see **Part 10**. New servers can use `production-network` from the start; live servers should follow Part 10.3 to migrate without touching `postgres-data`.
+
 ---
 
 ## 🌐 Part 5: Nginx Configuration
@@ -1020,6 +1024,436 @@ Add this line:
 
 ---
 
+## 🌐 Part 9: Add Another Website (Live Server, No Downtime for POS)
+
+Use this when production is **already running** (`pos-system`, `postgres`, `nginx`, etc.) and you want a **second, unrelated** site on the same server and `docker-compose.yml`.
+
+### What is safe vs dangerous on a live server
+
+| Safe (use these) | Dangerous (do **not** run on production) |
+|------------------|--------------------------------------------|
+| `docker compose up -d --build other-site-app` | `docker compose down` (stops POS + DB) |
+| `docker compose exec nginx nginx -t` | `docker builder prune -af` |
+| `docker compose exec nginx nginx -s reload` | `docker images -q \| xargs docker rmi -f` |
+| `docker compose restart nginx` (brief; test config first) | `docker system prune -a --volumes` |
+| Edit **new** files under `nginx/conf.d/` | Changing `postgres` passwords or `./postgres-data` volume path |
+| Add **new** services in compose | Re-running Part 6 “clear cache” / full `--no-cache` rebuild of everything |
+
+`docker compose up -d` only recreates containers whose definition **changed**. If you only **add** a new service and a new nginx config file, existing POS containers usually keep running unchanged.
+
+### Before you change anything
+
+**1. Snapshot configs (on the server):**
+
+```bash
+cd ~/production
+cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d)
+cp -a nginx/conf.d nginx/conf.d.bak.$(date +%Y%m%d)
+```
+
+**2. Optional but recommended — database backup (POS only):**
+
+```bash
+~/production/backup-db.sh
+# or manually:
+docker compose exec -T postgres pg_dump -U pos_user pos_db > ~/production/backups/pre-new-site_$(date +%Y%m%d).sql
+```
+
+**3. Confirm POS is healthy:**
+
+```bash
+cd ~/production
+docker compose ps
+curl -s -o /dev/null -w "%{http_code}\n" https://pos.yourdomain.com
+curl -s -o /dev/null -w "%{http_code}\n" https://api.yourdomain.com/api/health
+```
+
+### Step 9.1: Add the new app (separate from `pos-system`)
+
+```bash
+mkdir -p ~/production/other-site
+cd ~/production/other-site
+git clone YOUR_OTHER_REPO_URL .
+# Add Dockerfile + .env for the other project (not inside pos-system)
+```
+
+Do **not** put unrelated code in `~/production/pos-system` unless it belongs to that monorepo.
+
+### Step 9.2: Extend `docker-compose.yml` (additive only)
+
+Edit `~/production/docker-compose.yml` and **append** a new service. Example:
+
+```yaml
+  other-site-app:
+    build:
+      context: ./other-site
+      dockerfile: Dockerfile
+    container_name: other-site-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    networks:
+      - pos-network
+```
+
+**Rules:**
+
+- Do **not** remove or rename `postgres`, `backend`, `pos-app`, etc.
+- Do **not** change `POSTGRES_PASSWORD` or the `./postgres-data` volume.
+- Add the new app name under `nginx` → `depends_on` if you want Compose to start it before nginx (optional).
+
+Give the new app its **own** Postgres service + volume if it needs a database — do not point a random app at `pos_db` unless that is intentional.
+
+### Step 9.3: Nginx — new file, not edits to POS blocks
+
+Create a **new** config so POS routing stays untouched:
+
+```bash
+nano ~/production/nginx/conf.d/other-site.conf
+```
+
+```nginx
+upstream other_site {
+    server other-site-app:3000;
+}
+
+server {
+    listen 80;
+    server_name otherdomain.com www.otherdomain.com;
+
+    location / {
+        proxy_pass http://other_site;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Test syntax **before** reloading:
+
+```bash
+cd ~/production
+docker compose exec nginx nginx -t
+```
+
+If `nginx -t` fails, fix the new file only — POS configs were not replaced.
+
+### Step 9.4: Build and start **only** the new service
+
+```bash
+cd ~/production
+docker compose build other-site-app
+docker compose up -d other-site-app
+docker compose ps other-site-app
+docker compose logs --tail=50 other-site-app
+```
+
+Avoid `docker compose up -d --build` with no service name on the first try; that can rebuild more than you intend. Target the new service name.
+
+### Step 9.5: Reload Nginx (graceful; POS keeps running)
+
+```bash
+docker compose exec nginx nginx -t
+docker compose exec nginx nginx -s reload
+```
+
+If reload fails, restore nginx configs from backup:
+
+```bash
+rm ~/production/nginx/conf.d/other-site.conf
+docker compose exec nginx nginx -s reload
+```
+
+**Only** use `docker compose restart nginx` if reload is not enough. Expect a few seconds where new connections to port 80/443 may wait.
+
+### Step 9.6: DNS and HTTPS for the new domain
+
+1. Add DNS **A** records for `otherdomain.com` (and `www` if needed) → same server IP as POS.
+2. For a **new** certificate, nginx must release port 80 briefly (same as Part 7):
+
+```bash
+cd ~/production
+docker compose stop nginx
+sudo certbot certonly --standalone -d otherdomain.com -d www.otherdomain.com
+sudo cp -r /etc/letsencrypt/* ~/production/certbot/conf/
+```
+
+3. Add HTTPS `server` blocks to `other-site.conf` (mirror Part 7 pattern for one domain).
+4. Start nginx again:
+
+```bash
+docker compose start nginx
+docker compose exec nginx nginx -t
+docker compose exec nginx nginx -s reload
+```
+
+POS HTTPS is unaffected as long as you did not edit `pos-system.conf` server blocks.
+
+### Step 9.7: Verify POS still works, then the new site
+
+```bash
+# POS (existing)
+curl -sI https://pos.yourdomain.com | head -1
+curl -sI https://api.yourdomain.com/api/health | head -1
+
+# New site
+curl -sI http://otherdomain.com | head -1
+curl -sI https://otherdomain.com | head -1
+
+docker compose ps
+```
+
+### Rollback (if something goes wrong)
+
+```bash
+cd ~/production
+docker compose stop other-site-app
+docker compose rm -f other-site-app   # removes only the new container
+rm nginx/conf.d/other-site.conf
+docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload
+# Restore compose from backup if needed:
+# cp docker-compose.yml.bak.YYYYMMDD docker-compose.yml
+```
+
+POS containers and `postgres-data` are untouched if you followed the “additive only” rules.
+
+### Checklist (print and tick off)
+
+- [ ] Backed up `docker-compose.yml` and `nginx/conf.d`
+- [ ] Backed up `pos_db` (if using POS database)
+- [ ] New code lives in `~/production/other-site` (not inside `pos-system`)
+- [ ] Compose changes are **new services only**; postgres volume/password unchanged
+- [ ] New nginx file in `conf.d/`; `nginx -t` passes
+- [ ] `docker compose up -d other-site-app` (not full teardown/rebuild)
+- [ ] `nginx -s reload` (not unnecessary `down`)
+- [ ] POS URLs tested after each nginx change
+- [ ] New domain DNS + SSL added separately
+
+---
+
+## 🔀 Part 10: Rename Docker Network & Compose Profiles
+
+Use this when you want a generic network name (e.g. `production-network` instead of `pos-network`) and/or optional stacks (e.g. turn the second website on/off with `--profile`).
+
+### 10.1 Rename the network (concept)
+
+Docker **cannot rename** a network in place. You:
+
+1. Create a **new** network.
+2. Point `docker-compose.yml` at it.
+3. Recreate containers so they join the new network.
+4. Remove the old network when nothing uses it.
+
+**Data is safe:** `postgres-data` is a volume mount, not tied to the network name. Renaming the network does not delete the database.
+
+### 10.2 Greenfield (new server, not live yet)
+
+In Part 4, use `production-network` everywhere:
+
+```bash
+docker network create production-network
+```
+
+In `docker-compose.yml`, every service:
+
+```yaml
+    networks:
+      - production-network
+```
+
+And at the bottom:
+
+```yaml
+networks:
+  production-network:
+    external: true
+```
+
+### 10.3 Live server migration (`pos-network` → `production-network`)
+
+Plan a **short maintenance window** (a few minutes). Containers must be recreated to change networks; nginx may restart.
+
+**1. Backup**
+
+```bash
+cd ~/production
+cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d)
+docker compose exec -T postgres pg_dump -U pos_user pos_db > backups/pre-network-rename.sql
+```
+
+**2. Create the new network (keep the old one running)**
+
+```bash
+docker network create production-network
+docker network ls | grep production
+```
+
+**3. Edit `docker-compose.yml`**
+
+Replace every `pos-network` with `production-network` (service `networks:` lists **and** the `networks:` key at the bottom).
+
+**4. Recreate stack onto the new network**
+
+```bash
+cd ~/production
+docker compose up -d
+```
+
+Compose recreates services whose network attachment changed. Watch:
+
+```bash
+docker compose ps
+docker compose logs --tail=30 backend nginx
+curl -sI https://pos.yourdomain.com | head -1
+```
+
+**5. Remove the old network (only when empty)**
+
+```bash
+docker network inspect pos-network --format '{{len .Containers}}'
+# Must print 0 before removal:
+docker network rm pos-network
+```
+
+If removal fails, a container is still attached — run `docker compose ps` and `docker network inspect pos-network`.
+
+**6. Update scripts/cron** that mention `pos-network` (renewal scripts, docs, muscle memory).
+
+**Rollback:** restore `docker-compose.yml.bak`, `docker compose up -d`, ensure `pos-network` still exists (`docker network create pos-network` if needed).
+
+### 10.4 Compose profiles (optional second site)
+
+**Profiles** control which services start when you run `docker compose up`. Services **without** a `profiles` key always start (your POS stack). Services **with** `profiles` start only when that profile is enabled.
+
+#### Example `docker-compose.yml` structure
+
+```yaml
+services:
+  postgres:
+    # no profiles → always runs
+    networks:
+      - production-network
+
+  backend:
+    networks:
+      - production-network
+
+  pos-app:
+    networks:
+      - production-network
+
+  inventory-app:
+    networks:
+      - production-network
+
+  super-admin-app:
+    networks:
+      - production-network
+
+  nginx:
+    depends_on:
+      - backend
+      - pos-app
+      - inventory-app
+      - super-admin-app
+      # Do NOT list profile-only apps here — nginx would fail if profile is off
+    networks:
+      - production-network
+
+  other-site-app:
+    profiles: ["other-site"]
+    build:
+      context: ./other-site
+      dockerfile: Dockerfile
+    container_name: other-site-app
+    restart: unless-stopped
+    networks:
+      - production-network
+
+networks:
+  production-network:
+    external: true
+```
+
+Optional database for the other site (also profiled):
+
+```yaml
+  other-site-postgres:
+    profiles: ["other-site"]
+    image: postgres:15-alpine
+    volumes:
+      - ./other-postgres-data:/var/lib/postgresql/data
+    networks:
+      - production-network
+```
+
+#### Commands
+
+| Goal | Command |
+|------|---------|
+| POS only (default) | `docker compose up -d` |
+| POS + other site | `docker compose --profile other-site up -d` |
+| Build only other site | `docker compose --profile other-site build other-site-app` |
+| Start only other site | `docker compose --profile other-site up -d other-site-app` |
+| Stop other site, keep POS | `docker compose stop other-site-app` |
+| Stop and remove other site container | `docker compose --profile other-site rm -sf other-site-app` |
+
+**Important:** If you previously started `other-site-app` **without** a profile, adding `profiles: ["other-site"]` later means a plain `docker compose up -d` will **not** stop that container automatically — stop/remove it once, then use `--profile other-site` going forward.
+
+#### Enable profile by default (optional)
+
+Create `~/production/.env` next to compose (Compose loads it automatically):
+
+```env
+COMPOSE_PROFILES=other-site
+```
+
+Then `docker compose up -d` always includes the `other-site` profile. Remove the line or set empty to go back to POS-only defaults.
+
+#### Nginx with a profiled app
+
+- Keep POS routing in `pos-system.conf`.
+- Put the other domain in `other-site.conf` with `proxy_pass` to `other-site-app:3000`.
+- When the profile is **off**, do not reload nginx to that upstream, or nginx will error if something requests that vhost while the container is down. Options:
+  - Leave the vhost file in place only when the other site is running, **or**
+  - Use a static “503 maintenance” `server` block when the app is stopped.
+
+Reload after starting the profiled app:
+
+```bash
+docker compose --profile other-site up -d other-site-app
+docker compose exec nginx nginx -t && docker compose exec nginx nginx -s reload
+```
+
+### 10.5 Order of operations on a running server
+
+Recommended sequence:
+
+1. **Part 9** — add `other-site` (and nginx vhost) if not done yet; verify POS.
+2. **Part 10.3** — rename network during a maintenance window.
+3. **Part 10.4** — add `profiles: ["other-site"]` to optional services; use `--profile other-site` when you want them up.
+
+Doing network rename and profile changes in **one** edit is fine, but test POS URLs after `docker compose up -d` before deleting `pos-network`.
+
+### 10.6 Quick reference
+
+```bash
+# Networks
+docker network create production-network
+docker network ls
+docker network inspect production-network
+
+# Profiles
+docker compose config --profiles          # list profile names
+docker compose --profile other-site ps
+docker compose --profile other-site up -d other-site-app
+```
+
+---
+
 ## 🔧 Part 8: Maintenance & Operations
 
 ### Common Commands
@@ -1153,33 +1587,29 @@ docker system prune -a
 
 ### Docker Network Issues
 
-**Error: "network pos-network declared as external, but could not be found"**
+**Error: "network … declared as external, but could not be found"**
 
-This means the Docker network hasn't been created yet. Fix it:
+The name in the error must match the `networks:` key in `docker-compose.yml` (e.g. `pos-network` or `production-network`).
 
 ```bash
-# Create the network
+# Create whichever name your compose file uses
 docker network create pos-network
+# or
+docker network create production-network
 
-# Verify it was created
-docker network ls | grep pos-network
+docker network ls
 
-# Then retry deployment
+cd ~/production
 docker compose up -d
 ```
 
-If the network already exists but you still get the error:
+If the network already exists but you still get the error, check the exact name:
 
 ```bash
-# Remove the network
-docker network rm pos-network
-
-# Recreate it
-docker network create pos-network
-
-# Retry
-docker compose up -d
+grep -A2 '^networks:' ~/production/docker-compose.yml
 ```
+
+**Do not** `docker network rm` a network that still has running containers attached. Stop/recreate services first (see Part 10.3).
 
 ### Docker Build Issues
 
@@ -1379,7 +1809,7 @@ Create your first admin user through the backend API or seed script.
 ### Next Steps
 
 Recommended next steps:
-1. Set up SSL/HTTPS (Part 8)
+1. Set up SSL/HTTPS (Part 7)
 2. Configure automatic backups
 3. Set up monitoring
 4. Create your first admin user
