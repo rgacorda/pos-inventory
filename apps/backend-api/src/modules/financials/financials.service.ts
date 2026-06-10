@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { Expense } from '../../entities/expense.entity';
@@ -28,95 +28,64 @@ export class FinancialsService {
       `Calculating P&L for org ${organizationId} from ${startDate} to ${endDate}`,
     );
 
-    // Debug: Check all orders for this organization
-    const allOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.organizationId = :organizationId', { organizationId })
-      .getMany();
+    // Run all three aggregate queries in parallel
+    const [revenueResult, cogsResult, expenseRows] = await Promise.all([
+      // Revenue: SUM via SQL — no row hydration
+      this.orderRepository
+        .createQueryBuilder('order')
+        .select('SUM(order.totalAmount)', 'total')
+        .addSelect('COUNT(order.id)', 'count')
+        .where('order.organizationId = :organizationId', { organizationId })
+        .andWhere('order.status IN (:...statuses)', {
+          statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED],
+        })
+        .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
+          startDate,
+          endDate,
+        })
+        .getRawOne(),
 
-    this.logger.log(
-      `Total orders in org: ${allOrders.length}. Statuses: ${Array.from(new Set(allOrders.map((o) => o.status))).join(', ')}`,
-    );
+      // COGS: SUM via SQL
+      this.deliveryRepository
+        .createQueryBuilder('delivery')
+        .select('SUM(delivery.totalCost)', 'total')
+        .addSelect('COUNT(delivery.id)', 'count')
+        .where('delivery.organizationId = :organizationId', { organizationId })
+        .andWhere('delivery.status = :status', { status: 'RECEIVED' })
+        .andWhere('delivery.deliveryDate BETWEEN :startDate AND :endDate', {
+          startDate,
+          endDate,
+        })
+        .getRawOne(),
 
-    if (allOrders.length > 0) {
-      this.logger.log(
-        `Sample order dates: ${allOrders
-          .slice(0, 3)
-          .map((o) => `${o.createdAt} (${o.status})`)
-          .join(', ')}`,
-      );
+      // Expenses: GROUP BY type via SQL — single query instead of getMany + JS reduce
+      this.expenseRepository
+        .createQueryBuilder('expense')
+        .select('expense.type', 'type')
+        .addSelect('SUM(expense.amount)', 'total')
+        .where('expense.organizationId = :organizationId', { organizationId })
+        .andWhere('expense.expenseDate BETWEEN :startDate AND :endDate', {
+          startDate,
+          endDate,
+        })
+        .groupBy('expense.type')
+        .getRawMany(),
+    ]);
+
+    const revenue = parseFloat(revenueResult?.total || '0');
+    const totalOrders = parseInt(revenueResult?.count || '0', 10);
+
+    const cogs = parseFloat(cogsResult?.total || '0');
+    const totalDeliveries = parseInt(cogsResult?.count || '0', 10);
+
+    const expensesByType: Record<string, number> = {};
+    let operatingExpenses = 0;
+    for (const row of expenseRows) {
+      const amount = parseFloat(row.total || '0');
+      expensesByType[row.type] = amount;
+      operatingExpenses += amount;
     }
 
-    // Get revenue from completed and synced orders
-    // SYNCED orders are sales from POS that have been synchronized - they are completed sales
-    const orders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.organizationId = :organizationId', { organizationId })
-      .andWhere('order.status IN (:...statuses)', {
-        statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED],
-      })
-      .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      })
-      .getMany();
-
-    this.logger.log(
-      `Found ${orders.length} completed/synced orders in date range. Total amounts: ${orders.map((o) => o.totalAmount).join(', ')}`,
-    );
-
-    const revenue = orders.reduce(
-      (sum, order) => sum + Number(order.totalAmount),
-      0,
-    );
-    const totalOrders = orders.length;
-
-    // Get Cost of Goods Sold (COGS) from inventory deliveries
-    const deliveries = await this.deliveryRepository
-      .createQueryBuilder('delivery')
-      .where('delivery.organizationId = :organizationId', { organizationId })
-      .andWhere('delivery.status = :status', { status: 'RECEIVED' })
-      .andWhere('delivery.deliveryDate BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      })
-      .getMany();
-
-    const cogs = deliveries.reduce(
-      (sum, delivery) => sum + Number(delivery.totalCost),
-      0,
-    );
-    const totalDeliveries = deliveries.length;
-
-    // Get operating expenses
-    const expenses = await this.expenseRepository
-      .createQueryBuilder('expense')
-      .where('expense.organizationId = :organizationId', { organizationId })
-      .andWhere('expense.expenseDate BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      })
-      .getMany();
-
-    const operatingExpenses = expenses.reduce(
-      (sum, expense) => sum + Number(expense.amount),
-      0,
-    );
-
-    // Break down expenses by type
-    const expensesByType = expenses.reduce(
-      (acc, expense) => {
-        const type = expense.type;
-        if (!acc[type]) {
-          acc[type] = 0;
-        }
-        acc[type] += Number(expense.amount);
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    // Calculate profitability metrics
     const grossProfit = revenue - cogs;
     const netProfit = grossProfit - operatingExpenses;
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;

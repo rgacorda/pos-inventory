@@ -69,7 +69,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { format, parseISO, startOfDay, endOfDay, eachDayOfInterval } from "date-fns";
+import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 
 export default function ReportsPage() {
   const router = useRouter();
@@ -121,196 +121,62 @@ export default function ReportsPage() {
   const loadReportData = async () => {
     setLoading(true);
     try {
-      const [orders, products, payments] = await Promise.all([
-        apiClient.getOrders(),
-        apiClient.getProducts(),
-        apiClient.getPayments(),
+      const rangeStart = startOfDay(startDate).toISOString();
+      const rangeEnd = endOfDay(endDate).toISOString();
+
+      // Two parallel requests replace three unbounded full-table fetches.
+      // All filtering and aggregation now happens in SQL on the server.
+      const [analyticsData, paymentMethodsData] = await Promise.all([
+        apiClient.getReportAnalytics(rangeStart, rangeEnd),
+        apiClient.getPaymentMethodStats(rangeStart, rangeEnd),
       ]);
 
-      const rangeStart = startOfDay(startDate);
-      const rangeEnd = endOfDay(endDate);
-
-      // Filter orders by date range (excluding voided orders)
-      const filteredOrders = orders.filter((order: any) => {
-        const orderDate = new Date(order.createdAt);
-        return (
-          orderDate >= rangeStart &&
-          orderDate <= rangeEnd &&
-          order.status !== "VOID"
-        );
-      });
-
-      // Calculate stats
-      const totalRevenue = filteredOrders.reduce(
-        (sum: number, order: any) => sum + Number(order.totalAmount || 0),
-        0,
-      );
-      const totalProfit = filteredOrders.reduce(
-        (sum: number, order: any) =>
-          sum + Number(order.totalAmount || 0) - Number(order.taxAmount || 0),
-        0,
-      );
-      const totalOrders = filteredOrders.length;
-      const averageOrderValue =
-        totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
       setStats({
-        totalRevenue,
-        totalOrders,
-        averageOrderValue,
-        totalProducts: products.length,
-        totalProfit,
+        totalRevenue: analyticsData.summary.totalRevenue,
+        totalOrders: analyticsData.summary.totalOrders,
+        averageOrderValue: analyticsData.summary.averageOrderValue,
+        totalProducts: analyticsData.summary.totalProducts,
+        totalProfit: analyticsData.summary.totalProfit,
       });
 
-      // Build a product lookup map for name resolution
-      const productMap: { [key: string]: any } = {};
-      products.forEach((p: any) => {
-        productMap[p.id] = p;
-      });
-
-      // Calculate top products
-      const productSales: { [key: string]: any } = {};
-      filteredOrders.forEach((order: any) => {
-        order.items?.forEach((item: any) => {
-          const productId = item.productId;
-          if (!productSales[productId]) {
-            // Prefer the embedded product object, fall back to the products list
-            const resolvedProduct =
-              (item.product?.name ? item.product : null) ??
-              productMap[productId] ??
-              item.product;
-            productSales[productId] = {
-              product: resolvedProduct,
-              totalQuantity: 0,
-              totalRevenue: 0,
-            };
-          }
-          productSales[productId].totalQuantity += item.quantity;
-          productSales[productId].totalRevenue +=
-            item.quantity * item.unitPrice;
-        });
-      });
-
-      const topProductsArray = Object.values(productSales).sort(
-        (a: any, b: any) => b.totalRevenue - a.totalRevenue,
+      // Map to the shape expected by the display components
+      setTopProducts(
+        analyticsData.topProducts.map((p: any) => ({
+          product: { name: p.name, sku: p.sku },
+          totalQuantity: p.totalQuantity,
+          totalRevenue: p.totalRevenue,
+        })),
       );
 
-      setTopProducts(topProductsArray);
-      setRecentOrders(filteredOrders.slice(0, 10));
-
-      // Calculate sales trend (daily)
-      const datesInRange = eachDayOfInterval({
-        start: rangeStart,
-        end: startOfDay(endDate),
-      });
-
-      const dailySales = datesInRange.map((date) => {
-        const dayOrders = filteredOrders.filter((order: any) => {
-          const orderDate = startOfDay(new Date(order.createdAt));
-          return orderDate.getTime() === startOfDay(date).getTime();
-        });
-
-        const revenue = dayOrders.reduce(
-          (sum: number, order: any) => sum + Number(order.totalAmount || 0),
-          0,
-        );
-
-        return {
-          date: format(date, "MMM dd"),
-          revenue: Math.round(revenue * 100) / 100,
-          orders: dayOrders.length,
-        };
-      });
-
-      setSalesTrend(dailySales);
-
-      // Calculate cashier performance
-      const cashierStats: { [key: string]: any } = {};
-      filteredOrders.forEach((order: any) => {
-        const cashierId = order.cashierId || "Unknown";
-        const cashierName = order.cashier?.name || "Unknown";
-
-        if (!cashierStats[cashierId]) {
-          cashierStats[cashierId] = {
-            name: cashierName,
-            orders: 0,
-            revenue: 0,
-          };
-        }
-
-        cashierStats[cashierId].orders += 1;
-        cashierStats[cashierId].revenue += Number(order.totalAmount || 0);
-      });
-
-      const cashierArray = Object.values(cashierStats).sort(
-        (a: any, b: any) => b.revenue - a.revenue,
+      // Wrap itemCount so CSV export can read order.items?.length
+      setRecentOrders(
+        analyticsData.recentOrders.map((o: any) => ({
+          id: o.id,
+          createdAt: o.createdAt,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          items: Array(o.itemCount),
+        })),
       );
-      setCashierPerformance(cashierArray);
 
-      // Calculate terminal performance
-      const terminalStats: { [key: string]: any } = {};
-      filteredOrders.forEach((order: any) => {
-        const terminalId = order.terminalId || "Unknown";
-        const terminalName = order.terminal?.name || "Unknown";
-
-        if (!terminalStats[terminalId]) {
-          terminalStats[terminalId] = {
-            name: terminalName,
-            orders: 0,
-            revenue: 0,
-          };
-        }
-
-        terminalStats[terminalId].orders += 1;
-        terminalStats[terminalId].revenue += Number(order.totalAmount || 0);
-      });
-
-      const terminalArray = Object.values(terminalStats).sort(
-        (a: any, b: any) => b.revenue - a.revenue,
+      setSalesTrend(
+        analyticsData.salesTrend.map((d: any) => ({
+          date: format(parseISO(d.date), "MMM dd"),
+          revenue: Math.round(d.revenue * 100) / 100,
+          orders: d.orders,
+        })),
       );
-      setTerminalPerformance(terminalArray);
 
-      // Calculate payment methods breakdown
-      const filteredPayments = payments.filter((payment: any) => {
-        const paymentDate = new Date(payment.createdAt);
-        return paymentDate >= rangeStart && paymentDate <= rangeEnd;
-      });
+      setCashierPerformance(analyticsData.cashierPerformance);
+      setTerminalPerformance(analyticsData.terminalPerformance);
+      setHourlySales(analyticsData.hourlySales);
 
-      const paymentMethodStats: { [key: string]: number } = {};
-      filteredPayments.forEach((payment: any) => {
-        const method = payment.method || "UNKNOWN";
-        paymentMethodStats[method] =
-          (paymentMethodStats[method] || 0) + Number(payment.amount || 0);
-      });
-
-      const paymentMethodsArray = Object.entries(paymentMethodStats).map(
-        ([method, amount]) => ({
-          method: method.charAt(0) + method.slice(1).toLowerCase(),
-          amount: Math.round(amount * 100) / 100,
-        }),
+      setPaymentMethods(
+        paymentMethodsData.map((m: any) => ({
+          method: m.method.charAt(0) + m.method.slice(1).toLowerCase(),
+          amount: Math.round(m.amount * 100) / 100,
+        })),
       );
-      setPaymentMethods(paymentMethodsArray);
-
-      // Calculate hourly sales pattern
-      const hourlyStats: {
-        [key: number]: { revenue: number; orders: number };
-      } = {};
-      for (let i = 0; i < 24; i++) {
-        hourlyStats[i] = { revenue: 0, orders: 0 };
-      }
-
-      filteredOrders.forEach((order: any) => {
-        const hour = new Date(order.createdAt).getHours();
-        hourlyStats[hour].revenue += Number(order.totalAmount || 0);
-        hourlyStats[hour].orders += 1;
-      });
-
-      const hourlyArray = Object.entries(hourlyStats).map(([hour, data]) => ({
-        hour: `${hour}:00`,
-        revenue: Math.round(data.revenue * 100) / 100,
-        orders: data.orders,
-      }));
-      setHourlySales(hourlyArray);
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("report data"));
     } finally {
@@ -397,7 +263,7 @@ export default function ReportsPage() {
             <div className="flex gap-2">
               <Button
                 onClick={exportToCSV}
-                disabled={loading || recentOrders.length === 0}
+                disabled={loading || stats.totalOrders === 0}
                 variant="outline"
               >
                 <FileText className="mr-2 h-4 w-4" />
@@ -553,7 +419,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{stats.totalProducts}</div>
-                <p className="text-xs text-muted-foreground">In catalog</p>
+                <p className="text-xs text-muted-foreground">Sold in period</p>
               </CardContent>
             </Card>
           </div>

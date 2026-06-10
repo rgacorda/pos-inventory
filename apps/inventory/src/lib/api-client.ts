@@ -167,6 +167,18 @@ class APIClient {
     return response.data;
   }
 
+  async getDashboardStats() {
+    const response = await this.client.get("/orders/dashboard-stats");
+    return response.data;
+  }
+
+  async getReportAnalytics(startDate: string, endDate: string) {
+    const response = await this.client.get("/orders/report-analytics", {
+      params: { startDate, endDate },
+    });
+    return response.data;
+  }
+
   async getManualItems() {
     const response = await this.client.get("/orders/manual-items");
     return response.data;
@@ -185,6 +197,13 @@ class APIClient {
 
   async getPaymentStats() {
     const response = await this.client.get("/payments/stats");
+    return response.data;
+  }
+
+  async getPaymentMethodStats(startDate: string, endDate: string) {
+    const response = await this.client.get("/payments/method-stats", {
+      params: { startDate, endDate },
+    });
     return response.data;
   }
 

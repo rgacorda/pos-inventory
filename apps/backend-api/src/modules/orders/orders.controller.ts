@@ -38,13 +38,34 @@ export class OrdersController {
     @CurrentUser() user: any,
     @Query('status') status?: OrderStatus,
     @Query('terminalId') terminalId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.ordersService.findAll(user, { status, terminalId });
+    return this.ordersService.findAll(user, {
+      status,
+      terminalId,
+      startDate,
+      endDate,
+    });
   }
 
   @Get('stats')
   async getStats(@CurrentUser() user: any) {
     return this.ordersService.getOrderStats(user);
+  }
+
+  @Get('dashboard-stats')
+  async getDashboardStats(@CurrentUser() user: any) {
+    return this.ordersService.getDashboardStats(user);
+  }
+
+  @Get('report-analytics')
+  async getReportAnalytics(
+    @CurrentUser() user: any,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    return this.ordersService.getReportAnalytics(user, startDate, endDate);
   }
 
   @Get('manual-items')

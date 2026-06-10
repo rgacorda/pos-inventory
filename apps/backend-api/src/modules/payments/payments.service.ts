@@ -223,6 +223,43 @@ export class PaymentsService {
     return refund;
   }
 
+  async getPaymentMethodStats(
+    requestingUser: any,
+    startDate: string,
+    endDate: string,
+  ) {
+    const qb = this.paymentsRepository
+      .createQueryBuilder('payment')
+      .leftJoin('payment.order', 'order')
+      .select('payment.method', 'method')
+      .addSelect('SUM(payment.amount)', 'amount')
+      .where('payment.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate,
+      })
+      .andWhere('order.status != :voidStatus', { voidStatus: 'VOID' })
+      .andWhere('payment.status = :status', {
+        status: PaymentStatus.COMPLETED,
+      })
+      .andWhere('payment.amount > 0');
+
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      qb.andWhere('payment.organizationId = :orgId', {
+        orgId: requestingUser.organizationId,
+      });
+    }
+
+    const rows = await qb
+      .groupBy('payment.method')
+      .orderBy('SUM(payment.amount)', 'DESC')
+      .getRawMany();
+
+    return rows.map((r: any) => ({
+      method: r.method,
+      amount: parseFloat(r.amount || '0'),
+    }));
+  }
+
   async getPaymentStats(requestingUser: any) {
     const query = this.paymentsRepository
       .createQueryBuilder('payment')

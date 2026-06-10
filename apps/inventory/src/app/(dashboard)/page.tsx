@@ -60,46 +60,28 @@ export default function Page() {
 
   const loadDashboardData = async () => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // Load all dashboard data in parallel
+      // All requests run in parallel; getDashboardStats replaces the old
+      // unbounded getOrders() call that loaded every order with 4 eager joins
       const [
         productsData,
         usersData,
         orderStatsData,
         paymentsStatsData,
-        ordersData,
+        dashboardStatsData,
       ] = await Promise.all([
         apiClient.getProducts(),
         apiClient.getUsers(),
         apiClient.getOrderStats(),
         apiClient.getPaymentStats(),
-        apiClient.getOrders(),
+        apiClient.getDashboardStats(),
       ]);
 
-      // Calculate today's stats (excluding voided orders)
-      const todayOrders = ordersData.filter((order: any) => {
-        const orderDate = new Date(order.createdAt);
-        return orderDate >= today && order.status !== "VOID";
-      });
-
-      const todayRevenue = todayOrders.reduce(
-        (sum: number, order: any) => sum + Number(order.totalAmount || 0),
-        0,
-      );
-
-      const todayOrderCount = todayOrders.length;
-      const averageOrderValue =
-        todayOrderCount > 0 ? todayRevenue / todayOrderCount : 0;
-
       setTodayStats({
-        revenue: todayRevenue,
-        orders: todayOrderCount,
-        averageOrderValue,
+        revenue: dashboardStatsData.today.revenue,
+        orders: dashboardStatsData.today.orders,
+        averageOrderValue: dashboardStatsData.today.averageOrderValue,
       });
 
-      // Calculate all-time stats
       const totalProducts = productsData.length;
       const activeProducts = productsData.filter(
         (p: any) => p.status === "ACTIVE",

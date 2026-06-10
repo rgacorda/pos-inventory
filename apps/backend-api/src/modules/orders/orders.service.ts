@@ -85,7 +85,12 @@ export class OrdersService {
 
   async findAll(
     requestingUser: any,
-    filters?: { status?: OrderStatus; terminalId?: string },
+    filters?: {
+      status?: OrderStatus;
+      terminalId?: string;
+      startDate?: string;
+      endDate?: string;
+    },
   ) {
     const query = this.ordersRepository
       .createQueryBuilder('order')
@@ -113,6 +118,13 @@ export class OrdersService {
       });
     }
 
+    if (filters?.startDate && filters?.endDate) {
+      query.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+      });
+    }
+
     // Cashiers can only see their own orders
     if (requestingUser.role === UserRole.CASHIER) {
       query.andWhere('order.cashierId = :cashierId', {
@@ -121,6 +133,266 @@ export class OrdersService {
     }
 
     return query.getMany();
+  }
+
+  async getDashboardStats(requestingUser: any) {
+    const now = new Date();
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0, 0, 0, 0,
+    );
+    const todayEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23, 59, 59, 999,
+    );
+
+    const qb = this.ordersRepository
+      .createQueryBuilder('order')
+      .select('SUM(order.totalAmount)', 'revenue')
+      .addSelect('COUNT(order.id)', 'orderCount')
+      .where('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
+      .andWhere('order.createdAt BETWEEN :start AND :end', {
+        start: todayStart.toISOString(),
+        end: todayEnd.toISOString(),
+      });
+
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      qb.andWhere('order.organizationId = :orgId', {
+        orgId: requestingUser.organizationId,
+      });
+    }
+
+    if (requestingUser.role === UserRole.CASHIER) {
+      qb.andWhere('order.cashierId = :cashierId', {
+        cashierId: requestingUser.id,
+      });
+    }
+
+    const result = await qb.getRawOne();
+    const revenue = parseFloat(result?.revenue || '0');
+    const orders = parseInt(result?.orderCount || '0', 10);
+
+    return {
+      today: {
+        revenue,
+        orders,
+        averageOrderValue: orders > 0 ? revenue / orders : 0,
+      },
+    };
+  }
+
+  async getReportAnalytics(
+    requestingUser: any,
+    startDate: string,
+    endDate: string,
+  ) {
+    const isSuperAdmin = requestingUser.role === UserRole.SUPER_ADMIN;
+    const isCashier = requestingUser.role === UserRole.CASHIER;
+    const orgId = requestingUser.organizationId;
+
+    const applyFilters = (qb: any) => {
+      qb.andWhere('order.status != :voidStatus', {
+        voidStatus: OrderStatus.VOID,
+      }).andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate,
+      });
+      if (!isSuperAdmin) {
+        qb.andWhere('order.organizationId = :orgId', { orgId });
+      }
+      if (isCashier) {
+        qb.andWhere('order.cashierId = :cashierId', {
+          cashierId: requestingUser.id,
+        });
+      }
+      return qb;
+    };
+
+    const [
+      summaryResult,
+      dailyRows,
+      topProductsRows,
+      cashierRows,
+      terminalRows,
+      hourlyRows,
+      recentOrderRows,
+    ] = await Promise.all([
+      // 1. Summary aggregates
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .select('SUM(order.totalAmount)', 'totalRevenue')
+          .addSelect('SUM(order.taxAmount)', 'totalTax')
+          .addSelect('COUNT(order.id)', 'totalOrders')
+          .where('1=1'),
+      ).getRawOne(),
+
+      // 2. Daily sales trend — GROUP BY date in SQL
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .select("TO_CHAR(order.createdAt, 'YYYY-MM-DD')", 'date')
+          .addSelect('SUM(order.totalAmount)', 'revenue')
+          .addSelect('COUNT(order.id)', 'orders')
+          .where('1=1')
+          .groupBy("TO_CHAR(order.createdAt, 'YYYY-MM-DD')")
+          .orderBy("TO_CHAR(order.createdAt, 'YYYY-MM-DD')", 'ASC'),
+      ).getRawMany(),
+
+      // 3. Top products — GROUP BY (productId, name, sku) in order_items
+      (() => {
+        const qb = this.orderItemsRepository
+          .createQueryBuilder('item')
+          .innerJoin('item.order', 'order')
+          .select('item.productId', 'productId')
+          .addSelect('item.name', 'name')
+          .addSelect('item.sku', 'sku')
+          .addSelect('SUM(item.quantity)', 'totalQuantity')
+          .addSelect('SUM(item.quantity * item.unitPrice)', 'totalRevenue')
+          .where('order.status != :voidStatus', {
+            voidStatus: OrderStatus.VOID,
+          })
+          .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
+            startDate,
+            endDate,
+          });
+        if (!isSuperAdmin) {
+          qb.andWhere('order.organizationId = :orgId', { orgId });
+        }
+        if (isCashier) {
+          qb.andWhere('order.cashierId = :cashierId', {
+            cashierId: requestingUser.id,
+          });
+        }
+        return qb
+          .groupBy('item.productId')
+          .addGroupBy('item.name')
+          .addGroupBy('item.sku')
+          .orderBy('SUM(item.quantity * item.unitPrice)', 'DESC')
+          .getRawMany();
+      })(),
+
+      // 4. Cashier performance — GROUP BY cashierId
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .leftJoin('order.cashier', 'cashier')
+          .select('order.cashierId', 'cashierId')
+          .addSelect('cashier.name', 'cashierName')
+          .addSelect('COUNT(order.id)', 'orders')
+          .addSelect('SUM(order.totalAmount)', 'revenue')
+          .where('1=1')
+          .groupBy('order.cashierId')
+          .addGroupBy('cashier.name')
+          .orderBy('SUM(order.totalAmount)', 'DESC'),
+      ).getRawMany(),
+
+      // 5. Terminal performance — GROUP BY terminalId
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .leftJoin('order.terminal', 'terminal')
+          .select('order.terminalId', 'terminalId')
+          .addSelect('terminal.name', 'terminalName')
+          .addSelect('COUNT(order.id)', 'orders')
+          .addSelect('SUM(order.totalAmount)', 'revenue')
+          .where('1=1')
+          .groupBy('order.terminalId')
+          .addGroupBy('terminal.name')
+          .orderBy('SUM(order.totalAmount)', 'DESC'),
+      ).getRawMany(),
+
+      // 6. Hourly pattern — GROUP BY hour
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .select('EXTRACT(HOUR FROM order.createdAt)', 'hour')
+          .addSelect('SUM(order.totalAmount)', 'revenue')
+          .addSelect('COUNT(order.id)', 'orders')
+          .where('1=1')
+          .groupBy('EXTRACT(HOUR FROM order.createdAt)')
+          .orderBy('EXTRACT(HOUR FROM order.createdAt)', 'ASC'),
+      ).getRawMany(),
+
+      // 7. Recent orders (lightweight — for CSV export)
+      applyFilters(
+        this.ordersRepository
+          .createQueryBuilder('order')
+          .select('order.id', 'id')
+          .addSelect('order.createdAt', 'createdAt')
+          .addSelect('order.totalAmount', 'totalAmount')
+          .addSelect('order.status', 'status')
+          .addSelect('COUNT(items.id)', 'itemCount')
+          .leftJoin('order.items', 'items')
+          .where('1=1')
+          .groupBy('order.id')
+          .addGroupBy('order.createdAt')
+          .addGroupBy('order.totalAmount')
+          .addGroupBy('order.status')
+          .orderBy('order.createdAt', 'DESC')
+          .limit(10),
+      ).getRawMany(),
+    ]);
+
+    const totalRevenue = parseFloat(summaryResult?.totalRevenue || '0');
+    const totalTax = parseFloat(summaryResult?.totalTax || '0');
+    const totalOrders = parseInt(summaryResult?.totalOrders || '0', 10);
+    const totalProfit = totalRevenue - totalTax;
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    return {
+      summary: {
+        totalRevenue,
+        totalOrders,
+        averageOrderValue,
+        totalProfit,
+        totalProducts: new Set(topProductsRows.map((r: any) => r.productId))
+          .size,
+      },
+      salesTrend: dailyRows.map((r: any) => ({
+        date: r.date,
+        revenue: parseFloat(r.revenue || '0'),
+        orders: parseInt(r.orders || '0', 10),
+      })),
+      topProducts: topProductsRows.map((r: any) => ({
+        productId: r.productId,
+        name: r.name,
+        sku: r.sku,
+        totalQuantity: parseInt(r.totalQuantity || '0', 10),
+        totalRevenue: parseFloat(r.totalRevenue || '0'),
+      })),
+      cashierPerformance: cashierRows.map((r: any) => ({
+        cashierId: r.cashierId,
+        name: r.cashierName || 'Unknown',
+        orders: parseInt(r.orders || '0', 10),
+        revenue: parseFloat(r.revenue || '0'),
+      })),
+      terminalPerformance: terminalRows.map((r: any) => ({
+        terminalId: r.terminalId,
+        name: r.terminalName || 'Unknown',
+        orders: parseInt(r.orders || '0', 10),
+        revenue: parseFloat(r.revenue || '0'),
+      })),
+      hourlySales: Array.from({ length: 24 }, (_, i) => {
+        const row = hourlyRows.find((r: any) => parseInt(r.hour, 10) === i);
+        return {
+          hour: `${i}:00`,
+          revenue: row ? parseFloat(row.revenue || '0') : 0,
+          orders: row ? parseInt(row.orders || '0', 10) : 0,
+        };
+      }),
+      recentOrders: recentOrderRows.map((r: any) => ({
+        id: r.id,
+        createdAt: r.createdAt,
+        totalAmount: parseFloat(r.totalAmount || '0'),
+        status: r.status,
+        itemCount: parseInt(r.itemCount || '0', 10),
+      })),
+    };
   }
 
   async findOne(id: string, requestingUser: any) {

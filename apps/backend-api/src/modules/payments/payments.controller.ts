@@ -48,6 +48,15 @@ export class PaymentsController {
     return this.paymentsService.getPaymentStats(user);
   }
 
+  @Get('method-stats')
+  async getPaymentMethodStats(
+    @CurrentUser() user: any,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    return this.paymentsService.getPaymentMethodStats(user, startDate, endDate);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.paymentsService.findOne(id, user);
