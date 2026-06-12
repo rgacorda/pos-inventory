@@ -108,3 +108,22 @@ export class SyncOrderDto {
   @IsOptional()
   syncedAt?: string;
 }
+
+export class ExchangeOrderDto {
+  @IsString()
+  newOrderPosLocalId: string;
+
+  @IsArray()
+  returnedItems: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
+
+  @IsNumber()
+  @Min(0)
+  creditAmount: number;
+
+  exchangedAt: Date;
+}

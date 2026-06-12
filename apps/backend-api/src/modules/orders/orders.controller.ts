@@ -18,8 +18,7 @@ import { TenantGuard } from '../../auth/guards/tenant.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole, OrderStatus } from '@pos/shared-types';
-import { CreateOrderDto, UpdateOrderDto } from './dto';
-import { ExchangeOrderDto } from '@pos/shared-types';
+import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)

@@ -11,8 +11,8 @@ import { Repository, QueryFailedError, DataSource } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { ProductEntity } from '../../entities/product.entity';
-import { CreateOrderDto, UpdateOrderDto } from './dto';
-import { UserRole, OrderStatus, ExchangeOrderDto } from '@pos/shared-types';
+import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
+import { UserRole, OrderStatus } from '@pos/shared-types';
 
 @Injectable()
 export class OrdersService {
