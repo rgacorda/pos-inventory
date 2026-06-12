@@ -58,6 +58,7 @@ import {
   ShoppingCart,
   Calendar as CalendarIcon,
   XCircle,
+  ArrowLeftRight,
 } from "lucide-react";
 import {
   showErrorFromException,
@@ -128,6 +129,17 @@ export default function OrdersPage() {
     } finally {
       setIsVoiding(false);
     }
+  };
+
+  // Find the exchange order for a given original order (order with exchangeRef = original orderNumber)
+  const findExchangeOrder = (original: any) => {
+    return orders.find((o) => o.exchangeRef === original.orderNumber) ?? null;
+  };
+
+  // Find the original order for a given exchange order (order with orderNumber = exchange's exchangeRef)
+  const findOriginalOrder = (exchange: any) => {
+    if (!exchange.exchangeRef) return null;
+    return orders.find((o) => o.orderNumber === exchange.exchangeRef) ?? null;
   };
 
   const canVoidOrder = (order: any) => {
@@ -243,10 +255,11 @@ export default function OrdersPage() {
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
-              <SelectContent>
+                <SelectContent>
                 <SelectItem value="ALL">All Status</SelectItem>
                 <SelectItem value="COMPLETED">Completed</SelectItem>
                 <SelectItem value="SYNCED">Synced</SelectItem>
+                <SelectItem value="EXCHANGE">Exchange</SelectItem>
                 <SelectItem value="VOID">Voided</SelectItem>
                 <SelectItem value="PENDING">Pending</SelectItem>
                 <SelectItem value="CANCELLED">Cancelled</SelectItem>
@@ -294,14 +307,20 @@ export default function OrdersPage() {
                               ? "bg-green-600 hover:bg-green-700"
                               : order.status === "SYNCED"
                                 ? "bg-blue-600 hover:bg-blue-700"
-                                : order.status === "VOID"
-                                  ? "bg-red-600 hover:bg-red-700"
-                                  : order.status === "PENDING"
-                                    ? "bg-yellow-600 hover:bg-yellow-700"
-                                    : "bg-gray-600 hover:bg-gray-700"
+                                : order.status === "EXCHANGE"
+                                  ? "bg-orange-500 hover:bg-orange-600"
+                                  : order.status === "VOID"
+                                    ? "bg-red-600 hover:bg-red-700"
+                                    : order.status === "PENDING"
+                                      ? "bg-yellow-600 hover:bg-yellow-700"
+                                      : "bg-gray-600 hover:bg-gray-700"
                           }
                         >
-                          {order.status === "VOID" ? "✗ VOIDED" : order.status}
+                          {order.status === "VOID"
+                            ? "✗ VOIDED"
+                            : order.status === "EXCHANGE"
+                              ? "⇄ EXCHANGE"
+                              : order.status}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -396,6 +415,12 @@ export default function OrdersPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
+                  <p className="text-sm text-muted-foreground">Order Number</p>
+                  <p className="font-medium font-mono text-sm">
+                    {selectedOrder.orderNumber || "N/A"}
+                  </p>
+                </div>
+                <div>
                   <p className="text-sm text-muted-foreground">Status</p>
                   <Badge
                     className={
@@ -403,14 +428,20 @@ export default function OrdersPage() {
                         ? "mt-1 bg-green-600 hover:bg-green-700"
                         : selectedOrder.status === "SYNCED"
                           ? "mt-1 bg-blue-600 hover:bg-blue-700"
-                          : selectedOrder.status === "VOID"
-                            ? "mt-1 bg-red-600 hover:bg-red-700"
-                            : selectedOrder.status === "PENDING"
-                              ? "mt-1 bg-yellow-600 hover:bg-yellow-700"
-                              : "mt-1 bg-gray-600 hover:bg-gray-700"
+                          : selectedOrder.status === "EXCHANGE"
+                            ? "mt-1 bg-orange-500 hover:bg-orange-600"
+                            : selectedOrder.status === "VOID"
+                              ? "mt-1 bg-red-600 hover:bg-red-700"
+                              : selectedOrder.status === "PENDING"
+                                ? "mt-1 bg-yellow-600 hover:bg-yellow-700"
+                                : "mt-1 bg-gray-600 hover:bg-gray-700"
                     }
                   >
-                    {selectedOrder.status === "VOID" ? "✗ VOIDED" : selectedOrder.status}
+                    {selectedOrder.status === "VOID"
+                      ? "✗ VOIDED"
+                      : selectedOrder.status === "EXCHANGE"
+                        ? "⇄ EXCHANGE"
+                        : selectedOrder.status}
                   </Badge>
                 </div>
                 <div>
@@ -432,6 +463,59 @@ export default function OrdersPage() {
                   </p>
                 </div>
               </div>
+
+              {/* Exchange Info Section */}
+              {selectedOrder.exchangeRef && (() => {
+                const origOrder = findOriginalOrder(selectedOrder);
+                return (
+                  <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
+                    <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-orange-800">
+                        Exchange of order{" "}
+                        <strong>{selectedOrder.exchangeRef}</strong>
+                      </p>
+                      {origOrder && (
+                        <button
+                          className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
+                          onClick={() => {
+                            setSelectedOrder(origOrder);
+                          }}
+                        >
+                          View original order →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {selectedOrder.exchangedAt && (() => {
+                const exchangeOrder = findExchangeOrder(selectedOrder);
+                return (
+                  <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
+                    <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-orange-800">
+                        This order was exchanged on{" "}
+                        <strong>
+                          {new Date(selectedOrder.exchangedAt).toLocaleString()}
+                        </strong>
+                      </p>
+                      {exchangeOrder && (
+                        <button
+                          className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
+                          onClick={() => {
+                            setSelectedOrder(exchangeOrder);
+                          }}
+                        >
+                          View exchange order →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Customer Details Section */}
               {(selectedOrder.customerName || selectedOrder.customerAddress) && (

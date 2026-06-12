@@ -19,6 +19,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole, OrderStatus } from '@pos/shared-types';
 import { CreateOrderDto, UpdateOrderDto } from './dto';
+import { ExchangeOrderDto } from '@pos/shared-types';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
@@ -104,5 +105,14 @@ export class OrdersController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
   async void(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ordersService.voidOrder(id, user);
+  }
+
+  @Post(':id/exchange')
+  async exchange(
+    @Param('id') id: string,
+    @Body() dto: ExchangeOrderDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.ordersService.exchangeOrder(id, dto, user);
   }
 }

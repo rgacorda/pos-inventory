@@ -37,6 +37,22 @@ export default function OrdersPage() {
   const [selectedReturnItems, setSelectedReturnItems] = useState<Set<number>>(new Set());
   const payments = usePaymentsByOrder(selectedOrder?.posLocalId || null);
 
+  // Find the exchange order created for the selected order (local lookup)
+  const exchangeChildOrder = useMemo(() => {
+    if (!selectedOrder || !orders) return null;
+    return orders.find(
+      (o) => o.exchangeRef === selectedOrder.orderNumber
+    ) ?? null;
+  }, [selectedOrder, orders]);
+
+  // Find the original order for an exchange order (local lookup)
+  const exchangeParentOrder = useMemo(() => {
+    if (!selectedOrder?.exchangeRef || !orders) return null;
+    return orders.find(
+      (o) => o.orderNumber === selectedOrder.exchangeRef
+    ) ?? null;
+  }, [selectedOrder, orders]);
+
   // Exchange PIN gate
   const [showExchangePinDialog, setShowExchangePinDialog] = useState(false);
   const [exchangePinEntry, setExchangePinEntry] = useState("");
@@ -87,7 +103,10 @@ export default function OrdersPage() {
 
   const canExchange = (order: LocalOrder | null) => {
     if (!order) return false;
-    return order.status === OrderStatus.COMPLETED;
+    if (order.status !== OrderStatus.COMPLETED) return false;
+    // Prevent re-exchange if an exchange order already exists for this order
+    if (exchangeChildOrder) return false;
+    return true;
   };
 
   const returnCredit = useMemo(() => {
@@ -262,13 +281,39 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {/* Exchange reference badge */}
+                {/* Exchange reference badge — this IS an exchange order */}
                 {selectedOrder.exchangeRef && (
                   <div className="flex-shrink-0 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 flex items-center gap-2 text-sm text-orange-800">
                     <ArrowLeftRight className="h-4 w-4 flex-shrink-0" />
-                    <span>
-                      Exchange of <strong>{selectedOrder.exchangeRef}</strong>
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span>
+                        Exchange of <strong>{selectedOrder.exchangeRef}</strong>
+                      </span>
+                      {exchangeParentOrder && (
+                        <button
+                          className="text-xs text-orange-700 underline text-left hover:text-orange-900"
+                          onClick={() => setSelectedOrder(exchangeParentOrder)}
+                        >
+                          View original transaction →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Exchanged badge — this order was already exchanged */}
+                {exchangeChildOrder && (
+                  <div className="flex-shrink-0 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 flex items-center gap-2 text-sm text-orange-800">
+                    <ArrowLeftRight className="h-4 w-4 flex-shrink-0" />
+                    <div className="flex flex-col gap-0.5">
+                      <span>This order has been exchanged</span>
+                      <button
+                        className="text-xs text-orange-700 underline text-left hover:text-orange-900"
+                        onClick={() => setSelectedOrder(exchangeChildOrder)}
+                      >
+                        View exchange transaction ({exchangeChildOrder.orderNumber}) →
+                      </button>
+                    </div>
                   </div>
                 )}
 

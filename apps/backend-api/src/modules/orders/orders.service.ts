@@ -12,7 +12,7 @@ import { OrderEntity } from '../../entities/order.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { CreateOrderDto, UpdateOrderDto } from './dto';
-import { UserRole, OrderStatus } from '@pos/shared-types';
+import { UserRole, OrderStatus, ExchangeOrderDto } from '@pos/shared-types';
 
 @Injectable()
 export class OrdersService {
@@ -582,6 +582,25 @@ export class OrdersService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async exchangeOrder(
+    id: string,
+    dto: ExchangeOrderDto,
+    requestingUser: any,
+  ) {
+    const order = await this.findOne(id, requestingUser);
+
+    if (order.exchangedAt) {
+      throw new BadRequestException('Order has already been exchanged');
+    }
+
+    if (order.status === OrderStatus.VOID) {
+      throw new BadRequestException('Cannot exchange a voided order');
+    }
+
+    order.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
+    return this.ordersRepository.save(order);
   }
 
   async getOrderStats(requestingUser: any) {
