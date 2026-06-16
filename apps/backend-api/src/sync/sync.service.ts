@@ -19,6 +19,11 @@ import { PaymentEntity } from '../entities/payment.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { TerminalEntity } from '../entities/terminal.entity';
 import { UserEntity } from '../entities/user.entity';
+import { CustomerEntity } from '../entities/customer.entity';
+import {
+  CustomerPointTransactionEntity,
+  PointTransactionType,
+} from '../entities/customer-point-transaction.entity';
 
 @Injectable()
 export class SyncService {
@@ -35,6 +40,10 @@ export class SyncService {
     private terminalRepository: Repository<TerminalEntity>,
     @InjectRepository(UserEntity)
     private userRepository: Repository<UserEntity>,
+    @InjectRepository(CustomerEntity)
+    private customerRepository: Repository<CustomerEntity>,
+    @InjectRepository(CustomerPointTransactionEntity)
+    private pointTransactionRepository: Repository<CustomerPointTransactionEntity>,
     private dataSource: DataSource,
   ) {}
 
@@ -127,6 +136,25 @@ export class SyncService {
         // Generate order number
         const orderNumber = await this.generateOrderNumber();
 
+        // Resolve customer if provided (exchange orders never earn/redeem points)
+        const isExchangeOrder = !!orderDto.exchangeRef;
+        let resolvedCustomerId: string | undefined;
+        if (orderDto.customerId && !isExchangeOrder) {
+          const customer = await queryRunner.manager.findOne(CustomerEntity, {
+            where: { id: orderDto.customerId, organizationId: user?.organizationId },
+          });
+          if (customer) {
+            resolvedCustomerId = customer.id;
+          }
+        }
+
+        // Compute points earned on the net amount paid (after any redemption)
+        const amountPaid = Number(orderDto.totalAmount);
+        const pointsRedeemed = (!isExchangeOrder && orderDto.pointsRedeemed) ? orderDto.pointsRedeemed : 0;
+        const pointsEarned = resolvedCustomerId
+          ? Math.floor(amountPaid / 100)
+          : undefined;
+
         // Create order entity
         const order = this.orderRepository.create({
           orderNumber,
@@ -138,14 +166,31 @@ export class SyncService {
           taxAmount: orderDto.taxAmount,
           discountAmount: orderDto.discountAmount,
           totalAmount: orderDto.totalAmount,
-          status: OrderStatus.SYNCED,
+          status: isExchangeOrder ? OrderStatus.EXCHANGE : OrderStatus.SYNCED,
           completedAt: orderDto.completedAt,
           syncedAt: new Date(),
           customerName: orderDto.customerName,
           customerAddress: orderDto.customerAddress,
+          customerId: resolvedCustomerId,
+          pointsEarned: isExchangeOrder ? undefined : pointsEarned,
+          pointsRedeemed: isExchangeOrder ? undefined : orderDto.pointsRedeemed,
+          exchangeRef: isExchangeOrder ? orderDto.exchangeRef : undefined,
         });
 
         const savedOrder = await queryRunner.manager.save(order);
+
+        // If this is an exchange order, mark the original order as exchanged
+        if (isExchangeOrder && orderDto.exchangeRef) {
+          const originalOrder = await queryRunner.manager.findOne(OrderEntity, {
+            where: { orderNumber: orderDto.exchangeRef },
+          });
+          if (originalOrder && !originalOrder.exchangedAt) {
+            originalOrder.exchangedAt = orderDto.completedAt
+              ? new Date(orderDto.completedAt)
+              : new Date();
+            await queryRunner.manager.save(OrderEntity, originalOrder);
+          }
+        }
 
         // Create order items
         const items = orderDto.items.map((item) => {
@@ -194,6 +239,55 @@ export class SyncService {
           } else {
             this.logger.warn(
               `Product not found for inventory update: ${item.productId} (${item.name})`,
+            );
+          }
+        }
+
+        // Process customer points
+        if (resolvedCustomerId && user?.organizationId) {
+          // First: handle redemption (deduct points)
+          if (pointsRedeemed > 0) {
+            await queryRunner.manager.decrement(
+              CustomerEntity,
+              { id: resolvedCustomerId },
+              'totalPoints',
+              pointsRedeemed,
+            );
+            await queryRunner.manager.save(CustomerPointTransactionEntity,
+              queryRunner.manager.create(CustomerPointTransactionEntity, {
+                customerId: resolvedCustomerId,
+                orderId: savedOrder.id,
+                organizationId: user.organizationId,
+                type: PointTransactionType.REDEEM,
+                points: pointsRedeemed,
+                description: `Redeemed ${pointsRedeemed} pts on Order ${orderNumber} (−₱${pointsRedeemed.toFixed(2)})`,
+              }),
+            );
+          }
+
+          // Then: earn points on net amount paid
+          if (pointsEarned && pointsEarned > 0) {
+            await queryRunner.manager.increment(
+              CustomerEntity,
+              { id: resolvedCustomerId },
+              'totalPoints',
+              pointsEarned,
+            );
+            await queryRunner.manager.increment(
+              CustomerEntity,
+              { id: resolvedCustomerId },
+              'totalSpent',
+              amountPaid,
+            );
+            await queryRunner.manager.save(CustomerPointTransactionEntity,
+              queryRunner.manager.create(CustomerPointTransactionEntity, {
+                customerId: resolvedCustomerId,
+                orderId: savedOrder.id,
+                organizationId: user.organizationId,
+                type: PointTransactionType.EARN,
+                points: pointsEarned,
+                description: `Earned ${pointsEarned} pts from Order ${orderNumber} (₱${amountPaid.toFixed(2)} spent)`,
+              }),
             );
           }
         }

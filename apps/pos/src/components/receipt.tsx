@@ -27,6 +27,9 @@ interface ReceiptProps {
   terminalName: string;
   dateTime: Date;
   onPrintComplete?: () => void;
+  pointsRedeemed?: number;
+  pointsEarned?: number;
+  loyaltyCustomerName?: string;
 }
 
 export function Receipt({
@@ -46,6 +49,9 @@ export function Receipt({
   terminalName,
   dateTime,
   onPrintComplete,
+  pointsRedeemed,
+  pointsEarned,
+  loyaltyCustomerName,
 }: ReceiptProps) {
   const [organizationData, setOrganizationData] = useState<{
     name: string;
@@ -203,6 +209,12 @@ export function Receipt({
                 <span>-{formatCurrency(discountAmount)}</span>
               </div>
             )}
+            {pointsRedeemed && pointsRedeemed > 0 ? (
+              <div className="flex justify-between mb-1">
+                <span>Points Redeemed ({pointsRedeemed} pts):</span>
+                <span>-{formatCurrency(pointsRedeemed)}</span>
+              </div>
+            ) : null}
             <div className="border-t border-black pt-2 mt-2">
               <div className="flex justify-between">
                 <span>TOTAL:</span>
@@ -210,6 +222,24 @@ export function Receipt({
               </div>
             </div>
           </div>
+
+          {/* Loyalty points summary */}
+          {(pointsEarned || loyaltyCustomerName) && (
+            <>
+              <div className="border-b border-dashed border-gray-400 my-2" />
+              <div className="text-center">
+                {loyaltyCustomerName && (
+                  <div>Member: {loyaltyCustomerName}</div>
+                )}
+                {pointsEarned && pointsEarned > 0 ? (
+                  <div>Points Earned: +{pointsEarned} pts</div>
+                ) : null}
+                <div className="text-[9pt] text-gray-500 mt-1">
+                  100 pts = ₱100 off your next purchase
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Payment Info */}
           <div className="border-b border-dashed border-gray-400 my-2" />

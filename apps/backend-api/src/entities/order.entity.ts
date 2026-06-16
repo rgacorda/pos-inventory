@@ -46,6 +46,20 @@ export class OrderEntity {
   @Column({ nullable: true })
   customerAddress: string;
 
+  @Column({ nullable: true })
+  @Index()
+  customerId: string;
+
+  @ManyToOne('CustomerEntity', { nullable: true })
+  @JoinColumn({ name: 'customerId' })
+  customer: any;
+
+  @Column({ type: 'int', nullable: true })
+  pointsEarned: number;
+
+  @Column({ type: 'int', nullable: true })
+  pointsRedeemed: number;
+
   // Organization relationship for multi-tenancy
   @Column()
   @Index()
@@ -86,6 +100,13 @@ export class OrderEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   voidedAt: Date;
+
+  @Column({ nullable: true })
+  @Index()
+  exchangeRef: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  exchangedAt: Date;
 
   @OneToMany(() => OrderItemEntity, (item) => item.order, { cascade: true })
   items: OrderItemEntity[];

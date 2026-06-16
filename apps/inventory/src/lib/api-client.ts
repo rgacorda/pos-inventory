@@ -370,6 +370,32 @@ class APIClient {
     return response.data;
   }
 
+  // Customers API
+  async getCustomers() {
+    const response = await this.client.get("/customers");
+    return response.data;
+  }
+
+  async getCustomer(id: string) {
+    const response = await this.client.get(`/customers/${id}`);
+    return response.data;
+  }
+
+  async getCustomerTransactions(id: string) {
+    const response = await this.client.get(`/customers/${id}/transactions`);
+    return response.data;
+  }
+
+  async createCustomer(data: { name: string; phone: string }) {
+    const response = await this.client.post("/customers", data);
+    return response.data;
+  }
+
+  async updateCustomer(id: string, data: { name?: string; phone?: string }) {
+    const response = await this.client.put(`/customers/${id}`, data);
+    return response.data;
+  }
+
   // Upload API
   async uploadReceipt(file: File) {
     const formData = new FormData();

@@ -22,6 +22,8 @@ export interface CreateOrderDto {
   cashierId: string;
   customerName?: string;
   customerAddress?: string;
+  customerId?: string;       // loyalty customer ID
+  pointsRedeemed?: number;   // points consumed on this order
   items: CreateOrderItemDto[];
   subtotal: number;
   taxAmount: number;

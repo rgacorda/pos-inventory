@@ -144,6 +144,18 @@ class APIClient {
     return response.data;
   }
 
+  async lookupCustomerByPhone(phone: string): Promise<any | null> {
+    const response = await this.client.get(`/customers/lookup`, {
+      params: { phone },
+    });
+    return response.data;
+  }
+
+  async registerCustomer(data: { name: string; phone: string }): Promise<any> {
+    const response = await this.client.post(`/customers`, data);
+    return response.data;
+  }
+
   isOnline(): boolean {
     if (typeof navigator === "undefined") return true;
     return navigator.onLine;
@@ -335,53 +347,10 @@ export class SyncService {
       }
 
       // Get pending items
-      const { orders: allPendingOrders, payments } = await dbHelpers.getPendingSyncItems();
+      const { orders, payments } = await dbHelpers.getPendingSyncItems();
 
-      // Apply 2-minute delay for orders to allow time for voiding mistakes
-      const now = new Date();
-      const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
-      
-      console.log(`🔍 Sync check:`, {
-        currentTime: now.toISOString(),
-        twoMinutesAgo: twoMinutesAgo.toISOString(),
-        totalPending: allPendingOrders.length
-      });
-      
-      const orders = allPendingOrders.filter(order => {
-        // Ensure we're working with Date objects
-        const orderTime = order.localCreatedAt instanceof Date 
-          ? order.localCreatedAt 
-          : new Date(order.localCreatedAt);
-        
-        const nowTime = now.getTime();
-        const orderTimeMs = orderTime.getTime();
-        const twoMinutesAgoMs = twoMinutesAgo.getTime();
-        
-        const ageInMs = nowTime - orderTimeMs;
-        const ageInMinutes = ageInMs / (60 * 1000);
-        const shouldSync = orderTimeMs <= twoMinutesAgoMs;
-        
-        console.log(`  📦 ${order.orderNumber}:`, {
-          localCreatedAt: order.localCreatedAt,
-          localCreatedAtType: typeof order.localCreatedAt,
-          orderTimeISO: orderTime.toISOString(),
-          orderTimeMs: orderTimeMs,
-          nowMs: nowTime,
-          twoMinutesAgoMs: twoMinutesAgoMs,
-          ageInMinutes: ageInMinutes.toFixed(2),
-          shouldSync: shouldSync,
-          comparison: `${orderTimeMs} <= ${twoMinutesAgoMs}`,
-        });
-        
-        return shouldSync;
-      });
-
-      // Log summary
-      const heldOrders = allPendingOrders.length - orders.length;
-      if (heldOrders > 0) {
-        console.log(`⏱️ Holding ${heldOrders} order(s) for 2-minute void window`);
-      } else if (allPendingOrders.length > 0) {
-        console.log(`✅ All ${allPendingOrders.length} order(s) are ready to sync`);
+      if (orders.length > 0) {
+        console.log(`🔍 Sync check: ${orders.length} order(s) ready to sync`);
       }
 
       if (orders.length === 0 && payments.length === 0) {
@@ -469,69 +438,15 @@ export class SyncService {
       }
 
       // Get all failed and pending items (including from previous days)
-      const { orders: allOrders, payments: allPayments } =
+      const { orders, payments } =
         await dbHelpers.getFailedAndPendingSyncItems();
-
-      // Apply 2-minute delay for pending orders (but not for error status orders - those should retry immediately)
-      const now = new Date();
-      const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
-      
-      const orders = allOrders.filter(order => {
-        // If order has error status, allow immediate retry
-        if (order.syncStatus === 'error') {
-          console.log(`  🔄 ${order.orderNumber}: error status → immediate retry`);
-          return true;
-        }
-        
-        // For pending orders, apply 2-minute rule
-        const orderTime = order.localCreatedAt instanceof Date 
-          ? order.localCreatedAt 
-          : new Date(order.localCreatedAt);
-        const orderTimeMs = orderTime.getTime();
-        const shouldSync = orderTimeMs <= twoMinutesAgo.getTime();
-        
-        if (!shouldSync) {
-          console.log(`  ⏱️ ${order.orderNumber}: pending, only ${((now.getTime() - orderTimeMs) / 60000).toFixed(1)}m old → hold for void window`);
-        }
-        
-        return shouldSync;
-      });
-
-      // For payments, also apply 2-minute delay for pending ones (immediate retry for errors)
-      const payments = allPayments.filter(payment => {
-        // If payment has error status, allow immediate retry
-        if (payment.syncStatus === 'error') {
-          console.log(`  🔄 Payment ${payment.posLocalId}: error status → immediate retry`);
-          return true;
-        }
-        
-        // For pending payments, apply 2-minute rule (same as orders)
-        const paymentTime = payment.localCreatedAt instanceof Date 
-          ? payment.localCreatedAt 
-          : new Date(payment.localCreatedAt);
-        const paymentTimeMs = paymentTime.getTime();
-        const shouldSync = paymentTimeMs <= twoMinutesAgo.getTime();
-        
-        if (!shouldSync) {
-          console.log(`  ⏱️ Payment ${payment.posLocalId}: pending, only ${((now.getTime() - paymentTimeMs) / 60000).toFixed(1)}m old → hold for void window`);
-        }
-        
-        return shouldSync;
-      });
 
       if (orders.length === 0 && payments.length === 0) {
         console.log("No failed or pending items to retry");
-        // Stop auto-retry if it's running
         if (this.isRetryActive) {
           this.stopAutoRetry();
         }
         return true;
-      }
-
-      const heldOrders = allOrders.length - orders.length;
-      const heldPayments = allPayments.length - payments.length;
-      if (heldOrders > 0 || heldPayments > 0) {
-        console.log(`⏱️ Retry: Holding ${heldOrders} order(s) and ${heldPayments} payment(s) for 2-minute void window`);
       }
 
       console.log(
@@ -716,6 +631,8 @@ export class SyncService {
       cashierId: order.cashierId,
       customerName: order.customerName,
       customerAddress: order.customerAddress,
+      customerId: order.customerId,
+      pointsRedeemed: order.pointsRedeemed,
       items: order.items.map((item: any) => ({
         productId: item.productId,
         sku: item.sku,

@@ -93,3 +93,11 @@ export enum TransactionType {
   VOID = "VOID",
   ADJUSTMENT = "ADJUSTMENT",
 }
+
+/**
+ * Customer point transaction type
+ */
+export enum PointTransactionType {
+  EARN = "EARN",
+  REDEEM = "REDEEM",
+}

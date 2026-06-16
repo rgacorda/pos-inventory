@@ -20,6 +20,20 @@ export interface LocalOrder extends Omit<
   // Exchange fields
   exchangeRef?: string;       // original order number this exchange references
   originalServerId?: string;  // server UUID of original order (used to call /orders/{id}/exchange)
+  // Loyalty points fields
+  customerId?: string;        // server UUID of loyalty customer
+  pointsEarned?: number;
+  pointsRedeemed?: number;
+}
+
+export interface LocalCustomer {
+  id: string;                 // server UUID
+  organizationId: string;
+  name: string;
+  phone: string;
+  totalPoints: number;
+  totalSpent: number;
+  cachedAt: Date;             // when this was last fetched from server
 }
 
 export interface LocalPayment extends Omit<
@@ -68,6 +82,7 @@ export class POSDatabase extends Dexie {
   syncMetadata!: Table<SyncMetadata, number>;
   organization!: Table<OrganizationData, string>;
   unknownBarcodes!: Table<UnknownBarcode, number>;
+  customers!: Table<LocalCustomer, string>;
 
   constructor() {
     super("POSDatabase");
@@ -135,6 +150,19 @@ export class POSDatabase extends Dexie {
       syncMetadata: "++id, key, updatedAt",
       organization: "id, updatedAt",
       unknownBarcodes: "++id, &barcode, scannedAt",
+    });
+
+    // Version 7: Add customers offline cache + loyalty point fields on orders
+    this.version(7).stores({
+      orders:
+        "++id, posLocalId, serverId, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName, exchangeRef, customerId",
+      payments:
+        "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
+      unknownBarcodes: "++id, &barcode, scannedAt",
+      customers: "id, phone, organizationId, cachedAt",
     });
   }
 }
@@ -211,64 +239,39 @@ export const dbHelpers = {
     };
   },
 
-  // Get count of failed items (excludes pending orders within 2-minute void window, voided orders, and payments for voided orders)
+  // Get count of failed items (excludes voided orders and payments for voided orders)
   async getFailedItemsCount() {
-    // Get voided order IDs once to reuse across all payment filters
     const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
 
-    // Get error orders (excluding voided ones)
     const allErrorOrders = await db.orders
       .where("syncStatus")
       .equals("error")
       .toArray();
-    
     const errorOrders = allErrorOrders.filter(order => order.status !== "VOID").length;
 
-    // Get error payments (excluding those for voided orders)
     const allErrorPayments = await db.payments
       .where("syncStatus")
       .equals("error")
       .toArray();
-
     const errorPayments = allErrorPayments.filter(p => !voidedOrderIds.has(p.orderId)).length;
 
-    // For pending orders, only count those older than 2 minutes (excluding voided ones)
-    // (recent orders are still in void window, not "failed")
-    const now = new Date();
-    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
-    
     const allPendingOrders = await db.orders
       .where("syncStatus")
       .equals("pending")
       .toArray();
-    
-    const pendingOrders = allPendingOrders.filter(order => {
-      // Exclude voided orders (they keep pending status but should never sync)
-      if (order.status === "VOID") return false;
-      
-      const orderTime = order.localCreatedAt instanceof Date 
-        ? order.localCreatedAt 
-        : new Date(order.localCreatedAt);
-      return orderTime <= twoMinutesAgo;
-    }).length;
+    const pendingOrders = allPendingOrders.filter(
+      order => order.status !== "VOID"
+    ).length;
 
-    // For pending payments, only count those older than 2 minutes and not for voided orders
     const allPendingPayments = await db.payments
       .where("syncStatus")
       .equals("pending")
       .toArray();
-    
-    const pendingPayments = allPendingPayments.filter(payment => {
-      // Exclude payments whose parent order is voided
-      if (voidedOrderIds.has(payment.orderId)) return false;
+    const pendingPayments = allPendingPayments.filter(
+      payment => !voidedOrderIds.has(payment.orderId)
+    ).length;
 
-      const paymentTime = payment.localCreatedAt instanceof Date 
-        ? payment.localCreatedAt 
-        : new Date(payment.localCreatedAt);
-      return paymentTime <= twoMinutesAgo;
-    }).length;
-
-    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders (>2min), ${pendingPayments} pending payments (>2min)`);
+    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders, ${pendingPayments} pending payments`);
 
     // Log details of error items for debugging
     if (errorOrders > 0) {
@@ -464,6 +467,21 @@ export const dbHelpers = {
   // Dismiss (delete) a saved unknown barcode by id
   async dismissUnknownBarcode(id: number) {
     await db.unknownBarcodes.delete(id);
+  },
+
+  // Cache a customer record fetched from the server
+  async cacheCustomer(customer: Omit<LocalCustomer, "cachedAt">) {
+    await db.customers.put({ ...customer, cachedAt: new Date() });
+  },
+
+  // Look up a customer from the local cache by phone
+  async getCachedCustomerByPhone(phone: string): Promise<LocalCustomer | undefined> {
+    return db.customers.where("phone").equals(phone).first();
+  },
+
+  // Look up a customer by server ID from cache
+  async getCachedCustomerById(id: string): Promise<LocalCustomer | undefined> {
+    return db.customers.get(id);
   },
 
   // Get void PIN (defaults to "0000" if never set)

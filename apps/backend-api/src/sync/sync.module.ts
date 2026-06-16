@@ -8,6 +8,8 @@ import { PaymentEntity } from '../entities/payment.entity';
 import { ProductEntity } from '../entities/product.entity';
 import { TerminalEntity } from '../entities/terminal.entity';
 import { UserEntity } from '../entities/user.entity';
+import { CustomerEntity } from '../entities/customer.entity';
+import { CustomerPointTransactionEntity } from '../entities/customer-point-transaction.entity';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { UserEntity } from '../entities/user.entity';
       ProductEntity,
       TerminalEntity,
       UserEntity,
+      CustomerEntity,
+      CustomerPointTransactionEntity,
     ]),
   ],
   controllers: [SyncController],

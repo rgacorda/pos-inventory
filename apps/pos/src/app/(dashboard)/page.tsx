@@ -34,7 +34,7 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES,
 } from "@/lib/toast-utils";
-import { Plus, Trash2, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight } from "lucide-react";
+import { Plus, Trash2, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight, Star, UserPlus, X } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
 import { LocalProduct, db, dbHelpers } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
@@ -102,6 +102,21 @@ export default function Page() {
   const [voidPinError, setVoidPinError] = useState("");
   const [pinAction, setPinAction] = useState<"void" | "removeItem" | null>(null);
   const [itemToRemove, setItemToRemove] = useState<string | null>(null);
+  // Loyalty points state
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+    totalPoints: number;
+  } | null>(null);
+  const [loyaltyPhoneInput, setLoyaltyPhoneInput] = useState("");
+  const [loyaltyLookupLoading, setLoyaltyLookupLoading] = useState(false);
+  const [loyaltyLookupError, setLoyaltyLookupError] = useState("");
+  const [usePoints, setUsePoints] = useState(false);
+  const [showRegisterCustomerDialog, setShowRegisterCustomerDialog] = useState(false);
+  const [registerCustomerName, setRegisterCustomerName] = useState("");
+  const [registerCustomerLoading, setRegisterCustomerLoading] = useState(false);
+
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const quantityInputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +148,7 @@ export default function Page() {
       // Ignore if dialogs are open (including the void PIN dialog)
       if (showQuantityDialog || showCashDialog || showPaymentDialog ||
           showManualItemDialog || showReceiptDialog || showProductSelectionDialog ||
-          showVoidPinDialog) {
+          showVoidPinDialog || showRegisterCustomerDialog) {
         return;
       }
 
@@ -580,11 +595,18 @@ export default function Page() {
   }, 0);
 
   const grossTotal = subtotal + tax;
-  // When an exchange credit is active, the effective amount due can be negative
-  // (meaning we owe the customer change)
-  const amountDue = Math.max(0, grossTotal - exchangeCredit);
-  const changeFromCredit = Math.max(0, exchangeCredit - grossTotal);
+  // Points redemption: 1 point = ₱1, consume all points (capped at grossTotal)
+  const pointsRedemptionAmount = usePoints && loyaltyCustomer
+    ? Math.min(loyaltyCustomer.totalPoints, Math.floor(grossTotal))
+    : 0;
+  const amountDue = Math.max(0, grossTotal - exchangeCredit - pointsRedemptionAmount);
+  // How much more the customer still needs to add to consume the full credit
+  const remainingCredit = Math.max(0, exchangeCredit - grossTotal);
   const total = grossTotal;
+  // Points earned on the amount the customer actually pays
+  const pointsToEarn = loyaltyCustomer
+    ? Math.floor(amountDue / 100)
+    : 0;
 
   // Filter products by category and search
   const filteredProducts =
@@ -604,14 +626,94 @@ export default function Page() {
         );
       return matchesCategory && matchesSearch;
     }) || [];
+  // Loyalty: look up customer by phone from API (with local cache fallback)
+  const handleLoyaltyLookup = async () => {
+    const phone = loyaltyPhoneInput.trim();
+    if (!phone) return;
+    setLoyaltyLookupLoading(true);
+    setLoyaltyLookupError("");
+    try {
+      let customer = null;
+      if (apiClient.isOnline() && apiClient.getAccessToken()) {
+        customer = await apiClient.lookupCustomerByPhone(phone);
+        if (customer) {
+          await dbHelpers.cacheCustomer({
+            id: customer.id,
+            organizationId: customer.organizationId,
+            name: customer.name,
+            phone: customer.phone,
+            totalPoints: customer.totalPoints,
+            totalSpent: Number(customer.totalSpent),
+          });
+        }
+      } else {
+        const cached = await dbHelpers.getCachedCustomerByPhone(phone);
+        if (cached) customer = cached;
+      }
+      if (customer) {
+        setLoyaltyCustomer({
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          totalPoints: customer.totalPoints,
+        });
+        setUsePoints(false);
+      } else {
+        setLoyaltyLookupError("No customer found. Register them below.");
+        setRegisterCustomerName("");
+        setShowRegisterCustomerDialog(true);
+      }
+    } catch {
+      setLoyaltyLookupError("Lookup failed. Please try again.");
+    } finally {
+      setLoyaltyLookupLoading(false);
+    }
+  };
+
+  // Loyalty: register a new customer
+  const handleRegisterCustomer = async () => {
+    const phone = loyaltyPhoneInput.trim();
+    const name = registerCustomerName.trim();
+    if (!phone || !name) return;
+    setRegisterCustomerLoading(true);
+    try {
+      const customer = await apiClient.registerCustomer({ name, phone });
+      await dbHelpers.cacheCustomer({
+        id: customer.id,
+        organizationId: customer.organizationId,
+        name: customer.name,
+        phone: customer.phone,
+        totalPoints: customer.totalPoints,
+        totalSpent: Number(customer.totalSpent),
+      });
+      setLoyaltyCustomer({
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        totalPoints: customer.totalPoints,
+      });
+      setShowRegisterCustomerDialog(false);
+      setUsePoints(false);
+      setLoyaltyLookupError("");
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || "Registration failed.";
+      setLoyaltyLookupError(typeof msg === "string" ? msg : "Registration failed.");
+    } finally {
+      setRegisterCustomerLoading(false);
+    }
+  };
+
+  // Loyalty: clear selected customer
+  const clearLoyaltyCustomer = () => {
+    setLoyaltyCustomer(null);
+    setUsePoints(false);
+    setLoyaltyPhoneInput("");
+    setLoyaltyLookupError("");
+  };
+
   // Open cash dialog or process other payments
   const handlePaymentClick = (paymentMethod: PaymentMethod) => {
     setSelectedPaymentMethod(paymentMethod);
-    // If exchange credit covers everything, skip to processing directly
-    if (changeFromCredit > 0) {
-      handleCheckout(paymentMethod);
-      return;
-    }
     if (paymentMethod === PaymentMethod.CASH) {
       setShowCashDialog(true);
       setCashReceived("");
@@ -684,7 +786,13 @@ export default function Page() {
 
       // Exchange credit applied as a discount so financials stay correct
       const creditApplied = isExchange ? Math.min(exchangeCredit, grossTotal) : 0;
-      const finalTotal = Math.max(0, grossTotal - creditApplied);
+      // Points redemption deducted from total (after exchange credit)
+      const pointsRedeemedNow = usePoints && loyaltyCustomer
+        ? Math.min(loyaltyCustomer.totalPoints, Math.floor(Math.max(0, grossTotal - creditApplied)))
+        : 0;
+      const finalTotal = Math.max(0, grossTotal - creditApplied - pointsRedeemedNow);
+      // Points earned on net amount paid
+      const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 100) : 0;
 
       // Create order in IndexedDB
       const orderId = await db.orders.add({
@@ -692,12 +800,12 @@ export default function Page() {
         orderNumber,
         terminalId,
         cashierId: user.id || "unknown",
-        customerName: customerName.trim() || undefined,
+        customerName: loyaltyCustomer ? loyaltyCustomer.name : customerName.trim() || undefined,
         customerAddress: customerAddress.trim() || undefined,
         items,
         subtotal,
         taxAmount: tax,
-        discountAmount: creditApplied,
+        discountAmount: creditApplied + pointsRedeemedNow,
         totalAmount: finalTotal,
         status: isExchange ? OrderStatus.EXCHANGE : OrderStatus.COMPLETED,
         completedAt: now,
@@ -708,6 +816,12 @@ export default function Page() {
         ...(isExchange && {
           exchangeRef: exchangeRef!,
           originalOrderServerId: originalOrderServerId ?? undefined,
+        }),
+        // Loyalty points fields
+        ...(loyaltyCustomer && {
+          customerId: loyaltyCustomer.id,
+          pointsRedeemed: pointsRedeemedNow > 0 ? pointsRedeemedNow : undefined,
+          pointsEarned: pointsEarnedNow > 0 ? pointsEarnedNow : undefined,
         }),
       });
 
@@ -752,6 +866,19 @@ export default function Page() {
       const userStr = localStorage.getItem("user");
       const userData = userStr ? JSON.parse(userStr) : null;
 
+      // Update local customer cache with new points balance
+      if (loyaltyCustomer) {
+        const newPoints = loyaltyCustomer.totalPoints - pointsRedeemedNow + pointsEarnedNow;
+        const cached = await dbHelpers.getCachedCustomerById(loyaltyCustomer.id);
+        if (cached) {
+          await dbHelpers.cacheCustomer({
+            ...cached,
+            totalPoints: newPoints,
+            totalSpent: Number(cached.totalSpent) + finalTotal,
+          });
+        }
+      }
+
       // Store receipt data
       setLastReceipt({
         orderNumber,
@@ -767,21 +894,23 @@ export default function Page() {
         totalAmount: finalTotal,
         paymentMethod: paymentMethod,
         paymentReference: referenceNumber.trim() || undefined,
-        customerName: customerName.trim() || undefined,
+        customerName: loyaltyCustomer ? loyaltyCustomer.name : customerName.trim() || undefined,
         customerAddress: customerAddress.trim() || undefined,
         cashReceived: paymentMethod === PaymentMethod.CASH ? cashAmount : undefined,
-        change: paymentMethod === PaymentMethod.CASH
-          ? (changeFromCredit > 0 ? changeFromCredit : change)
-          : undefined,
+        change: paymentMethod === PaymentMethod.CASH && change > 0 ? change : undefined,
         cashierName: userData?.name || "Cashier",
         terminalName: terminal || "TERMINAL-001",
         dateTime: now,
         exchangeRef: isExchange ? exchangeRef : undefined,
+        pointsRedeemed: pointsRedeemedNow > 0 ? pointsRedeemedNow : undefined,
+        pointsEarned: pointsEarnedNow > 0 ? pointsEarnedNow : undefined,
+        loyaltyCustomerName: loyaltyCustomer?.name,
       });
 
       // Clear cart and any active exchange after successful order
       clearCart();
       clearExchange();
+      clearLoyaltyCustomer();
       setShowCashDialog(false);
       setShowPaymentDialog(false);
       setCashReceived("");
@@ -793,11 +922,7 @@ export default function Page() {
       setShowReceiptDialog(true);
 
       // Show success feedback
-      if (changeFromCredit > 0) {
-        showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Exchange"), {
-          description: `Give customer change: ₱${changeFromCredit.toFixed(2)}`,
-        });
-      } else if (paymentMethod === PaymentMethod.CASH && change > 0) {
+      if (paymentMethod === PaymentMethod.CASH && change > 0) {
         showSuccessToast(SUCCESS_MESSAGES.COMPLETED("Order"), {
           description: `Change: ₱${change.toFixed(2)}`,
         });
@@ -1010,15 +1135,36 @@ export default function Page() {
                 <span>-₱{Math.min(exchangeCredit, grossTotal).toFixed(2)}</span>
               </div>
             )}
+            {pointsRedemptionAmount > 0 && (
+              <div className="flex justify-between text-sm text-yellow-700 font-medium">
+                <span className="flex items-center gap-1">
+                  <Star className="h-3 w-3 text-yellow-500" />
+                  Points Discount
+                </span>
+                <span>-₱{pointsRedemptionAmount.toFixed(2)}</span>
+              </div>
+            )}
             <Separator />
-            <div className="flex justify-between items-center">
-              <span className="text-lg font-semibold text-gray-900">
-                {changeFromCredit > 0 ? "Change to Give" : "Amount Due"}
-              </span>
-              <span className={`text-3xl font-bold ${changeFromCredit > 0 ? "text-orange-600" : "text-gray-900"}`}>
-                ₱{changeFromCredit > 0 ? changeFromCredit.toFixed(2) : amountDue.toFixed(2)}
-              </span>
-            </div>
+            {remainingCredit > 0 ? (
+              <div className="rounded-lg border-2 border-orange-300 bg-orange-50 px-3 py-2 space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-semibold text-orange-800">Amount Due</span>
+                  <span className="text-3xl font-bold text-orange-700">
+                    ₱{amountDue.toFixed(2)}
+                  </span>
+                </div>
+                <p className="text-xs text-orange-700 font-medium">
+                  Add ₱{remainingCredit.toFixed(2)} more in items to consume the full exchange credit. No change will be given.
+                </p>
+              </div>
+            ) : (
+              <div className="flex justify-between items-center">
+                <span className="text-lg font-semibold text-gray-900">Amount Due</span>
+                <span className="text-3xl font-bold text-gray-900">
+                  ₱{amountDue.toFixed(2)}
+                </span>
+              </div>
+            )}
             {orderItems.length > 0 && (
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="flex justify-between text-sm text-gray-500">
@@ -1048,6 +1194,99 @@ export default function Page() {
           </div>
         </div>
 
+        {/* Loyalty Points Panel */}
+        <div className="border-b bg-white px-4 py-3 flex-shrink-0">
+          {!loyaltyCustomer ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                <Star className="h-3.5 w-3.5 text-yellow-500" />
+                Loyalty Points
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={loyaltyPhoneInput}
+                  onChange={(e) => {
+                    setLoyaltyPhoneInput(e.target.value);
+                    setLoyaltyLookupError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleLoyaltyLookup();
+                    }
+                  }}
+                  placeholder="Customer phone..."
+                  className="flex-1 h-8 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+                  onClick={handleLoyaltyLookup}
+                  disabled={loyaltyLookupLoading || !loyaltyPhoneInput.trim()}
+                >
+                  {loyaltyLookupLoading ? "..." : "Find"}
+                </Button>
+              </div>
+              {loyaltyLookupError && (
+                <p className="text-xs text-red-600">{loyaltyLookupError}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                  <Star className="h-3.5 w-3.5 text-yellow-500" />
+                  Loyalty Member
+                </p>
+                <button
+                  onClick={clearLoyaltyCustomer}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-sm text-gray-900">{loyaltyCustomer.name}</p>
+                    <p className="text-xs text-gray-500">{loyaltyCustomer.phone}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-yellow-600">{loyaltyCustomer.totalPoints}</p>
+                    <p className="text-xs text-yellow-700">pts available</p>
+                  </div>
+                </div>
+                {loyaltyCustomer.totalPoints > 0 && orderItems.length > 0 && (
+                  <label className="flex items-center gap-2 mt-2 pt-2 border-t border-yellow-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={usePoints}
+                      onChange={(e) => setUsePoints(e.target.checked)}
+                      className="h-4 w-4 accent-yellow-500 cursor-pointer"
+                    />
+                    <span className="text-sm font-medium text-yellow-800">
+                      Use {loyaltyCustomer.totalPoints} pts
+                      <span className="ml-1 text-green-700 font-bold">
+                        (−₱{Math.min(loyaltyCustomer.totalPoints, Math.floor(grossTotal)).toFixed(2)})
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {loyaltyCustomer.totalPoints === 0 && (
+                  <p className="text-xs text-gray-500 mt-1">No points to redeem yet.</p>
+                )}
+              </div>
+              {pointsToEarn > 0 && (
+                <p className="text-xs text-green-700 font-medium text-center">
+                  +{pointsToEarn} pts will be earned on this order
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -1066,7 +1305,7 @@ export default function Page() {
                     : "hover:border-gray-300"
                 }`}
                 onClick={() => handlePaymentClick(PaymentMethod.CASH)}
-                disabled={orderItems.length === 0 || isProcessing}
+                disabled={orderItems.length === 0 || isProcessing || remainingCredit > 0}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
@@ -1090,7 +1329,7 @@ export default function Page() {
                     : "hover:border-gray-300"
                 }`}
                 onClick={() => handlePaymentClick(PaymentMethod.CARD)}
-                disabled={orderItems.length === 0 || isProcessing}
+                disabled={orderItems.length === 0 || isProcessing || remainingCredit > 0}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
@@ -1114,7 +1353,7 @@ export default function Page() {
                     : "hover:border-gray-300"
                 }`}
                 onClick={() => handlePaymentClick(PaymentMethod.DIGITAL_WALLET)}
-                disabled={orderItems.length === 0 || isProcessing}
+                disabled={orderItems.length === 0 || isProcessing || remainingCredit > 0}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
@@ -1896,6 +2135,9 @@ export default function Page() {
                 cashierName={lastReceipt.cashierName}
                 terminalName={lastReceipt.terminalName}
                 dateTime={lastReceipt.dateTime}
+                pointsRedeemed={lastReceipt.pointsRedeemed}
+                pointsEarned={lastReceipt.pointsEarned}
+                loyaltyCustomerName={lastReceipt.loyaltyCustomerName}
                 onPrintComplete={() => {
                   // Optional: close dialog after print
                   // setShowReceiptDialog(false);
@@ -2265,6 +2507,54 @@ export default function Page() {
             </Button>
             <Button onClick={addManualItem}>
               Add to Cart
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Register New Loyalty Customer Dialog */}
+      <Dialog open={showRegisterCustomerDialog} onOpenChange={setShowRegisterCustomerDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-yellow-600" />
+              Register Loyalty Customer
+            </DialogTitle>
+            <DialogDescription>
+              Phone: <strong>{loyaltyPhoneInput}</strong> — not found. Register them now.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Customer Name *</label>
+              <Input
+                type="text"
+                value={registerCustomerName}
+                onChange={(e) => setRegisterCustomerName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && registerCustomerName.trim()) {
+                    e.preventDefault();
+                    handleRegisterCustomer();
+                  }
+                }}
+                placeholder="Full name"
+                autoFocus
+              />
+            </div>
+            {loyaltyLookupError && (
+              <p className="text-sm text-red-600">{loyaltyLookupError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRegisterCustomerDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-yellow-500 hover:bg-yellow-600 text-white"
+              onClick={handleRegisterCustomer}
+              disabled={!registerCustomerName.trim() || registerCustomerLoading}
+            >
+              {registerCustomerLoading ? "Registering..." : "Register & Continue"}
             </Button>
           </DialogFooter>
         </DialogContent>

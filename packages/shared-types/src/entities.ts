@@ -6,6 +6,7 @@ import {
   UserRole,
   SubscriptionPlan,
   SubscriptionStatus,
+  PointTransactionType,
 } from "./enums";
 
 /**
@@ -50,6 +51,9 @@ export interface Order extends BaseEntity {
   cashierId: string;
   customerName?: string;
   customerAddress?: string;
+  customerId?: string;         // FK to customers table
+  pointsEarned?: number;       // Loyalty points earned on this order
+  pointsRedeemed?: number;     // Loyalty points redeemed on this order
   subtotal: number;
   taxAmount: number;
   discountAmount: number;
@@ -62,6 +66,31 @@ export interface Order extends BaseEntity {
   exchangeRef?: string;        // order number of the original transaction being exchanged
   exchangedAt?: Date;
   items: OrderItem[];
+}
+
+/**
+ * Customer entity
+ */
+export interface Customer extends BaseEntity {
+  organizationId: string;
+  name: string;
+  phone: string;
+  totalPoints: number;
+  totalSpent: number;
+}
+
+/**
+ * Customer point transaction entity
+ */
+export interface CustomerPointTransaction {
+  id: string;
+  customerId: string;
+  orderId?: string;
+  organizationId: string;
+  type: PointTransactionType;
+  points: number;
+  description?: string;
+  createdAt: Date;
 }
 
 /**
