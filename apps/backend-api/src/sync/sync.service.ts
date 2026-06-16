@@ -59,23 +59,38 @@ export class SyncService {
     const orderResults: SyncResultDto[] = [];
     const paymentResults: SyncResultDto[] = [];
 
-    // Process orders
-    for (const orderDto of syncRequest.orders) {
-      const result = await this.processOrder(orderDto, user);
-      orderResults.push(result);
+    // Process orders in parallel batches of 5 to avoid overwhelming the DB
+    // while still being much faster than fully sequential processing.
+    const ORDER_PARALLEL = 5;
+    for (let i = 0; i < syncRequest.orders.length; i += ORDER_PARALLEL) {
+      const batch = syncRequest.orders.slice(i, i + ORDER_PARALLEL);
+      const results = await Promise.all(
+        batch.map((dto) => this.processOrder(dto, user)),
+      );
+      orderResults.push(...results);
     }
 
-    // Process payments
-    for (const paymentDto of syncRequest.payments) {
-      const result = await this.processPayment(paymentDto, user);
-      paymentResults.push(result);
+    // Process payments in parallel batches of 5
+    const PAYMENT_PARALLEL = 5;
+    for (let i = 0; i < syncRequest.payments.length; i += PAYMENT_PARALLEL) {
+      const batch = syncRequest.payments.slice(i, i + PAYMENT_PARALLEL);
+      const results = await Promise.all(
+        batch.map((dto) => this.processPayment(dto, user)),
+      );
+      paymentResults.push(...results);
     }
 
     // Update terminal last sync time
     await this.updateTerminalSync(syncRequest.terminalId, syncedAt);
 
-    // Get product catalog if requested or if it's been a while
-    const catalog = await this.getProductCatalog(syncRequest.lastSyncAt, user);
+    // Only fetch the product catalog when the POS is not uploading orders/payments.
+    // Fetching the full catalog on every order-sync batch is wasteful and adds
+    // significant latency during backlog recovery.
+    const hasPendingData =
+      syncRequest.orders.length > 0 || syncRequest.payments.length > 0;
+    const catalog = hasPendingData
+      ? undefined
+      : await this.getProductCatalog(syncRequest.lastSyncAt, user);
 
     return {
       status: SyncStatus.SUCCESS,

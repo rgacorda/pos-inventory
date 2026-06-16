@@ -174,6 +174,17 @@ export class SyncService {
   private lastSyncRequestCheck = 0;
   private hasPendingItems = false;
 
+  // Max orders/payments per sync request to avoid timeouts on large backlogs
+  private readonly BATCH_SIZE = 25;
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+
   async startAutoSync(intervalMs: number = 60000) {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
@@ -346,7 +357,6 @@ export class SyncService {
         throw new Error("Terminal ID not set");
       }
 
-      // Get pending items
       const { orders, payments } = await dbHelpers.getPendingSyncItems();
 
       if (orders.length > 0) {
@@ -355,57 +365,29 @@ export class SyncService {
 
       if (orders.length === 0 && payments.length === 0) {
         console.log("No items to sync");
-        this.hasPendingItems = false; // Update flag for adaptive polling
+        this.hasPendingItems = false;
         await this.syncProductCatalog(terminalId);
         return true;
       }
 
       console.log(
-        `Syncing ${orders.length} orders and ${payments.length} payments...`,
+        `Syncing ${orders.length} orders and ${payments.length} payments in batches of ${this.BATCH_SIZE}...`,
       );
 
-      // Mark items as syncing
-      await this.markItemsAsSyncing(orders, payments);
+      await this.syncBatchedItems(orders, payments, terminalId);
 
-      // Prepare sync request
-      const lastSyncAt = await dbHelpers.getLastSyncTime();
-      const syncRequest: SyncRequestDto = {
-        terminalId,
-        lastSyncAt: lastSyncAt || undefined,
-        orders: orders.map(this.convertLocalOrderToDto),
-        payments: payments.map(this.convertLocalPaymentToDto),
-      };
-
-      // Send sync request
-      const response = await apiClient.sync(syncRequest);
-
-      // Process results
-      await this.processSyncResults(response);
-
-      // Update product catalog if included
-      if (response.catalog) {
-        await this.updateProductCatalog(response.catalog);
-      }
-
-      // Update last sync time
-      await dbHelpers.updateLastSyncTime(response.syncedAt);
-
-      // Clear sync request flag if it was set
+      // Clear sync request flag
       try {
         await apiClient.clearSyncRequest(terminalId);
       } catch (error) {
-        // Non-critical error - log but don't fail the sync
         console.error("Failed to clear sync request flag:", error);
       }
 
-      // Update flag for adaptive polling (all items synced successfully)
       this.hasPendingItems = false;
-
       console.log("Sync completed successfully");
       return true;
     } catch (error) {
       console.error("Sync failed:", error);
-      await this.markItemsAsError(error);
       return false;
     } finally {
       this.isSyncing = false;
@@ -437,7 +419,6 @@ export class SyncService {
         throw new Error("Terminal ID not set");
       }
 
-      // Get all failed and pending items (including from previous days)
       const { orders, payments } =
         await dbHelpers.getFailedAndPendingSyncItems();
 
@@ -450,38 +431,13 @@ export class SyncService {
       }
 
       console.log(
-        `Retrying sync for ${orders.length} orders and ${payments.length} payments (including previous failed attempts)...`,
+        `Retrying sync for ${orders.length} orders and ${payments.length} payments in batches of ${this.BATCH_SIZE}...`,
       );
 
-      // Mark items as syncing
-      await this.markItemsAsSyncing(orders, payments);
-
-      // Prepare sync request
-      const lastSyncAt = await dbHelpers.getLastSyncTime();
-      const syncRequest: SyncRequestDto = {
-        terminalId,
-        lastSyncAt: lastSyncAt || undefined,
-        orders: orders.map(this.convertLocalOrderToDto),
-        payments: payments.map(this.convertLocalPaymentToDto),
-      };
-
-      // Send sync request
-      const response = await apiClient.sync(syncRequest);
-
-      // Process results
-      await this.processSyncResults(response);
-
-      // Update product catalog if included
-      if (response.catalog) {
-        await this.updateProductCatalog(response.catalog);
-      }
-
-      // Update last sync time
-      await dbHelpers.updateLastSyncTime(response.syncedAt);
+      await this.syncBatchedItems(orders, payments, terminalId);
 
       console.log("Retry sync completed successfully");
 
-      // Check if all items are now synced
       const remainingCounts = await dbHelpers.getFailedItemsCount();
       if (remainingCounts.total === 0 && this.isRetryActive) {
         console.log("All items synced successfully, stopping automatic retry");
@@ -491,10 +447,86 @@ export class SyncService {
       return true;
     } catch (error) {
       console.error("Retry sync failed:", error);
-      await this.markItemsAsError(error);
       return false;
     } finally {
       this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Core batching engine — sends orders first (in BATCH_SIZE chunks), then payments.
+   * Payments are sent after all orders so the server can always find the parent order.
+   * Each batch marks only its own items as "syncing", so a failure in one batch
+   * doesn't reset already-synced batches.
+   */
+  private async syncBatchedItems(
+    allOrders: any[],
+    allPayments: any[],
+    terminalId: string,
+  ): Promise<void> {
+    const lastSyncAt = await dbHelpers.getLastSyncTime();
+    let lastSyncedAt: Date | null = null;
+    let lastCatalog: any = null;
+
+    const orderBatches = this.chunkArray(allOrders, this.BATCH_SIZE);
+    const paymentBatches = this.chunkArray(allPayments, this.BATCH_SIZE);
+    const totalBatches = orderBatches.length + paymentBatches.length;
+    let batchNum = 0;
+
+    // Phase 1: sync orders
+    for (const batch of orderBatches) {
+      batchNum++;
+      console.log(
+        `Syncing order batch ${batchNum}/${totalBatches} (${batch.length} orders)...`,
+      );
+      await this.markItemsAsSyncing(batch, []);
+      try {
+        const req: SyncRequestDto = {
+          terminalId,
+          lastSyncAt: lastSyncAt || undefined,
+          orders: batch.map(this.convertLocalOrderToDto),
+          payments: [],
+        };
+        const response = await apiClient.sync(req);
+        await this.processSyncResults(response);
+        lastSyncedAt = new Date(response.syncedAt);
+        if (response.catalog) lastCatalog = response.catalog;
+      } catch (error) {
+        // Mark only this batch as error — already-synced batches stay "synced"
+        await this.markItemsAsError(error);
+        throw error;
+      }
+    }
+
+    // Phase 2: sync payments (all orders are now on the server)
+    for (const batch of paymentBatches) {
+      batchNum++;
+      console.log(
+        `Syncing payment batch ${batchNum}/${totalBatches} (${batch.length} payments)...`,
+      );
+      await this.markItemsAsSyncing([], batch);
+      try {
+        const req: SyncRequestDto = {
+          terminalId,
+          lastSyncAt: lastSyncAt || undefined,
+          orders: [],
+          payments: batch.map(this.convertLocalPaymentToDto),
+        };
+        const response = await apiClient.sync(req);
+        await this.processSyncResults(response);
+        lastSyncedAt = new Date(response.syncedAt);
+        if (response.catalog) lastCatalog = response.catalog;
+      } catch (error) {
+        await this.markItemsAsError(error);
+        throw error;
+      }
+    }
+
+    if (lastCatalog) {
+      await this.updateProductCatalog(lastCatalog);
+    }
+    if (lastSyncedAt) {
+      await dbHelpers.updateLastSyncTime(lastSyncedAt);
     }
   }
 
@@ -558,50 +590,62 @@ export class SyncService {
   }
 
   private async processSyncResults(response: SyncResponseDto) {
-    // Process order results
-    for (const result of response.results.orders) {
-      const localOrder = await db.orders
+    // Batch-fetch orders then update in parallel (one Dexie query instead of N)
+    if (response.results.orders.length > 0) {
+      const orderIds = response.results.orders.map((r) => r.posLocalId);
+      const localOrders = await db.orders
         .where("posLocalId")
-        .equals(result.posLocalId)
-        .first();
+        .anyOf(orderIds)
+        .toArray();
+      const orderMap = new Map(localOrders.map((o) => [o.posLocalId, o]));
 
-      if (localOrder) {
-        if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
-          await db.orders.update(localOrder.id!, {
-            serverId: result.serverId, // Store server UUID for future API calls
-            syncStatus: "synced",
-            syncError: undefined,
-          });
-        } else {
-          await db.orders.update(localOrder.id!, {
+      await Promise.all(
+        response.results.orders.map((result) => {
+          const localOrder = orderMap.get(result.posLocalId);
+          if (!localOrder?.id) return;
+          if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
+            return db.orders.update(localOrder.id, {
+              serverId: result.serverId,
+              syncStatus: "synced",
+              syncError: undefined,
+            });
+          }
+          return db.orders.update(localOrder.id, {
             syncStatus: "error",
             syncError: result.message || "Sync failed",
           });
-        }
-      }
+        }),
+      );
     }
 
-    // Process payment results
-    for (const result of response.results.payments) {
-      const localPayment = await db.payments
+    // Batch-fetch payments then update in parallel
+    if (response.results.payments.length > 0) {
+      const paymentIds = response.results.payments.map((r) => r.posLocalId);
+      const localPayments = await db.payments
         .where("posLocalId")
-        .equals(result.posLocalId)
-        .first();
+        .anyOf(paymentIds)
+        .toArray();
+      const paymentMap = new Map(
+        localPayments.map((p) => [p.posLocalId, p]),
+      );
 
-      if (localPayment) {
-        if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
-          await db.payments.update(localPayment.id!, {
-            serverId: result.serverId, // Store server UUID for future API calls
-            syncStatus: "synced",
-            syncError: undefined,
-          });
-        } else {
-          await db.payments.update(localPayment.id!, {
+      await Promise.all(
+        response.results.payments.map((result) => {
+          const localPayment = paymentMap.get(result.posLocalId);
+          if (!localPayment?.id) return;
+          if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
+            return db.payments.update(localPayment.id, {
+              serverId: result.serverId,
+              syncStatus: "synced",
+              syncError: undefined,
+            });
+          }
+          return db.payments.update(localPayment.id, {
             syncStatus: "error",
             syncError: result.message || "Sync failed",
           });
-        }
-      }
+        }),
+      );
     }
   }
 
