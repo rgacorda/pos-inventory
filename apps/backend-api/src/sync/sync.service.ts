@@ -166,7 +166,7 @@ export class SyncService {
         const amountPaid = Number(orderDto.totalAmount);
         const pointsRedeemed = (!isExchangeOrder && orderDto.pointsRedeemed) ? orderDto.pointsRedeemed : 0;
         const pointsEarned = resolvedCustomerId
-          ? Math.floor(amountPaid / 100)
+          ? Math.floor(amountPaid / 200)
           : undefined;
 
         // Create order entity

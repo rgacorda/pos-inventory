@@ -235,7 +235,7 @@ export function Receipt({
                   <div>Points Earned: +{pointsEarned} pts</div>
                 ) : null}
                 <div className="text-[9pt] text-gray-500 mt-1">
-                  100 pts = ₱100 off your next purchase
+                  ₱200 spent = 1 pt · 1 pt = ₱1 off
                 </div>
               </div>
             </>

@@ -605,7 +605,7 @@ export default function Page() {
   const total = grossTotal;
   // Points earned on the amount the customer actually pays
   const pointsToEarn = loyaltyCustomer
-    ? Math.floor(amountDue / 100)
+    ? Math.floor(amountDue / 200)
     : 0;
 
   // Filter products by category and search
@@ -792,7 +792,7 @@ export default function Page() {
         : 0;
       const finalTotal = Math.max(0, grossTotal - creditApplied - pointsRedeemedNow);
       // Points earned on net amount paid
-      const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 100) : 0;
+      const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 200) : 0;
 
       // Create order in IndexedDB
       const orderId = await db.orders.add({
