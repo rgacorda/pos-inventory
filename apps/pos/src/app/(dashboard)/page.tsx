@@ -799,7 +799,7 @@ export default function Page() {
         posLocalId: orderPosLocalId,
         orderNumber,
         terminalId,
-        cashierId: user.id || "unknown",
+        cashierId: user.id || undefined,
         customerName: loyaltyCustomer ? loyaltyCustomer.name : customerName.trim() || undefined,
         customerAddress: customerAddress.trim() || undefined,
         items,

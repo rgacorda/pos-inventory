@@ -91,8 +91,8 @@ export function CheckoutModal({
 
       const cashierId =
         typeof window !== "undefined"
-          ? localStorage.getItem("userId") || "default-cashier"
-          : "default-cashier";
+          ? localStorage.getItem("userId") || undefined
+          : undefined;
 
       const order: Omit<LocalOrder, "id"> = {
         orderNumber: `ORD-${Date.now()}`,

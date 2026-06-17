@@ -138,14 +138,13 @@ export class SyncService {
         }
 
         // Look up cashier UUID from cashierId (if it's not already a UUID)
-        let cashierUuid = orderDto.cashierId;
+        let cashierUuid: string | undefined = orderDto.cashierId;
         if (orderDto.cashierId && !this.isUUID(orderDto.cashierId)) {
           const cashier = await queryRunner.manager.findOne(UserEntity, {
             where: { email: orderDto.cashierId },
           });
-          if (cashier) {
-            cashierUuid = cashier.id;
-          }
+          // If the value isn't a UUID and can't be resolved by email, treat as unknown
+          cashierUuid = cashier ? cashier.id : undefined;
         }
 
         // Generate order number
