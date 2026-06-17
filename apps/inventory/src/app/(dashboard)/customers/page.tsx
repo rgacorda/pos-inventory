@@ -41,6 +41,9 @@ import {
   IconHistory,
   IconArrowUp,
   IconArrowDown,
+  IconSettings,
+  IconPlayerPlay,
+  IconClock,
 } from "@tabler/icons-react";
 
 interface Customer {
@@ -54,10 +57,11 @@ interface Customer {
 
 interface PointTransaction {
   id: string;
-  type: "EARN" | "REDEEM";
+  type: "EARN" | "REDEEM" | "EXPIRE";
   points: number;
   description: string;
   createdAt: string;
+  expiresAt?: string;
 }
 
 export default function CustomersPage() {
@@ -78,6 +82,13 @@ export default function CustomersPage() {
   const [transactions, setTransactions] = useState<PointTransaction[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
 
+  // Loyalty settings
+  const [loyaltyExpiryDays, setLoyaltyExpiryDays] = useState<number | null>(null);
+  const [loyaltySettingsLoading, setLoyaltySettingsLoading] = useState(true);
+  const [expiryInput, setExpiryInput] = useState<string>("");
+  const [loyaltySaving, setLoyaltySaving] = useState(false);
+  const [expiryRunning, setExpiryRunning] = useState(false);
+
   const loadCustomers = async () => {
     try {
       setLoading(true);
@@ -90,8 +101,53 @@ export default function CustomersPage() {
     }
   };
 
+  const loadLoyaltySettings = async () => {
+    try {
+      setLoyaltySettingsLoading(true);
+      const data = await apiClient.getLoyaltySettings();
+      setLoyaltyExpiryDays(data.loyaltyExpiryDays ?? null);
+      setExpiryInput(data.loyaltyExpiryDays != null ? String(data.loyaltyExpiryDays) : "");
+    } catch {
+      // non-critical
+    } finally {
+      setLoyaltySettingsLoading(false);
+    }
+  };
+
+  const handleSaveLoyaltySettings = async () => {
+    setLoyaltySaving(true);
+    try {
+      const days = expiryInput.trim() === "" ? null : parseInt(expiryInput, 10);
+      if (days !== null && (isNaN(days) || days < 1)) {
+        showErrorFromException(new Error("Enter a valid number of days (minimum 1) or leave blank for no expiry."), "");
+        return;
+      }
+      await apiClient.updateLoyaltySettings(days);
+      setLoyaltyExpiryDays(days);
+      showSuccessToast("Loyalty settings saved");
+    } catch (err) {
+      showErrorFromException(err, "Failed to save loyalty settings");
+    } finally {
+      setLoyaltySaving(false);
+    }
+  };
+
+  const handleRunExpiryNow = async () => {
+    setExpiryRunning(true);
+    try {
+      const result = await apiClient.runPointsExpiryNow();
+      showSuccessToast(`Expiry run complete — ${result.pointsExpired} pts expired across ${result.processed} transactions`);
+      loadCustomers();
+    } catch (err) {
+      showErrorFromException(err, "Expiry run failed");
+    } finally {
+      setExpiryRunning(false);
+    }
+  };
+
   useEffect(() => {
     loadCustomers();
+    loadLoyaltySettings();
   }, []);
 
   const filteredCustomers = customers.filter((c) => {
@@ -225,6 +281,86 @@ export default function CustomersPage() {
           </CardHeader>
         </Card>
       </div>
+
+      {/* Loyalty Settings Card */}
+      <Card className="border-yellow-200 bg-yellow-50/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconSettings className="h-4 w-4 text-yellow-600" />
+            Loyalty Settings
+          </CardTitle>
+          <CardDescription>
+            Configure how long earned points remain valid. Expired points are automatically deducted each night.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loyaltySettingsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading settings...</p>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
+              {/* Expiry input */}
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5 text-sm font-medium">
+                  <IconClock className="h-4 w-4 text-yellow-600" />
+                  Points expire after
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={expiryInput}
+                    onChange={(e) => setExpiryInput(e.target.value)}
+                    placeholder="e.g. 365"
+                    className="w-32 h-9"
+                  />
+                  <span className="text-sm text-muted-foreground">days</span>
+                  {expiryInput.trim() === "" && (
+                    <span className="text-xs text-green-700 font-medium bg-green-100 px-2 py-0.5 rounded-full">
+                      Never expires
+                    </span>
+                  )}
+                  {expiryInput.trim() !== "" && !isNaN(parseInt(expiryInput)) && (
+                    <span className="text-xs text-yellow-800 font-medium bg-yellow-100 px-2 py-0.5 rounded-full">
+                      {parseInt(expiryInput)} days after earning
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to disable expiry.
+                  {loyaltyExpiryDays != null && (
+                    <> Currently set to <strong>{loyaltyExpiryDays} days</strong>.</>
+                  )}
+                  {loyaltyExpiryDays == null && (
+                    <> Currently <strong>no expiry</strong>.</>
+                  )}
+                </p>
+              </div>
+
+              {/* Save button */}
+              <Button
+                onClick={handleSaveLoyaltySettings}
+                disabled={loyaltySaving}
+                className="bg-yellow-500 hover:bg-yellow-600 text-white h-9"
+              >
+                {loyaltySaving ? "Saving..." : "Save Settings"}
+              </Button>
+
+              {/* Manual expiry run */}
+              <Button
+                variant="outline"
+                onClick={handleRunExpiryNow}
+                disabled={expiryRunning}
+                className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
+                title="Immediately process all overdue point expirations for your organization"
+              >
+                <IconPlayerPlay className="h-4 w-4 mr-1.5" />
+                {expiryRunning ? "Running..." : "Run Expiry Now"}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Table */}
       <Card>
@@ -421,13 +557,24 @@ export default function CustomersPage() {
                   {transactions.map((tx) => (
                     <TableRow key={tx.id}>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDateTime(tx.createdAt)}
+                        <div>{formatDateTime(tx.createdAt)}</div>
+                        {tx.type === "EARN" && tx.expiresAt && (
+                          <div className={`text-[10px] mt-0.5 ${new Date(tx.expiresAt) < new Date() ? "text-red-500 font-medium" : "text-yellow-600"}`}>
+                            {new Date(tx.expiresAt) < new Date()
+                              ? `Expired ${formatDate(tx.expiresAt)}`
+                              : `Expires ${formatDate(tx.expiresAt)}`}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">{tx.description}</TableCell>
                       <TableCell className="text-right">
                         <span
                           className={`inline-flex items-center gap-1 font-bold ${
-                            tx.type === "EARN" ? "text-green-700" : "text-red-600"
+                            tx.type === "EARN"
+                              ? "text-green-700"
+                              : tx.type === "EXPIRE"
+                              ? "text-gray-400"
+                              : "text-red-600"
                           }`}
                         >
                           {tx.type === "EARN" ? (
@@ -436,6 +583,9 @@ export default function CustomersPage() {
                             <IconArrowDown className="h-3.5 w-3.5" />
                           )}
                           {tx.type === "EARN" ? "+" : "-"}{tx.points}
+                          {tx.type === "EXPIRE" && (
+                            <span className="text-[10px] font-normal ml-0.5">(expired)</span>
+                          )}
                         </span>
                       </TableCell>
                     </TableRow>

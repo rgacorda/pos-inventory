@@ -24,6 +24,7 @@ import {
   CustomerPointTransactionEntity,
   PointTransactionType,
 } from '../entities/customer-point-transaction.entity';
+import { OrganizationEntity } from '../entities/organization.entity';
 
 @Injectable()
 export class SyncService {
@@ -44,6 +45,8 @@ export class SyncService {
     private customerRepository: Repository<CustomerEntity>,
     @InjectRepository(CustomerPointTransactionEntity)
     private pointTransactionRepository: Repository<CustomerPointTransactionEntity>,
+    @InjectRepository(OrganizationEntity)
+    private organizationRepository: Repository<OrganizationEntity>,
     private dataSource: DataSource,
   ) {}
 
@@ -161,6 +164,19 @@ export class SyncService {
             resolvedCustomerId = customer.id;
           }
         }
+
+        // Fetch org loyalty settings to determine expiry date
+        const org = user?.organizationId
+          ? await queryRunner.manager.findOne(OrganizationEntity, {
+              where: { id: user.organizationId },
+            })
+          : null;
+        const loyaltyExpiryDays = org?.settings?.loyaltyExpiryDays ?? null;
+
+        // Compute expiry date for newly earned points
+        const earnExpiresAt = loyaltyExpiryDays
+          ? new Date(Date.now() + loyaltyExpiryDays * 24 * 60 * 60 * 1000)
+          : null;
 
         // Compute points earned on the net amount paid (after any redemption)
         const amountPaid = Number(orderDto.totalAmount);
@@ -293,6 +309,9 @@ export class SyncService {
               'totalSpent',
               amountPaid,
             );
+            const expiryNote = earnExpiresAt
+              ? `, expires ${earnExpiresAt.toLocaleDateString()}`
+              : '';
             await queryRunner.manager.save(CustomerPointTransactionEntity,
               queryRunner.manager.create(CustomerPointTransactionEntity, {
                 customerId: resolvedCustomerId,
@@ -300,7 +319,8 @@ export class SyncService {
                 organizationId: user.organizationId,
                 type: PointTransactionType.EARN,
                 points: pointsEarned,
-                description: `Earned ${pointsEarned} pts from Order ${orderNumber} (₱${amountPaid.toFixed(2)} spent)`,
+                expiresAt: earnExpiresAt ?? undefined,
+                description: `Earned ${pointsEarned} pts from Order ${orderNumber} (₱${amountPaid.toFixed(2)} spent${expiryNote})`,
               }),
             );
           }

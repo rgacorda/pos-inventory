@@ -8,18 +8,63 @@ import {
   Query,
   UseGuards,
   Request,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { UserRole } from '@pos/shared-types';
 import { CustomersService } from './customers.service';
+import { PointsExpiryService } from './points-expiry.service';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/customer.dto';
+import { IsOptional, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class UpdateLoyaltySettingsDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  loyaltyExpiryDays: number | null;
+}
 
 @Controller('customers')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly pointsExpiryService: PointsExpiryService,
+  ) {}
+
+  // ── Loyalty settings ──────────────────────────────────────────────────────
+
+  @Get('loyalty-settings')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async getLoyaltySettings(@Request() req) {
+    return this.customersService.getLoyaltySettings(req.user.organizationId);
+  }
+
+  @Put('loyalty-settings')
+  @Roles(UserRole.ADMIN)
+  async updateLoyaltySettings(
+    @Request() req,
+    @Body() dto: UpdateLoyaltySettingsDto,
+  ) {
+    return this.customersService.updateLoyaltySettings(
+      req.user.organizationId,
+      dto.loyaltyExpiryDays,
+    );
+  }
+
+  @Post('loyalty-settings/expire-now')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async runExpiryNow(@Request() req) {
+    return this.pointsExpiryService.runNow(req.user.organizationId);
+  }
+
+  // ── Customers ─────────────────────────────────────────────────────────────
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)

@@ -10,6 +10,7 @@ import { TerminalEntity } from '../entities/terminal.entity';
 import { UserEntity } from '../entities/user.entity';
 import { CustomerEntity } from '../entities/customer.entity';
 import { CustomerPointTransactionEntity } from '../entities/customer-point-transaction.entity';
+import { OrganizationEntity } from '../entities/organization.entity';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { CustomerPointTransactionEntity } from '../entities/customer-point-trans
       UserEntity,
       CustomerEntity,
       CustomerPointTransactionEntity,
+      OrganizationEntity,
     ]),
   ],
   controllers: [SyncController],

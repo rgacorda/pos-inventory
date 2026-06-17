@@ -68,6 +68,8 @@ export class OrganizationEntity {
       reporting?: boolean;
       api?: boolean;
     };
+    /** Loyalty: days after which earned points expire. Null/undefined = never. */
+    loyaltyExpiryDays?: number | null;
   };
 
   @Column({ default: true })

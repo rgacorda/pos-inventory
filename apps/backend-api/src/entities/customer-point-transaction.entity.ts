@@ -11,6 +11,7 @@ import {
 export enum PointTransactionType {
   EARN = 'EARN',
   REDEEM = 'REDEEM',
+  EXPIRE = 'EXPIRE',
 }
 
 @Entity('customer_point_transactions')
@@ -50,6 +51,16 @@ export class CustomerPointTransactionEntity {
 
   @Column({ nullable: true, length: 500 })
   description: string;
+
+  /** Date when this EARN transaction's points expire. Null = never expires. */
+  @Column({ type: 'timestamp', nullable: true })
+  @Index()
+  expiresAt: Date;
+
+  /** Set by the expiry cron when this EARN transaction has been processed and
+   *  the corresponding points deducted from the customer balance. */
+  @Column({ type: 'timestamp', nullable: true })
+  expiredAt: Date;
 
   @CreateDateColumn()
   createdAt: Date;

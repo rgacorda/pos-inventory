@@ -396,6 +396,23 @@ class APIClient {
     return response.data;
   }
 
+  async getLoyaltySettings() {
+    const response = await this.client.get('/customers/loyalty-settings');
+    return response.data;
+  }
+
+  async updateLoyaltySettings(loyaltyExpiryDays: number | null) {
+    const response = await this.client.put('/customers/loyalty-settings', {
+      loyaltyExpiryDays,
+    });
+    return response.data;
+  }
+
+  async runPointsExpiryNow() {
+    const response = await this.client.post('/customers/loyalty-settings/expire-now');
+    return response.data;
+  }
+
   // Upload API
   async uploadReceipt(file: File) {
     const formData = new FormData();
