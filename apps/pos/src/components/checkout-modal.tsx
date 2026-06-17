@@ -90,9 +90,9 @@ export function CheckoutModal({
       const now = new Date();
 
       const cashierId =
-        typeof window !== "undefined"
-          ? localStorage.getItem("userId") || undefined
-          : undefined;
+        (typeof window !== "undefined"
+          ? localStorage.getItem("userId")
+          : null) ?? "";
 
       const order: Omit<LocalOrder, "id"> = {
         orderNumber: `ORD-${Date.now()}`,
