@@ -6,6 +6,7 @@ import { PointsExpiryService } from './points-expiry.service';
 import { CustomerEntity } from '../../entities/customer.entity';
 import { CustomerPointTransactionEntity } from '../../entities/customer-point-transaction.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
+import { UserEntity } from '../../entities/user.entity';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { OrganizationEntity } from '../../entities/organization.entity';
       CustomerEntity,
       CustomerPointTransactionEntity,
       OrganizationEntity,
+      UserEntity,
     ]),
   ],
   controllers: [CustomersController],

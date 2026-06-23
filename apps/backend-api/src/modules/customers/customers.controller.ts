@@ -18,7 +18,7 @@ import { UserRole } from '@pos/shared-types';
 import { CustomersService } from './customers.service';
 import { PointsExpiryService } from './points-expiry.service';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/customer.dto';
-import { IsOptional, IsInt, Min } from 'class-validator';
+import { IsOptional, IsInt, Min, IsString, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class UpdateLoyaltySettingsDto {
@@ -27,6 +27,16 @@ class UpdateLoyaltySettingsDto {
   @Min(1)
   @Type(() => Number)
   loyaltyExpiryDays: number | null;
+}
+
+class ResetAllPointsDto {
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
 }
 
 @Controller('customers')
@@ -64,6 +74,18 @@ export class CustomersController {
     return this.pointsExpiryService.runNow(req.user.organizationId);
   }
 
+  @Post('reset-all-points')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async resetAllPoints(@Request() req, @Body() dto: ResetAllPointsDto) {
+    return this.customersService.resetAllPoints(
+      req.user.organizationId,
+      req.user.id,
+      dto.password,
+      dto.reason,
+    );
+  }
+
   // ── Customers ─────────────────────────────────────────────────────────────
 
   @Get()
@@ -80,6 +102,13 @@ export class CustomersController {
       req.user.organizationId,
     );
     return customer ?? null;
+  }
+
+  @Get('search')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  async search(@Request() req, @Query('q') q: string) {
+    if (!q || q.trim().length < 1) return [];
+    return this.customersService.searchByName(q.trim(), req.user.organizationId);
   }
 
   @Get(':id')

@@ -41,9 +41,9 @@ import {
   IconHistory,
   IconArrowUp,
   IconArrowDown,
-  IconSettings,
-  IconPlayerPlay,
-  IconClock,
+  IconEye,
+  IconEyeOff,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 
 interface Customer {
@@ -82,12 +82,13 @@ export default function CustomersPage() {
   const [transactions, setTransactions] = useState<PointTransaction[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
 
-  // Loyalty settings
-  const [loyaltyExpiryDays, setLoyaltyExpiryDays] = useState<number | null>(null);
-  const [loyaltySettingsLoading, setLoyaltySettingsLoading] = useState(true);
-  const [expiryInput, setExpiryInput] = useState<string>("");
-  const [loyaltySaving, setLoyaltySaving] = useState(false);
-  const [expiryRunning, setExpiryRunning] = useState(false);
+
+  // Raffle / Reset all points
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetReason, setResetReason] = useState("Christmas Raffle Points Reset");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   const loadCustomers = async () => {
     try {
@@ -101,53 +102,32 @@ export default function CustomersPage() {
     }
   };
 
-  const loadLoyaltySettings = async () => {
-    try {
-      setLoyaltySettingsLoading(true);
-      const data = await apiClient.getLoyaltySettings();
-      setLoyaltyExpiryDays(data.loyaltyExpiryDays ?? null);
-      setExpiryInput(data.loyaltyExpiryDays != null ? String(data.loyaltyExpiryDays) : "");
-    } catch {
-      // non-critical
-    } finally {
-      setLoyaltySettingsLoading(false);
-    }
-  };
 
-  const handleSaveLoyaltySettings = async () => {
-    setLoyaltySaving(true);
+  const handleResetAllPoints = async () => {
+    if (!resetPassword.trim()) return;
+    setResetLoading(true);
     try {
-      const days = expiryInput.trim() === "" ? null : parseInt(expiryInput, 10);
-      if (days !== null && (isNaN(days) || days < 1)) {
-        showErrorFromException(new Error("Enter a valid number of days (minimum 1) or leave blank for no expiry."), "");
-        return;
-      }
-      await apiClient.updateLoyaltySettings(days);
-      setLoyaltyExpiryDays(days);
-      showSuccessToast("Loyalty settings saved");
-    } catch (err) {
-      showErrorFromException(err, "Failed to save loyalty settings");
-    } finally {
-      setLoyaltySaving(false);
-    }
-  };
-
-  const handleRunExpiryNow = async () => {
-    setExpiryRunning(true);
-    try {
-      const result = await apiClient.runPointsExpiryNow();
-      showSuccessToast(`Expiry run complete — ${result.pointsExpired} pts expired across ${result.processed} transactions`);
+      const result = await apiClient.resetAllPoints(resetPassword, resetReason);
+      showSuccessToast(
+        `Points reset complete — ${result.customersReset} customers, ${result.pointsCleared} pts cleared`
+      );
+      setShowResetDialog(false);
+      setResetPassword("");
       loadCustomers();
-    } catch (err) {
-      showErrorFromException(err, "Expiry run failed");
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      if (msg === "Incorrect password") {
+        showErrorFromException(new Error("Incorrect password. Please try again."), "");
+      } else {
+        showErrorFromException(err, "Reset failed");
+      }
     } finally {
-      setExpiryRunning(false);
+      setResetLoading(false);
     }
   };
 
   useEffect(() => {
     loadCustomers();
-    loadLoyaltySettings();
   }, []);
 
   const filteredCustomers = customers.filter((c) => {
@@ -282,83 +262,27 @@ export default function CustomersPage() {
         </Card>
       </div>
 
-      {/* Loyalty Settings Card */}
+      {/* Loyalty Actions Card */}
       <Card className="border-yellow-200 bg-yellow-50/40">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <IconSettings className="h-4 w-4 text-yellow-600" />
-            Loyalty Settings
+            <IconStar className="h-4 w-4 text-yellow-600" />
+            Loyalty Actions
           </CardTitle>
           <CardDescription>
-            Configure how long earned points remain valid. Expired points are automatically deducted each night.
+            Customers earn 1 point for every ₱500 spent. Points never expire — use the button below to clear all points after a raffle event.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loyaltySettingsLoading ? (
-            <p className="text-sm text-muted-foreground">Loading settings...</p>
-          ) : (
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
-              {/* Expiry input */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5 text-sm font-medium">
-                  <IconClock className="h-4 w-4 text-yellow-600" />
-                  Points expire after
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={expiryInput}
-                    onChange={(e) => setExpiryInput(e.target.value)}
-                    placeholder="e.g. 365"
-                    className="w-32 h-9"
-                  />
-                  <span className="text-sm text-muted-foreground">days</span>
-                  {expiryInput.trim() === "" && (
-                    <span className="text-xs text-green-700 font-medium bg-green-100 px-2 py-0.5 rounded-full">
-                      Never expires
-                    </span>
-                  )}
-                  {expiryInput.trim() !== "" && !isNaN(parseInt(expiryInput)) && (
-                    <span className="text-xs text-yellow-800 font-medium bg-yellow-100 px-2 py-0.5 rounded-full">
-                      {parseInt(expiryInput)} days after earning
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to disable expiry.
-                  {loyaltyExpiryDays != null && (
-                    <> Currently set to <strong>{loyaltyExpiryDays} days</strong>.</>
-                  )}
-                  {loyaltyExpiryDays == null && (
-                    <> Currently <strong>no expiry</strong>.</>
-                  )}
-                </p>
-              </div>
-
-              {/* Save button */}
-              <Button
-                onClick={handleSaveLoyaltySettings}
-                disabled={loyaltySaving}
-                className="bg-yellow-500 hover:bg-yellow-600 text-white h-9"
-              >
-                {loyaltySaving ? "Saving..." : "Save Settings"}
-              </Button>
-
-              {/* Manual expiry run */}
-              <Button
-                variant="outline"
-                onClick={handleRunExpiryNow}
-                disabled={expiryRunning}
-                className="h-9 border-orange-300 text-orange-700 hover:bg-orange-50"
-                title="Immediately process all overdue point expirations for your organization"
-              >
-                <IconPlayerPlay className="h-4 w-4 mr-1.5" />
-                {expiryRunning ? "Running..." : "Run Expiry Now"}
-              </Button>
-            </div>
-          )}
+          <Button
+            variant="outline"
+            onClick={() => { setShowResetDialog(true); setResetPassword(""); }}
+            className="h-9 border-red-300 text-red-700 hover:bg-red-50"
+            title="Zero out all customer points after a raffle event"
+          >
+            <IconAlertTriangle className="h-4 w-4 mr-1.5" />
+            Reset All Points (Raffle)
+          </Button>
         </CardContent>
       </Card>
 
@@ -597,6 +521,87 @@ export default function CustomersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTransactionsDialog(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reset All Points Dialog ─────────────────────────────────────────── */}
+      <Dialog open={showResetDialog} onOpenChange={(o) => { if (!resetLoading) { setShowResetDialog(o); setResetPassword(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <IconAlertTriangle className="h-5 w-5" />
+              Reset All Customer Points
+            </DialogTitle>
+            <DialogDescription>
+              This will <strong>permanently zero out</strong> every customer&apos;s point balance
+              in your organization. Use this after a raffle event when all accumulated points
+              should be cleared. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Reason */}
+            <div className="space-y-1.5">
+              <Label htmlFor="reset-reason">Reason (optional)</Label>
+              <Input
+                id="reset-reason"
+                value={resetReason}
+                onChange={(e) => setResetReason(e.target.value)}
+                placeholder="e.g. Christmas Raffle 2025"
+              />
+            </div>
+
+            {/* Password confirmation */}
+            <div className="space-y-1.5">
+              <Label htmlFor="reset-password">
+                Your password <span className="text-red-600">*</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="reset-password"
+                  type={showResetPassword ? "text" : "password"}
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="Enter your admin password to confirm"
+                  onKeyDown={(e) => { if (e.key === "Enter" && resetPassword) handleResetAllPoints(); }}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowResetPassword((v) => !v)}
+                  tabIndex={-1}
+                >
+                  {showResetPassword
+                    ? <IconEyeOff className="h-4 w-4" />
+                    : <IconEye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Required to prevent accidental resets.</p>
+            </div>
+
+            <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              <strong>Warning:</strong> All customer points will be set to 0. This creates an
+              audit trail but cannot be reversed.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setShowResetDialog(false); setResetPassword(""); }}
+              disabled={resetLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleResetAllPoints}
+              disabled={!resetPassword.trim() || resetLoading}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {resetLoading ? "Resetting..." : "Reset All Points"}
             </Button>
           </DialogFooter>
         </DialogContent>

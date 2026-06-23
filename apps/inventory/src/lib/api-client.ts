@@ -413,6 +413,14 @@ class APIClient {
     return response.data;
   }
 
+  async resetAllPoints(password: string, reason?: string) {
+    const response = await this.client.post('/customers/reset-all-points', {
+      password,
+      reason,
+    });
+    return response.data;
+  }
+
   // Upload API
   async uploadReceipt(file: File) {
     const formData = new FormData();

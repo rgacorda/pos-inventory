@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { CustomersService } from './customers.service';
 
 @Injectable()
@@ -8,17 +7,10 @@ export class PointsExpiryService {
 
   constructor(private readonly customersService: CustomersService) {}
 
-  /** Run every day at 01:00 to expire stale points across all organizations. */
-  @Cron(CronExpression.EVERY_DAY_AT_1AM)
-  async handleDailyExpiry() {
-    this.logger.log('Running daily points expiry job...');
-    const result = await this.customersService.processExpiredPoints();
-    this.logger.log(
-      `Daily expiry complete: ${result.processed} transactions processed, ${result.pointsExpired} pts expired`,
-    );
-  }
+  // Daily cron intentionally disabled — points no longer expire automatically.
+  // Points are reset manually via the "Reset All Points (Raffle)" action.
 
-  /** Manual trigger — called from the controller for on-demand expiry runs. */
+  /** Manual trigger — kept for on-demand use from the admin controller. */
   async runNow(organizationId?: string) {
     return this.customersService.processExpiredPoints(organizationId);
   }

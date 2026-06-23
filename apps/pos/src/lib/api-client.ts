@@ -151,6 +151,13 @@ class APIClient {
     return response.data;
   }
 
+  async searchCustomersByName(q: string): Promise<any[]> {
+    const response = await this.client.get(`/customers/search`, {
+      params: { q },
+    });
+    return response.data ?? [];
+  }
+
   async registerCustomer(data: { name: string; phone: string }): Promise<any> {
     const response = await this.client.post(`/customers`, data);
     return response.data;

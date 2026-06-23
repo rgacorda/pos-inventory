@@ -100,7 +100,7 @@ export default function Page() {
   const [showVoidPinDialog, setShowVoidPinDialog] = useState(false);
   const [voidPinEntry, setVoidPinEntry] = useState("");
   const [voidPinError, setVoidPinError] = useState("");
-  const [pinAction, setPinAction] = useState<"void" | "removeItem" | null>(null);
+  const [pinAction, setPinAction] = useState<"void" | "removeItem" | "manualOrder" | null>(null);
   const [itemToRemove, setItemToRemove] = useState<string | null>(null);
   // Loyalty points state
   const [loyaltyCustomer, setLoyaltyCustomer] = useState<{
@@ -109,13 +109,19 @@ export default function Page() {
     phone: string;
     totalPoints: number;
   } | null>(null);
-  const [loyaltyPhoneInput, setLoyaltyPhoneInput] = useState("");
-  const [loyaltyLookupLoading, setLoyaltyLookupLoading] = useState(false);
-  const [loyaltyLookupError, setLoyaltyLookupError] = useState("");
+  const [loyaltyNameSearch, setLoyaltyNameSearch] = useState("");
+  const [loyaltyDropdownOpen, setLoyaltyDropdownOpen] = useState(false);
+  const [loyaltySearchResults, setLoyaltySearchResults] = useState<Array<{
+    id: string; name: string; phone: string; totalPoints: number;
+  }>>([]);
+  const [loyaltySearchLoading, setLoyaltySearchLoading] = useState(false);
+  const loyaltySearchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [usePoints, setUsePoints] = useState(false);
   const [showRegisterCustomerDialog, setShowRegisterCustomerDialog] = useState(false);
   const [registerCustomerName, setRegisterCustomerName] = useState("");
+  const [registerCustomerPhone, setRegisterCustomerPhone] = useState("");
   const [registerCustomerLoading, setRegisterCustomerLoading] = useState(false);
+  const [registerCustomerError, setRegisterCustomerError] = useState("");
 
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -522,7 +528,7 @@ export default function Page() {
   };
 
   // Open the supervisor PIN dialog for a given action
-  const openPinDialog = (action: "void" | "removeItem", productId?: string) => {
+  const openPinDialog = (action: "void" | "removeItem" | "manualOrder", productId?: string) => {
     setPinAction(action);
     setItemToRemove(productId ?? null);
     setVoidPinEntry("");
@@ -553,6 +559,8 @@ export default function Page() {
           showSuccessToast("Item Removed", {
             description: "Item has been removed from the order.",
           });
+        } else if (pinAction === "manualOrder") {
+          openManualItemDialog();
         }
 
         setPinAction(null);
@@ -626,56 +634,65 @@ export default function Page() {
         );
       return matchesCategory && matchesSearch;
     }) || [];
-  // Loyalty: look up customer by phone from API (with local cache fallback)
-  const handleLoyaltyLookup = async () => {
-    const phone = loyaltyPhoneInput.trim();
-    if (!phone) return;
-    setLoyaltyLookupLoading(true);
-    setLoyaltyLookupError("");
-    try {
-      let customer = null;
-      if (apiClient.isOnline() && apiClient.getAccessToken()) {
-        customer = await apiClient.lookupCustomerByPhone(phone);
-        if (customer) {
-          await dbHelpers.cacheCustomer({
-            id: customer.id,
-            organizationId: customer.organizationId,
-            name: customer.name,
-            phone: customer.phone,
-            totalPoints: customer.totalPoints,
-            totalSpent: Number(customer.totalSpent),
-          });
-        }
-      } else {
-        const cached = await dbHelpers.getCachedCustomerByPhone(phone);
-        if (cached) customer = cached;
-      }
-      if (customer) {
-        setLoyaltyCustomer({
-          id: customer.id,
-          name: customer.name,
-          phone: customer.phone,
-          totalPoints: customer.totalPoints,
-        });
-        setUsePoints(false);
-      } else {
-        setLoyaltyLookupError("No customer found. Register them below.");
-        setRegisterCustomerName("");
-        setShowRegisterCustomerDialog(true);
-      }
-    } catch {
-      setLoyaltyLookupError("Lookup failed. Please try again.");
-    } finally {
-      setLoyaltyLookupLoading(false);
+  // Loyalty: search customers by name (debounced, API + local cache fallback)
+  const handleLoyaltyNameInput = (value: string) => {
+    setLoyaltyNameSearch(value);
+    setLoyaltyDropdownOpen(value.trim().length > 0);
+    if (loyaltySearchTimerRef.current) clearTimeout(loyaltySearchTimerRef.current);
+    if (!value.trim()) {
+      setLoyaltySearchResults([]);
+      return;
     }
+    loyaltySearchTimerRef.current = setTimeout(async () => {
+      setLoyaltySearchLoading(true);
+      try {
+        let results: Array<{ id: string; name: string; phone: string; totalPoints: number }> = [];
+        if (apiClient.isOnline() && apiClient.getAccessToken()) {
+          const data = await apiClient.searchCustomersByName(value.trim());
+          results = data;
+          // Refresh local cache with fresh server results
+          if (data.length > 0) {
+            await dbHelpers.cacheCustomers(
+              data.map((c: any) => ({
+                id: c.id,
+                organizationId: c.organizationId,
+                name: c.name,
+                phone: c.phone,
+                totalPoints: c.totalPoints,
+                totalSpent: Number(c.totalSpent ?? 0),
+              }))
+            );
+          }
+        } else {
+          results = await dbHelpers.searchCachedCustomersByName(value.trim());
+        }
+        setLoyaltySearchResults(results);
+      } catch {
+        // fall back to local cache silently
+        const cached = await dbHelpers.searchCachedCustomersByName(value.trim());
+        setLoyaltySearchResults(cached);
+      } finally {
+        setLoyaltySearchLoading(false);
+      }
+    }, 250);
+  };
+
+  // Loyalty: select a customer from the dropdown
+  const handleSelectLoyaltyCustomer = (customer: { id: string; name: string; phone: string; totalPoints: number }) => {
+    setLoyaltyCustomer(customer);
+    setLoyaltyNameSearch("");
+    setLoyaltyDropdownOpen(false);
+    setLoyaltySearchResults([]);
+    setUsePoints(false);
   };
 
   // Loyalty: register a new customer
   const handleRegisterCustomer = async () => {
-    const phone = loyaltyPhoneInput.trim();
     const name = registerCustomerName.trim();
-    if (!phone || !name) return;
+    const phone = registerCustomerPhone.trim();
+    if (!name || !phone) return;
     setRegisterCustomerLoading(true);
+    setRegisterCustomerError("");
     try {
       const customer = await apiClient.registerCustomer({ name, phone });
       await dbHelpers.cacheCustomer({
@@ -693,11 +710,12 @@ export default function Page() {
         totalPoints: customer.totalPoints,
       });
       setShowRegisterCustomerDialog(false);
+      setRegisterCustomerName("");
+      setRegisterCustomerPhone("");
       setUsePoints(false);
-      setLoyaltyLookupError("");
     } catch (err: any) {
       const msg = err?.response?.data?.message || "Registration failed.";
-      setLoyaltyLookupError(typeof msg === "string" ? msg : "Registration failed.");
+      setRegisterCustomerError(typeof msg === "string" ? msg : "Registration failed.");
     } finally {
       setRegisterCustomerLoading(false);
     }
@@ -707,8 +725,9 @@ export default function Page() {
   const clearLoyaltyCustomer = () => {
     setLoyaltyCustomer(null);
     setUsePoints(false);
-    setLoyaltyPhoneInput("");
-    setLoyaltyLookupError("");
+    setLoyaltyNameSearch("");
+    setLoyaltyDropdownOpen(false);
+    setLoyaltySearchResults([]);
   };
 
   // Open cash dialog or process other payments
@@ -960,7 +979,7 @@ export default function Page() {
               </Button>
               <Button
                 variant="outline"
-                onClick={openManualItemDialog}
+                onClick={() => openPinDialog("manualOrder")}
                 className="flex items-center gap-2 px-4 border-green-200 hover:bg-green-50"
               >
                 <Plus className="h-4 w-4" />
@@ -1202,36 +1221,65 @@ export default function Page() {
                 <Star className="h-3.5 w-3.5 text-yellow-500" />
                 Loyalty Points
               </p>
-              <div className="flex gap-2">
+              {/* Name combobox */}
+              <div className="relative">
                 <input
-                  type="tel"
-                  value={loyaltyPhoneInput}
-                  onChange={(e) => {
-                    setLoyaltyPhoneInput(e.target.value);
-                    setLoyaltyLookupError("");
-                  }}
+                  type="text"
+                  value={loyaltyNameSearch}
+                  onChange={(e) => handleLoyaltyNameInput(e.target.value)}
+                  onFocus={() => loyaltyNameSearch.trim() && setLoyaltyDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setLoyaltyDropdownOpen(false), 150)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleLoyaltyLookup();
+                    if (e.key === "Escape") {
+                      setLoyaltyDropdownOpen(false);
+                      setLoyaltyNameSearch("");
                     }
                   }}
-                  placeholder="Customer phone..."
-                  className="flex-1 h-8 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  placeholder="Search customer name..."
+                  className="w-full h-8 px-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
                 />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 px-3 text-xs border-yellow-300 text-yellow-700 hover:bg-yellow-50"
-                  onClick={handleLoyaltyLookup}
-                  disabled={loyaltyLookupLoading || !loyaltyPhoneInput.trim()}
-                >
-                  {loyaltyLookupLoading ? "..." : "Find"}
-                </Button>
+                {loyaltySearchLoading && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">...</span>
+                )}
+                {loyaltyDropdownOpen && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-52 overflow-y-auto">
+                    {loyaltySearchResults.length === 0 && !loyaltySearchLoading && (
+                      <div className="px-3 py-2 space-y-1">
+                        <p className="text-xs text-gray-500">No customer found.</p>
+                        <button
+                          onMouseDown={(e) => { e.preventDefault(); setRegisterCustomerName(loyaltyNameSearch.trim()); setRegisterCustomerPhone(""); setRegisterCustomerError(""); setShowRegisterCustomerDialog(true); setLoyaltyDropdownOpen(false); }}
+                          className="text-xs text-yellow-700 font-medium hover:underline flex items-center gap-1"
+                        >
+                          <UserPlus className="h-3 w-3" /> Register new customer
+                        </button>
+                      </div>
+                    )}
+                    {loyaltySearchResults.map((c) => (
+                      <button
+                        key={c.id}
+                        onMouseDown={(e) => { e.preventDefault(); handleSelectLoyaltyCustomer(c); }}
+                        className="w-full text-left px-3 py-2 hover:bg-yellow-50 flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{c.name}</p>
+                          <p className="text-xs text-gray-500">{c.phone}</p>
+                        </div>
+                        <span className="text-xs font-bold text-yellow-600">{c.totalPoints} pts</span>
+                      </button>
+                    ))}
+                    {loyaltySearchResults.length > 0 && (
+                      <div className="border-t px-3 py-1.5">
+                        <button
+                          onMouseDown={(e) => { e.preventDefault(); setRegisterCustomerName(loyaltyNameSearch.trim()); setRegisterCustomerPhone(""); setRegisterCustomerError(""); setShowRegisterCustomerDialog(true); setLoyaltyDropdownOpen(false); }}
+                          className="text-xs text-yellow-700 hover:underline flex items-center gap-1"
+                        >
+                          <UserPlus className="h-3 w-3" /> Register new customer
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {loyaltyLookupError && (
-                <p className="text-xs text-red-600">{loyaltyLookupError}</p>
-              )}
             </div>
           ) : (
             <div className="space-y-2">
@@ -2176,6 +2224,8 @@ export default function Page() {
             <DialogDescription className="text-center">
               {pinAction === "removeItem"
                 ? "Enter PIN to remove this item from the order"
+                : pinAction === "manualOrder"
+                ? "Enter PIN to add a manual item"
                 : "Enter the 4-digit void PIN to cancel this order"}
             </DialogDescription>
           </DialogHeader>
@@ -2513,7 +2563,7 @@ export default function Page() {
       </Dialog>
 
       {/* Register New Loyalty Customer Dialog */}
-      <Dialog open={showRegisterCustomerDialog} onOpenChange={setShowRegisterCustomerDialog}>
+      <Dialog open={showRegisterCustomerDialog} onOpenChange={(o) => { if (!registerCustomerLoading) setShowRegisterCustomerDialog(o); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2521,38 +2571,47 @@ export default function Page() {
               Register Loyalty Customer
             </DialogTitle>
             <DialogDescription>
-              Phone: <strong>{loyaltyPhoneInput}</strong> — not found. Register them now.
+              Add a new customer to the loyalty program.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Customer Name *</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Full Name *</label>
               <Input
                 type="text"
                 value={registerCustomerName}
                 onChange={(e) => setRegisterCustomerName(e.target.value)}
+                placeholder="Customer full name"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Phone Number *</label>
+              <Input
+                type="tel"
+                value={registerCustomerPhone}
+                onChange={(e) => setRegisterCustomerPhone(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && registerCustomerName.trim()) {
+                  if (e.key === "Enter" && registerCustomerName.trim() && registerCustomerPhone.trim()) {
                     e.preventDefault();
                     handleRegisterCustomer();
                   }
                 }}
-                placeholder="Full name"
-                autoFocus
+                placeholder="e.g. 09171234567"
               />
             </div>
-            {loyaltyLookupError && (
-              <p className="text-sm text-red-600">{loyaltyLookupError}</p>
+            {registerCustomerError && (
+              <p className="text-sm text-red-600">{registerCustomerError}</p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRegisterCustomerDialog(false)}>
+            <Button variant="outline" onClick={() => setShowRegisterCustomerDialog(false)} disabled={registerCustomerLoading}>
               Cancel
             </Button>
             <Button
               className="bg-yellow-500 hover:bg-yellow-600 text-white"
               onClick={handleRegisterCustomer}
-              disabled={!registerCustomerName.trim() || registerCustomerLoading}
+              disabled={!registerCustomerName.trim() || !registerCustomerPhone.trim() || registerCustomerLoading}
             >
               {registerCustomerLoading ? "Registering..." : "Register & Continue"}
             </Button>

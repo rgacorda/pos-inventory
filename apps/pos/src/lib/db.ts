@@ -484,6 +484,25 @@ export const dbHelpers = {
     return db.customers.get(id);
   },
 
+  // Search cached customers by name (case-insensitive substring)
+  async searchCachedCustomersByName(
+    q: string,
+    limit = 20,
+  ): Promise<LocalCustomer[]> {
+    const lower = q.toLowerCase();
+    const all = await db.customers.toArray();
+    return all
+      .filter((c) => c.name.toLowerCase().includes(lower))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, limit);
+  },
+
+  // Cache multiple customers at once (e.g. from bulk search results)
+  async cacheCustomers(customers: Omit<LocalCustomer, "cachedAt">[]) {
+    const now = new Date();
+    await db.customers.bulkPut(customers.map((c) => ({ ...c, cachedAt: now })));
+  },
+
   // Get void PIN (defaults to "0000" if never set)
   async getVoidPin(): Promise<string> {
     const metadata = await db.syncMetadata

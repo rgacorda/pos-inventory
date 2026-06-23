@@ -3,17 +3,20 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  UnauthorizedException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, IsNull } from 'typeorm';
+import { Repository, LessThan, IsNull, DataSource } from 'typeorm';
 import { CustomerEntity } from '../../entities/customer.entity';
 import {
   CustomerPointTransactionEntity,
   PointTransactionType,
 } from '../../entities/customer-point-transaction.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
+import { UserEntity } from '../../entities/user.entity';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/customer.dto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class CustomersService {
@@ -26,6 +29,9 @@ export class CustomersService {
     private transactionsRepository: Repository<CustomerPointTransactionEntity>,
     @InjectRepository(OrganizationEntity)
     private organizationsRepository: Repository<OrganizationEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepository: Repository<UserEntity>,
+    private dataSource: DataSource,
   ) {}
 
   // ─── Loyalty settings ──────────────────────────────────────────────────────
@@ -85,6 +91,20 @@ export class CustomersService {
     return this.customersRepository.findOne({
       where: { phone, organizationId },
     });
+  }
+
+  async searchByName(
+    q: string,
+    organizationId: string,
+    limit = 20,
+  ): Promise<CustomerEntity[]> {
+    return this.customersRepository
+      .createQueryBuilder('c')
+      .where('c."organizationId" = :orgId', { orgId: organizationId })
+      .andWhere('LOWER(c.name) LIKE :q', { q: `%${q.toLowerCase()}%` })
+      .orderBy('c.name', 'ASC')
+      .limit(limit)
+      .getMany();
   }
 
   async create(
@@ -210,5 +230,100 @@ export class CustomersService {
     );
 
     return { processed: expiredEarns.length, pointsExpired: totalExpired };
+  }
+
+  // ─── Raffle / Points reset ─────────────────────────────────────────────────
+
+  /**
+   * Resets all customer points to 0 for an organization.
+   * Requires the requesting user's current password as confirmation.
+   * Creates an auditable EXPIRE record per customer and stamps all
+   * unprocessed EARN transactions with expiredAt so nothing double-processes.
+   */
+  async resetAllPoints(
+    organizationId: string,
+    userId: string,
+    password: string,
+    reason: string = 'Raffle point reset',
+  ): Promise<{ customersReset: number; pointsCleared: number }> {
+    // Verify the requesting user's password
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      throw new UnauthorizedException('Incorrect password');
+    }
+
+    // Find all customers with points > 0
+    const customers = await this.customersRepository.find({
+      where: { organizationId },
+    });
+
+    const affected = customers.filter((c) => c.totalPoints > 0);
+    if (affected.length === 0) {
+      return { customersReset: 0, pointsCleared: 0 };
+    }
+
+    const totalPointsCleared = affected.reduce(
+      (sum, c) => sum + c.totalPoints,
+      0,
+    );
+    const now = new Date();
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. Create one EXPIRE audit record per affected customer
+      const expireRecords = affected.map((c) =>
+        this.transactionsRepository.create({
+          customerId: c.id,
+          organizationId,
+          type: PointTransactionType.EXPIRE,
+          points: c.totalPoints,
+          description: `${c.totalPoints} pts cleared — ${reason} (${now.toLocaleDateString()})`,
+        }),
+      );
+      await queryRunner.manager.save(CustomerPointTransactionEntity, expireRecords);
+
+      // 2. Zero out all balances in bulk
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(CustomerEntity)
+        .set({ totalPoints: 0 })
+        .where('"organizationId" = :orgId AND "totalPoints" > 0', {
+          orgId: organizationId,
+        })
+        .execute();
+
+      // 3. Stamp all unprocessed EARN transactions so the cron never re-processes them
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(CustomerPointTransactionEntity)
+        .set({ expiredAt: now })
+        .where(
+          '"organizationId" = :orgId AND type = :type AND "expiredAt" IS NULL',
+          { orgId: organizationId, type: PointTransactionType.EARN },
+        )
+        .execute();
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Points reset by user ${userId}: ${affected.length} customers, ${totalPointsCleared} pts cleared (${reason})`,
+      );
+
+      return {
+        customersReset: affected.length,
+        pointsCleared: totalPointsCleared,
+      };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }
