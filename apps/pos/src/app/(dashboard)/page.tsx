@@ -42,7 +42,7 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice } from "@pos/shared-utils";
+import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, getActivePriceTier } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 
 export default function Page() {
@@ -587,6 +587,8 @@ export default function Page() {
       item.product.price,
       item.product.packPrice,
       item.product.packQuantity,
+      item.product.halfPackPrice,
+      item.product.halfPackQuantity,
     );
     return sum + itemSubtotal;
   }, 0);
@@ -597,6 +599,8 @@ export default function Page() {
       item.product.price,
       item.product.packPrice,
       item.product.packQuantity,
+      item.product.halfPackPrice,
+      item.product.halfPackQuantity,
     );
     const itemTax = itemSubtotal * (item.product.taxRate || 0);
     return sum + itemTax;
@@ -613,7 +617,7 @@ export default function Page() {
   const total = grossTotal;
   // Points earned on the amount the customer actually pays
   const pointsToEarn = loyaltyCustomer
-    ? Math.floor(amountDue / 200)
+    ? Math.floor(amountDue / 500)
     : 0;
 
   // Filter products by category and search
@@ -780,12 +784,16 @@ export default function Page() {
           item.product.price,
           item.product.packPrice,
           item.product.packQuantity,
+          item.product.halfPackPrice,
+          item.product.halfPackQuantity,
         );
         const subtotal = calculateLineSubtotalWithTieredPrice(
           item.quantity,
           item.product.price,
           item.product.packPrice,
           item.product.packQuantity,
+          item.product.halfPackPrice,
+          item.product.halfPackQuantity,
         );
         const itemTax = subtotal * (item.product.taxRate || 0);
         return {
@@ -811,7 +819,7 @@ export default function Page() {
         : 0;
       const finalTotal = Math.max(0, grossTotal - creditApplied - pointsRedeemedNow);
       // Points earned on net amount paid
-      const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 200) : 0;
+      const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 500) : 0;
 
       // Create order in IndexedDB
       const orderId = await db.orders.add({
@@ -1069,15 +1077,22 @@ export default function Page() {
                                 item.product.price,
                                 item.product.packPrice,
                                 item.product.packQuantity,
+                                item.product.halfPackPrice,
+                                item.product.halfPackQuantity,
                               ).toFixed(2)}
                             </div>
-                            {item.product.packPrice &&
-                             item.product.packQuantity &&
-                             item.quantity >= item.product.packQuantity && (
-                              <div className="text-xs text-green-600 font-medium">
-                                Pack price
-                              </div>
-                            )}
+                            {(() => {
+                              const tier = getActivePriceTier(
+                                item.quantity,
+                                item.product.packPrice,
+                                item.product.packQuantity,
+                                item.product.halfPackPrice,
+                                item.product.halfPackQuantity,
+                              );
+                              if (tier === "pack") return <div className="text-xs text-green-600 font-medium">Pack price</div>;
+                              if (tier === "halfPack") return <div className="text-xs text-indigo-600 font-medium">Half-pack price</div>;
+                              return null;
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
@@ -1087,6 +1102,8 @@ export default function Page() {
                               item.product.price,
                               item.product.packPrice,
                               item.product.packQuantity,
+                              item.product.halfPackPrice,
+                              item.product.halfPackQuantity,
                             ).toFixed(2)}
                           </span>
                         </TableCell>
@@ -1536,6 +1553,11 @@ export default function Page() {
                                 ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pc
                               </div>
                             )}
+                            {product.halfPackPrice && product.halfPackQuantity && (
+                              <div className="text-xs text-indigo-500">
+                                ₱{product.halfPackPrice.toFixed(2)}/{product.halfPackQuantity}pc
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         {showItemCounts && (
@@ -1593,6 +1615,11 @@ export default function Page() {
                       Pack price: <span className="font-semibold">₱{productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
                     </div>
                   )}
+                  {productToAdd.halfPackPrice && productToAdd.halfPackQuantity && (
+                    <div className="text-sm text-indigo-600">
+                      Half-pack price: <span className="font-semibold">₱{productToAdd.halfPackPrice.toFixed(2)}</span> ({productToAdd.halfPackQuantity} pcs)
+                    </div>
+                  )}
                   {((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
                     (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
                     <div className="text-sm text-purple-600">
@@ -1622,6 +1649,8 @@ export default function Page() {
                     productToAdd.price,
                     productToAdd.packPrice,
                     productToAdd.packQuantity,
+                    productToAdd.halfPackPrice,
+                    productToAdd.halfPackQuantity,
                   );
                   let effectivePrice = basePrice;
                   
@@ -1641,9 +1670,13 @@ export default function Page() {
                     effectivePrice += productToAdd.addonPrice;
                   }
                   const lineTotal = effectivePrice * qty;
-                  const isUsingPackPrice = productToAdd.packPrice && 
-                    productToAdd.packQuantity && 
-                    qty >= productToAdd.packQuantity;
+                  const activeTier = getActivePriceTier(
+                    qty,
+                    productToAdd.packPrice,
+                    productToAdd.packQuantity,
+                    productToAdd.halfPackPrice,
+                    productToAdd.halfPackQuantity,
+                  );
                   
                   return qty > 0 ? (
                     <div className="mt-3 pt-3 border-t border-gray-300">
@@ -1652,9 +1685,14 @@ export default function Page() {
                           <div className="text-sm text-gray-600">
                             Effective price: ₱{effectivePrice.toFixed(2)}
                           </div>
-                          {isUsingPackPrice && (
+                          {activeTier === "pack" && (
                             <div className="text-xs text-green-600 font-medium">
                               Using pack price
+                            </div>
+                          )}
+                          {activeTier === "halfPack" && (
+                            <div className="text-xs text-indigo-600 font-medium">
+                              Using half-pack price
                             </div>
                           )}
                           {includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
@@ -1760,28 +1798,20 @@ export default function Page() {
                 />
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setQuantityToAdd("1")}
-                  className="h-10"
-                >
-                  1
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setQuantityToAdd("2")}
-                  className="h-10"
-                >
-                  2
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setQuantityToAdd("5")}
-                  className="h-10"
-                >
-                  5
-                </Button>
+              <div className={`grid gap-2 ${productToAdd.halfPackQuantity && productToAdd.packQuantity ? "grid-cols-5" : "grid-cols-4"}`}>
+                <Button variant="outline" onClick={() => setQuantityToAdd("1")} className="h-10">1</Button>
+                <Button variant="outline" onClick={() => setQuantityToAdd("2")} className="h-10">2</Button>
+                <Button variant="outline" onClick={() => setQuantityToAdd("5")} className="h-10">5</Button>
+                {productToAdd.halfPackQuantity && productToAdd.halfPackPrice && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setQuantityToAdd(productToAdd.halfPackQuantity!.toString())}
+                    className="h-10 border-indigo-400 text-indigo-700 hover:bg-indigo-50"
+                    title={`Half-pack: ${productToAdd.halfPackQuantity} pcs`}
+                  >
+                    {productToAdd.halfPackQuantity}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => setQuantityToAdd(
@@ -1792,6 +1822,7 @@ export default function Page() {
                       ? "border-green-500 text-green-700 hover:bg-green-50"
                       : ""
                   }`}
+                  title={productToAdd.packQuantity ? `Pack: ${productToAdd.packQuantity} pcs` : undefined}
                 >
                   {productToAdd.packQuantity || "10"}
                 </Button>
@@ -1894,6 +1925,11 @@ export default function Page() {
                         {product.packPrice && product.packQuantity && (
                           <div className="text-xs text-green-600">
                             ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pc
+                          </div>
+                        )}
+                        {product.halfPackPrice && product.halfPackQuantity && (
+                          <div className="text-xs text-indigo-500">
+                            ₱{product.halfPackPrice.toFixed(2)}/{product.halfPackQuantity}pc
                           </div>
                         )}
                       </div>
@@ -2380,8 +2416,13 @@ export default function Page() {
                       <div className="text-right">
                         <div className="font-semibold text-green-600">₱{product.price.toFixed(2)}</div>
                         {product.packPrice && product.packQuantity && (
-                          <div className="text-xs text-blue-600">
+                          <div className="text-xs text-green-600">
                             ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pcs
+                          </div>
+                        )}
+                        {product.halfPackPrice && product.halfPackQuantity && (
+                          <div className="text-xs text-indigo-500">
+                            ₱{product.halfPackPrice.toFixed(2)}/{product.halfPackQuantity}pcs
                           </div>
                         )}
                       </div>

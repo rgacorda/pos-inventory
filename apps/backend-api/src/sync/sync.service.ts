@@ -182,7 +182,7 @@ export class SyncService {
         const amountPaid = Number(orderDto.totalAmount);
         const pointsRedeemed = (!isExchangeOrder && orderDto.pointsRedeemed) ? orderDto.pointsRedeemed : 0;
         const pointsEarned = resolvedCustomerId
-          ? Math.floor(amountPaid / 200)
+          ? Math.floor(amountPaid / 500)
           : undefined;
 
         // Create order entity
@@ -474,6 +474,12 @@ export class SyncService {
         cost: p.cost ? Number(p.cost) : undefined,
         packPrice: p.packPrice ? Number(p.packPrice) : undefined,
         packQuantity: p.packQuantity,
+        packMarkupPercentage: p.packMarkupPercentage ? Number(p.packMarkupPercentage) : undefined,
+        packMarkupFixed: p.packMarkupFixed ? Number(p.packMarkupFixed) : undefined,
+        halfPackPrice: p.halfPackPrice ? Number(p.halfPackPrice) : undefined,
+        halfPackQuantity: p.halfPackQuantity ?? undefined,
+        halfPackMarkupPercentage: p.halfPackMarkupPercentage ? Number(p.halfPackMarkupPercentage) : undefined,
+        halfPackMarkupFixed: p.halfPackMarkupFixed ? Number(p.halfPackMarkupFixed) : undefined,
         addonPrice: p.addonPrice ? Number(p.addonPrice) : undefined,
         convenienceMarkupPercentage: p.convenienceMarkupPercentage ? Number(p.convenienceMarkupPercentage) : undefined,
         convenienceMarkup: p.convenienceMarkup ? Number(p.convenienceMarkup) : undefined,
