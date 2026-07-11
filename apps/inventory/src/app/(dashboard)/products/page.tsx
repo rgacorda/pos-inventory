@@ -89,11 +89,17 @@ export default function ProductsPage() {
     description: "",
     category: "",
     price: "",
-    packPrice: "",
-    packQuantity: "",
     cost: "",
     markupPercentage: "",
     markupFixed: "",
+    packQuantity: "",
+    packMarkupPercentage: "",
+    packMarkupFixed: "",
+    packPrice: "",
+    halfPackQuantity: "",
+    halfPackMarkupPercentage: "",
+    halfPackMarkupFixed: "",
+    halfPackPrice: "",
     addonPrice: "0",
     convenienceMarkupPercentage: "",
     convenienceMarkup: "0",
@@ -120,25 +126,46 @@ export default function ProductsPage() {
     }
   };
 
-  // Calculate selling price from cost and markups
-  const calculatePrice = (cost: string, markupPercentage: string, markupFixed: string): number => {
-    const costNum = parseFloat(cost) || 0;
-    const percentNum = parseFloat(markupPercentage) || 0;
-    const fixedNum = parseFloat(markupFixed) || 0;
-    
-    return costNum + (costNum * percentNum / 100) + fixedNum;
+  const computePrice = (cost: string, pct: string, fixed: string): number => {
+    const c = parseFloat(cost) || 0;
+    const p = parseFloat(pct) || 0;
+    const f = parseFloat(fixed) || 0;
+    return c + (c * p / 100) + f;
   };
 
-  // Update price when cost or markups change
+  const computeTieredPrice = (cost: string, qty: string, pct: string, fixed: string): number => {
+    const c = parseFloat(cost) || 0;
+    const q = parseInt(qty) || 0;
+    const p = parseFloat(pct) || 0;
+    const f = parseFloat(fixed) || 0;
+    const base = c * q;
+    return base + (base * p / 100) + f;
+  };
+
   useEffect(() => {
     if (formData.cost || formData.markupPercentage || formData.markupFixed) {
-      const calculatedPrice = calculatePrice(formData.cost, formData.markupPercentage, formData.markupFixed);
-      setFormData(prev => ({
-        ...prev,
-        price: calculatedPrice > 0 ? calculatedPrice.toFixed(2) : ""
-      }));
+      const calculated = computePrice(formData.cost, formData.markupPercentage, formData.markupFixed);
+      setFormData(prev => ({ ...prev, price: calculated > 0 ? calculated.toFixed(2) : "" }));
     }
   }, [formData.cost, formData.markupPercentage, formData.markupFixed]);
+
+  useEffect(() => {
+    if (formData.packQuantity) {
+      const calculated = computeTieredPrice(formData.cost, formData.packQuantity, formData.packMarkupPercentage, formData.packMarkupFixed);
+      setFormData(prev => ({ ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
+    } else {
+      setFormData(prev => ({ ...prev, packPrice: "" }));
+    }
+  }, [formData.cost, formData.packQuantity, formData.packMarkupPercentage, formData.packMarkupFixed]);
+
+  useEffect(() => {
+    if (formData.halfPackQuantity) {
+      const calculated = computeTieredPrice(formData.cost, formData.halfPackQuantity, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
+      setFormData(prev => ({ ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
+    } else {
+      setFormData(prev => ({ ...prev, halfPackPrice: "" }));
+    }
+  }, [formData.cost, formData.halfPackQuantity, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed]);
 
   const resetForm = () => {
     setFormData({
@@ -147,11 +174,17 @@ export default function ProductsPage() {
       description: "",
       category: "",
       price: "",
-      packPrice: "",
-      packQuantity: "",
       cost: "",
       markupPercentage: "",
       markupFixed: "",
+      packQuantity: "",
+      packMarkupPercentage: "",
+      packMarkupFixed: "",
+      packPrice: "",
+      halfPackQuantity: "",
+      halfPackMarkupPercentage: "",
+      halfPackMarkupFixed: "",
+      halfPackPrice: "",
       addonPrice: "0",
       convenienceMarkupPercentage: "",
       convenienceMarkup: "0",
@@ -176,11 +209,17 @@ export default function ProductsPage() {
       description: product.description || "",
       category: product.category || "",
       price: product.price?.toString() || "",
-      packPrice: product.packPrice?.toString() || "",
-      packQuantity: product.packQuantity?.toString() || "",
       cost: product.cost?.toString() || "",
       markupPercentage: product.markupPercentage?.toString() || "",
       markupFixed: product.markupFixed?.toString() || "",
+      packQuantity: product.packQuantity?.toString() || "",
+      packMarkupPercentage: product.packMarkupPercentage?.toString() || "",
+      packMarkupFixed: product.packMarkupFixed?.toString() || "",
+      packPrice: product.packPrice?.toString() || "",
+      halfPackQuantity: product.halfPackQuantity?.toString() || "",
+      halfPackMarkupPercentage: product.halfPackMarkupPercentage?.toString() || "",
+      halfPackMarkupFixed: product.halfPackMarkupFixed?.toString() || "",
+      halfPackPrice: product.halfPackPrice?.toString() || "",
       addonPrice: product.addonPrice?.toString() || "0",
       convenienceMarkupPercentage: product.convenienceMarkupPercentage?.toString() || "",
       convenienceMarkup: product.convenienceMarkup?.toString() || "0",
@@ -203,14 +242,20 @@ export default function ProductsPage() {
     setIsSaving(true);
 
     try {
+      // Destructure out the computed-display-only fields that the backend calculates itself
+      const { packPrice: _packPrice, halfPackPrice: _halfPackPrice, ...restFormData } = formData;
       const productData = {
-        ...formData,
+        ...restFormData,
         price: parseFloat(formData.price),
-        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
-        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
+        packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
+        packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
+        halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity) : null,
+        halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
+        halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
         addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
         convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
         convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
@@ -236,14 +281,20 @@ export default function ProductsPage() {
     setIsSaving(true);
 
     try {
+      // Destructure out the computed-display-only fields that the backend calculates itself
+      const { packPrice: _packPrice, halfPackPrice: _halfPackPrice, ...restFormData } = formData;
       const productData = {
-        ...formData,
+        ...restFormData,
         price: parseFloat(formData.price),
-        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
-        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
         cost: parseFloat(formData.cost),
         markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
         markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
+        packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
+        packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
+        halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity) : null,
+        halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
+        halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
         addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
         convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
         convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
@@ -489,7 +540,7 @@ export default function ProductsPage() {
                       onClick={() => handleSort('packPrice')}
                     >
                       <div className="flex items-center">
-                        Pack Price
+                        Pack / Half-Pack
                         <SortIcon column="packPrice" />
                       </div>
                     </TableHead>
@@ -551,14 +602,28 @@ export default function ProductsPage() {
                         ₱{sellingPrice.toFixed(2)}
                       </TableCell>
                       <TableCell>
-                        {product.packPrice && product.packQuantity ? (
-                          <div className="text-sm">
-                            <div className="font-medium text-blue-600">
-                              ₱{Number(product.packPrice).toFixed(2)}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {product.packQuantity} pcs
-                            </div>
+                        {product.packPrice || product.halfPackPrice ? (
+                          <div className="text-sm space-y-1">
+                            {product.packPrice && product.packQuantity && (
+                              <div>
+                                <div className="font-medium text-blue-600">
+                                  ₱{Number(product.packPrice).toFixed(2)}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Pack · {product.packQuantity} pcs
+                                </div>
+                              </div>
+                            )}
+                            {product.halfPackPrice && product.halfPackQuantity && (
+                              <div>
+                                <div className="font-medium text-indigo-600">
+                                  ₱{Number(product.halfPackPrice).toFixed(2)}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Half · {product.halfPackQuantity} pcs
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <span className="text-gray-400">-</span>
@@ -1077,49 +1142,100 @@ export default function ProductsPage() {
 
                 {/* Tiered Pricing Section */}
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-sm font-semibold mb-3 text-gray-700">Pack/Dozen Pricing (Optional)</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-sm font-semibold mb-4 text-gray-700">Tiered Pricing (Optional)</h4>
+
+                  {/* Pack */}
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Pack</p>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
                     <div className="space-y-2">
-                      <Label htmlFor="packQuantity">Pack Quantity</Label>
+                      <Label htmlFor="packQuantity">Pack Qty</Label>
                       <Input
                         id="packQuantity"
                         type="number"
                         value={formData.packQuantity}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            packQuantity: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setFormData({ ...formData, packQuantity: e.target.value })}
                         placeholder="12"
                       />
-                      <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
+                      <p className="text-xs text-muted-foreground">Items per pack</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="packPrice">Pack Price (₱)</Label>
+                      <Label htmlFor="packMarkupPercentage">Pack Markup (%)</Label>
                       <Input
-                        id="packPrice"
+                        id="packMarkupPercentage"
                         type="number"
                         step="0.01"
-                        value={formData.packPrice}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            packPrice: e.target.value,
-                          })
-                        }
-                        placeholder="10.00"
+                        value={formData.packMarkupPercentage}
+                        onChange={(e) => setFormData({ ...formData, packMarkupPercentage: e.target.value })}
+                        placeholder="10"
                       />
-                      <p className="text-xs text-muted-foreground">Total price for the pack</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="packMarkupFixed">Pack Markup (₱)</Label>
+                      <Input
+                        id="packMarkupFixed"
+                        type="number"
+                        step="0.01"
+                        value={formData.packMarkupFixed}
+                        onChange={(e) => setFormData({ ...formData, packMarkupFixed: e.target.value })}
+                        placeholder="5.00"
+                      />
                     </div>
                   </div>
                   {formData.packQuantity && formData.packPrice && (
-                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                    <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
                       <span className="text-blue-900">
-                        Per-item price when buying {formData.packQuantity} or more: 
-                        <strong className="ml-1">
-                          ₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
-                        </strong>
+                        Pack sell price ({formData.packQuantity} pcs):&nbsp;
+                        <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
+                        &nbsp;·&nbsp;per item:&nbsp;
+                        <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Half-Pack */}
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="halfPackQuantity">Half-Pack Qty</Label>
+                      <Input
+                        id="halfPackQuantity"
+                        type="number"
+                        value={formData.halfPackQuantity}
+                        onChange={(e) => setFormData({ ...formData, halfPackQuantity: e.target.value })}
+                        placeholder="6"
+                      />
+                      <p className="text-xs text-muted-foreground">Items per half-pack</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="halfPackMarkupPercentage">Half-Pack Markup (%)</Label>
+                      <Input
+                        id="halfPackMarkupPercentage"
+                        type="number"
+                        step="0.01"
+                        value={formData.halfPackMarkupPercentage}
+                        onChange={(e) => setFormData({ ...formData, halfPackMarkupPercentage: e.target.value })}
+                        placeholder="12"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="halfPackMarkupFixed">Half-Pack Markup (₱)</Label>
+                      <Input
+                        id="halfPackMarkupFixed"
+                        type="number"
+                        step="0.01"
+                        value={formData.halfPackMarkupFixed}
+                        onChange={(e) => setFormData({ ...formData, halfPackMarkupFixed: e.target.value })}
+                        placeholder="3.00"
+                      />
+                    </div>
+                  </div>
+                  {formData.halfPackQuantity && formData.halfPackPrice && (
+                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm">
+                      <span className="text-indigo-900">
+                        Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
+                        <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
+                        &nbsp;·&nbsp;per item:&nbsp;
+                        <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
                       </span>
                     </div>
                   )}
@@ -1482,49 +1598,100 @@ export default function ProductsPage() {
 
                 {/* Tiered Pricing Section */}
                 <div className="border-t pt-4 mt-4">
-                  <h4 className="text-sm font-semibold mb-3 text-gray-700">Pack/Dozen Pricing (Optional)</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <h4 className="text-sm font-semibold mb-4 text-gray-700">Tiered Pricing (Optional)</h4>
+
+                  {/* Pack */}
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Pack</p>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
                     <div className="space-y-2">
-                      <Label htmlFor="edit-packQuantity">Pack Quantity</Label>
+                      <Label htmlFor="edit-packQuantity">Pack Qty</Label>
                       <Input
                         id="edit-packQuantity"
                         type="number"
                         value={formData.packQuantity}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            packQuantity: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setFormData({ ...formData, packQuantity: e.target.value })}
                         placeholder="12"
                       />
-                      <p className="text-xs text-muted-foreground">Items per pack (e.g., 12 for dozen)</p>
+                      <p className="text-xs text-muted-foreground">Items per pack</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="edit-packPrice">Pack Price (₱)</Label>
+                      <Label htmlFor="edit-packMarkupPercentage">Pack Markup (%)</Label>
                       <Input
-                        id="edit-packPrice"
+                        id="edit-packMarkupPercentage"
                         type="number"
                         step="0.01"
-                        value={formData.packPrice}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            packPrice: e.target.value,
-                          })
-                        }
-                        placeholder="10.00"
+                        value={formData.packMarkupPercentage}
+                        onChange={(e) => setFormData({ ...formData, packMarkupPercentage: e.target.value })}
+                        placeholder="10"
                       />
-                      <p className="text-xs text-muted-foreground">Total price for the pack</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-packMarkupFixed">Pack Markup (₱)</Label>
+                      <Input
+                        id="edit-packMarkupFixed"
+                        type="number"
+                        step="0.01"
+                        value={formData.packMarkupFixed}
+                        onChange={(e) => setFormData({ ...formData, packMarkupFixed: e.target.value })}
+                        placeholder="5.00"
+                      />
                     </div>
                   </div>
                   {formData.packQuantity && formData.packPrice && (
-                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                    <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
                       <span className="text-blue-900">
-                        Per-item price when buying {formData.packQuantity} or more: 
-                        <strong className="ml-1">
-                          ₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}
-                        </strong>
+                        Pack sell price ({formData.packQuantity} pcs):&nbsp;
+                        <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
+                        &nbsp;·&nbsp;per item:&nbsp;
+                        <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Half-Pack */}
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-halfPackQuantity">Half-Pack Qty</Label>
+                      <Input
+                        id="edit-halfPackQuantity"
+                        type="number"
+                        value={formData.halfPackQuantity}
+                        onChange={(e) => setFormData({ ...formData, halfPackQuantity: e.target.value })}
+                        placeholder="6"
+                      />
+                      <p className="text-xs text-muted-foreground">Items per half-pack</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-halfPackMarkupPercentage">Half-Pack Markup (%)</Label>
+                      <Input
+                        id="edit-halfPackMarkupPercentage"
+                        type="number"
+                        step="0.01"
+                        value={formData.halfPackMarkupPercentage}
+                        onChange={(e) => setFormData({ ...formData, halfPackMarkupPercentage: e.target.value })}
+                        placeholder="12"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-halfPackMarkupFixed">Half-Pack Markup (₱)</Label>
+                      <Input
+                        id="edit-halfPackMarkupFixed"
+                        type="number"
+                        step="0.01"
+                        value={formData.halfPackMarkupFixed}
+                        onChange={(e) => setFormData({ ...formData, halfPackMarkupFixed: e.target.value })}
+                        placeholder="3.00"
+                      />
+                    </div>
+                  </div>
+                  {formData.halfPackQuantity && formData.halfPackPrice && (
+                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm">
+                      <span className="text-indigo-900">
+                        Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
+                        <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
+                        &nbsp;·&nbsp;per item:&nbsp;
+                        <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
                       </span>
                     </div>
                   )}

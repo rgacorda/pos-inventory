@@ -117,6 +117,12 @@ export interface ProductDto {
   price: number;
   packPrice?: number;
   packQuantity?: number;
+  packMarkupPercentage?: number;
+  packMarkupFixed?: number;
+  halfPackPrice?: number;
+  halfPackQuantity?: number;
+  halfPackMarkupPercentage?: number;
+  halfPackMarkupFixed?: number;
   addonPrice?: number;
   convenienceMarkupPercentage?: number;
   convenienceMarkup?: number;

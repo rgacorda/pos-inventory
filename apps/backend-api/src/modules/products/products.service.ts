@@ -18,6 +18,28 @@ export class ProductsService {
     private productsRepository: Repository<ProductEntity>,
   ) {}
 
+  private computePackPrices(dto: Partial<CreateProductDto> | ProductEntity): void {
+    const cost = Number(dto.cost) || 0;
+
+    if (dto.packQuantity) {
+      const base = cost * Number(dto.packQuantity);
+      const pct = Number(dto.packMarkupPercentage) || 0;
+      const fixed = Number(dto.packMarkupFixed) || 0;
+      dto.packPrice = base + (base * pct) / 100 + fixed;
+    } else {
+      dto.packPrice = undefined;
+    }
+
+    if (dto.halfPackQuantity) {
+      const base = cost * Number(dto.halfPackQuantity);
+      const pct = Number(dto.halfPackMarkupPercentage) || 0;
+      const fixed = Number(dto.halfPackMarkupFixed) || 0;
+      dto.halfPackPrice = base + (base * pct) / 100 + fixed;
+    } else {
+      dto.halfPackPrice = undefined;
+    }
+  }
+
   async create(createProductDto: CreateProductDto, requestingUser: any) {
     const { sku, organizationId } = createProductDto;
 
@@ -39,6 +61,8 @@ export class ProductsService {
     if (existing) {
       throw new ConflictException('SKU already exists in this organization');
     }
+
+    this.computePackPrices(createProductDto);
 
     const product = this.productsRepository.create(createProductDto);
     return this.productsRepository.save(product);
@@ -96,6 +120,7 @@ export class ProductsService {
     }
 
     Object.assign(product, updateProductDto);
+    this.computePackPrices(product);
     return this.productsRepository.save(product);
   }
 

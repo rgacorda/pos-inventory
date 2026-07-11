@@ -27,8 +27,14 @@ export interface Product extends BaseEntity {
   description?: string;
   category?: string;
   price: number; // Per piece price
-  packPrice?: number; // Price per pack/dozen
+  packPrice?: number; // Computed: total sell price for a pack
   packQuantity?: number; // Number of items in a pack (e.g., 12 for dozen)
+  packMarkupPercentage?: number;
+  packMarkupFixed?: number;
+  halfPackPrice?: number; // Computed: total sell price for a half-pack
+  halfPackQuantity?: number;
+  halfPackMarkupPercentage?: number;
+  halfPackMarkupFixed?: number;
   cost?: number;
   taxRate: number;
   addonPrice?: number; // Optional add-on fee (e.g., refrigeration)

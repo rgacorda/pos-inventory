@@ -37,6 +37,24 @@ export class ProductEntity {
   @Column({ type: 'int', nullable: true })
   packQuantity: number;
 
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  packMarkupPercentage: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  packMarkupFixed: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  halfPackPrice: number;
+
+  @Column({ type: 'int', nullable: true })
+  halfPackQuantity: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  halfPackMarkupPercentage: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  halfPackMarkupFixed: number;
+
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   cost: number;
 

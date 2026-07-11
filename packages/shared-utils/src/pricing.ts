@@ -1,14 +1,37 @@
 import { CreateOrderItemDto } from "@pos/shared-types";
 
 /**
- * Calculate the effective unit price based on quantity and tiered pricing
- * If quantity meets or exceeds packQuantity and packPrice is set, use pack pricing
- * Otherwise use per-piece pricing
- * 
- * @param quantity - Number of items being purchased
- * @param unitPrice - Price per single item
- * @param packPrice - Total price for a pack (not per-item in pack)
- * @param packQuantity - Number of items that make a pack
+ * Determine which pricing tier applies for a given quantity.
+ * Priority: pack (highest threshold) → half-pack → individual.
+ */
+export type PriceTier = "pack" | "halfPack" | "unit";
+
+export function getActivePriceTier(
+  quantity: number,
+  packPrice?: number,
+  packQuantity?: number,
+  halfPackPrice?: number,
+  halfPackQuantity?: number,
+): PriceTier {
+  if (packPrice && packQuantity && packQuantity > 0 && quantity >= packQuantity) {
+    return "pack";
+  }
+  if (halfPackPrice && halfPackQuantity && halfPackQuantity > 0 && quantity >= halfPackQuantity) {
+    return "halfPack";
+  }
+  return "unit";
+}
+
+/**
+ * Calculate the effective unit price based on quantity and tiered pricing.
+ * Tiers checked in order: pack → half-pack → per-piece.
+ *
+ * @param quantity       - Number of items being purchased
+ * @param unitPrice      - Price per single item
+ * @param packPrice      - Total sell price for a full pack (optional)
+ * @param packQuantity   - Items that make a full pack (optional)
+ * @param halfPackPrice  - Total sell price for a half-pack (optional)
+ * @param halfPackQuantity - Items that make a half-pack (optional)
  * @returns Effective price per item
  */
 export function calculateEffectivePrice(
@@ -16,36 +39,34 @@ export function calculateEffectivePrice(
   unitPrice: number,
   packPrice?: number,
   packQuantity?: number,
+  halfPackPrice?: number,
+  halfPackQuantity?: number,
 ): number {
-  // If pack pricing is not configured, use standard unit price
-  if (!packPrice || !packQuantity || packQuantity <= 0) {
-    return unitPrice;
-  }
-
-  // If quantity meets or exceeds pack threshold, calculate per-item price from pack
-  if (quantity >= packQuantity) {
-    return packPrice / packQuantity;
-  }
-
-  // Otherwise use standard unit price
+  const tier = getActivePriceTier(quantity, packPrice, packQuantity, halfPackPrice, halfPackQuantity);
+  if (tier === "pack") return packPrice! / packQuantity!;
+  if (tier === "halfPack") return halfPackPrice! / halfPackQuantity!;
   return unitPrice;
 }
 
 /**
  * Calculate line item subtotal with tiered pricing support
- * (quantity × effective unit price based on pack pricing)
+ * (quantity × effective unit price based on pack/half-pack pricing)
  */
 export function calculateLineSubtotalWithTieredPrice(
   quantity: number,
   unitPrice: number,
   packPrice?: number,
   packQuantity?: number,
+  halfPackPrice?: number,
+  halfPackQuantity?: number,
 ): number {
   const effectivePrice = calculateEffectivePrice(
     quantity,
     unitPrice,
     packPrice,
     packQuantity,
+    halfPackPrice,
+    halfPackQuantity,
   );
   return Number((quantity * effectivePrice).toFixed(2));
 }
