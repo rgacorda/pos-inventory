@@ -223,20 +223,12 @@ export function Receipt({
             </div>
           </div>
 
-          {/* Loyalty points summary */}
-          {(pointsEarned || loyaltyCustomerName) && (
+          {/* Loyalty member name */}
+          {loyaltyCustomerName && (
             <>
               <div className="border-b border-dashed border-gray-400 my-2" />
               <div className="text-center">
-                {loyaltyCustomerName && (
-                  <div>Member: {loyaltyCustomerName}</div>
-                )}
-                {pointsEarned && pointsEarned > 0 ? (
-                  <div>Points Earned: +{pointsEarned} pts</div>
-                ) : null}
-                <div className="text-[9pt] text-gray-500 mt-1">
-                  ₱200 spent = 1 pt · 1 pt = ₱1 off
-                </div>
+                <div>Member: {loyaltyCustomerName}</div>
               </div>
             </>
           )}
