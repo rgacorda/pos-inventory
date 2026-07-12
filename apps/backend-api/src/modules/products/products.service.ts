@@ -21,22 +21,30 @@ export class ProductsService {
   private computePackPrices(dto: Partial<CreateProductDto> | ProductEntity): void {
     const cost = Number(dto.cost) || 0;
 
-    if (dto.packQuantity) {
+    if (!dto.packQuantity) {
+      dto.packPrice = undefined;
+    } else if (dto.packPrice != null && Number(dto.packPrice) > 0) {
+      // Keep manually entered pack price (legacy or user override)
+      dto.packPrice = Number(dto.packPrice);
+    } else {
       const base = cost * Number(dto.packQuantity);
       const pct = Number(dto.packMarkupPercentage) || 0;
       const fixed = Number(dto.packMarkupFixed) || 0;
-      dto.packPrice = base + (base * pct) / 100 + fixed;
-    } else {
-      dto.packPrice = undefined;
+      const computed = base + (base * pct) / 100 + fixed;
+      dto.packPrice = computed > 0 ? computed : undefined;
     }
 
-    if (dto.halfPackQuantity) {
+    if (!dto.halfPackQuantity) {
+      dto.halfPackPrice = undefined;
+    } else if (dto.halfPackPrice != null && Number(dto.halfPackPrice) > 0) {
+      // Keep manually entered half-pack price
+      dto.halfPackPrice = Number(dto.halfPackPrice);
+    } else {
       const base = cost * Number(dto.halfPackQuantity);
       const pct = Number(dto.halfPackMarkupPercentage) || 0;
       const fixed = Number(dto.halfPackMarkupFixed) || 0;
-      dto.halfPackPrice = base + (base * pct) / 100 + fixed;
-    } else {
-      dto.halfPackPrice = undefined;
+      const computed = base + (base * pct) / 100 + fixed;
+      dto.halfPackPrice = computed > 0 ? computed : undefined;
     }
   }
 

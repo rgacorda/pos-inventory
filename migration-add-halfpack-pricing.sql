@@ -22,28 +22,13 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS "halfPackMarkupFixed"      NUMERIC(10,2) DEFAULT NULL;
 
 -- ---------------------------------------------------------------------------
--- 3. Clear stale packPrice values that were entered directly under the old
---    model.  packPrice is now a COMPUTED column (cost × qty + markup).
---    Leaving old manual values would cause incorrect pricing until each
---    product is re-saved with the new markup fields.
+-- 3. Preserve existing packPrice values (legacy manual pricing).
+--    New products can use markups, manual prices, or both.
 -- ---------------------------------------------------------------------------
-UPDATE products
-SET "packPrice" = NULL
-WHERE "packPrice" IS NOT NULL;
+-- No data changes to packPrice — existing values are kept as-is.
 
 -- ---------------------------------------------------------------------------
--- 4. Safety: ensure packQuantity rows without a price are also cleared
---    (prevents half-computed state where qty exists but price is NULL=0)
--- ---------------------------------------------------------------------------
-UPDATE products
-SET "packQuantity" = NULL
-WHERE "packQuantity" IS NOT NULL
-  AND "packPrice"    IS NULL
-  AND "packMarkupPercentage" IS NULL
-  AND "packMarkupFixed"      IS NULL;
-
--- ---------------------------------------------------------------------------
--- 5. Verify columns exist after migration
+-- 4. Verify columns exist after migration
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -79,8 +64,7 @@ COMMIT;
 
 -- =============================================================================
 -- Post-migration notes:
---   • Existing products with pack pricing need to be re-saved in the
---     Inventory app so the backend recomputes packPrice from markup fields.
---   • No data is lost — packQuantity is preserved where markup fields exist.
+--   • Existing packPrice values are preserved.
+--   • Products can use manual pack/half-pack prices OR markup-based pricing.
 --   • Run a sync on the POS app after applying this migration.
 -- =============================================================================
