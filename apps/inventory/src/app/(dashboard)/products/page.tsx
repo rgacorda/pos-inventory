@@ -415,7 +415,7 @@ export default function ProductsPage() {
 
   // Filter low stock products (stockQuantity <= lowStockThreshold)
   const lowStockProducts = products.filter(
-    (p) => p.stockQuantity <= (p.lowStockThreshold || 10)
+    (p) => p.stockQuantity <= (p.lowStockThreshold ?? 10)
   );
 
   const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
@@ -804,7 +804,7 @@ export default function ProductsPage() {
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {product.lowStockThreshold || 10}
+                        {product.lowStockThreshold ?? 10}
                       </TableCell>
                       <TableCell className="font-medium">
                         ₱{Number(product.price || 0).toFixed(2)}
