@@ -53,6 +53,7 @@ import {
   IconSearch,
   IconEye,
   IconEyeOff,
+  IconPackage,
 } from "@tabler/icons-react";
 
 interface Supplier {
@@ -68,6 +69,16 @@ interface Supplier {
   createdAt: string;
 }
 
+interface SupplierProduct {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  stockQuantity: number;
+  lowStockThreshold?: number;
+  status: string;
+}
+
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +88,11 @@ export default function SuppliersPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [showPassword, setShowPassword] = useState<{ [key: string]: boolean }>({});
+
+  const [isProductsDialogOpen, setIsProductsDialogOpen] = useState(false);
+  const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
+  const [loadingSupplierProducts, setLoadingSupplierProducts] = useState(false);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -137,6 +153,24 @@ export default function SuppliersPage() {
   const handleDeleteSupplier = (supplier: Supplier) => {
     setSelectedSupplier(supplier);
     setShowDeleteDialog(true);
+  };
+
+  const handleViewSupplierProducts = async (supplier: Supplier) => {
+    setProductsSupplier(supplier);
+    setIsProductsDialogOpen(true);
+    setLoadingSupplierProducts(true);
+    try {
+      const data = await apiClient.getProducts({ supplierId: supplier.id });
+      const sorted = [...data].sort(
+        (a: SupplierProduct, b: SupplierProduct) => a.stockQuantity - b.stockQuantity
+      );
+      setSupplierProducts(sorted);
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("products"));
+      setSupplierProducts([]);
+    } finally {
+      setLoadingSupplierProducts(false);
+    }
   };
 
   const handleCreateSupplier = async () => {
@@ -267,7 +301,11 @@ export default function SuppliersPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredSuppliers.map((supplier) => (
-                    <TableRow key={supplier.id}>
+                    <TableRow
+                      key={supplier.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleViewSupplierProducts(supplier)}
+                    >
                       <TableCell className="font-medium">{supplier.name}</TableCell>
                       <TableCell>{supplier.contactNumber || "-"}</TableCell>
                       <TableCell>{supplier.email || "-"}</TableCell>
@@ -278,6 +316,7 @@ export default function SuppliersPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-600 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             Visit
                           </a>
@@ -297,7 +336,10 @@ export default function SuppliersPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => togglePasswordVisibility(supplier.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePasswordVisibility(supplier.id);
+                              }}
                               className="h-6 w-6 p-0"
                             >
                               {showPassword[supplier.id] ? (
@@ -316,14 +358,20 @@ export default function SuppliersPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleEditSupplier(supplier)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditSupplier(supplier);
+                            }}
                           >
                             <IconEdit className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteSupplier(supplier)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSupplier(supplier);
+                            }}
                           >
                             <IconTrash className="h-4 w-4 text-destructive" />
                           </Button>
@@ -558,6 +606,80 @@ export default function SuppliersPage() {
               Cancel
             </Button>
             <Button onClick={handleUpdateSupplier}>Update Supplier</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Supplier Products Dialog */}
+      <Dialog open={isProductsDialogOpen} onOpenChange={setIsProductsDialogOpen}>
+        <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Products from {productsSupplier?.name}</DialogTitle>
+            <DialogDescription>
+              Sorted by stock quantity, lowest first
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingSupplierProducts ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-muted-foreground">Loading products...</div>
+            </div>
+          ) : supplierProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <IconPackage className="h-12 w-12 text-muted-foreground mb-4" />
+              <div className="text-muted-foreground">
+                No products linked to this supplier yet
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Products get linked automatically when a delivery from this supplier is received.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {supplierProducts.length} product{supplierProducts.length === 1 ? "" : "s"}
+              </p>
+              <div className="border rounded-md max-h-[60vh] overflow-y-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                    <TableRow>
+                      <TableHead className="text-base py-3">Product</TableHead>
+                      <TableHead className="text-base py-3">SKU</TableHead>
+                      <TableHead className="text-right text-base py-3">Price</TableHead>
+                      <TableHead className="text-right text-base py-3">Stock Quantity</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {supplierProducts.map((product) => {
+                      const isLowStock =
+                        product.stockQuantity <= (product.lowStockThreshold ?? 10);
+                      return (
+                        <TableRow key={product.id}>
+                          <TableCell className="font-medium py-3">{product.name}</TableCell>
+                          <TableCell className="font-mono text-sm text-muted-foreground py-3">
+                            {product.sku}
+                          </TableCell>
+                          <TableCell className="text-right py-3">
+                            ₱{Number(product.price || 0).toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right py-3">
+                            <span className={isLowStock ? "font-semibold text-red-600" : ""}>
+                              {product.stockQuantity}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsProductsDialogOpen(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
