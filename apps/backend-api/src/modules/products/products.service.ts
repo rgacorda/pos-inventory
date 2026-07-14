@@ -76,8 +76,12 @@ export class ProductsService {
     return this.productsRepository.save(product);
   }
 
-  async findAll(requestingUser: any) {
-    const query = this.productsRepository.createQueryBuilder('product');
+  async findAll(requestingUser: any, filters?: { supplierId?: string }) {
+    const query = this.productsRepository
+      .createQueryBuilder('product')
+      // Only pull the supplier's name (never website credentials/notes).
+      .leftJoin('product.supplier', 'supplier')
+      .addSelect(['supplier.id', 'supplier.name']);
 
     // Filter by organization for non-super-admins
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
@@ -86,11 +90,22 @@ export class ProductsService {
       });
     }
 
+    if (filters?.supplierId) {
+      query.andWhere('product.supplierId = :supplierId', {
+        supplierId: filters.supplierId,
+      });
+    }
+
     return query.orderBy('product.name', 'ASC').getMany();
   }
 
   async findOne(id: string, requestingUser: any) {
-    const product = await this.productsRepository.findOne({ where: { id } });
+    const product = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoin('product.supplier', 'supplier')
+      .addSelect(['supplier.id', 'supplier.name'])
+      .where('product.id = :id', { id })
+      .getOne();
 
     if (!product) {
       throw new NotFoundException('Product not found');

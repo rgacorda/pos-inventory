@@ -101,6 +101,19 @@ export class ProductEntity {
   @JoinColumn({ name: 'organizationId' })
   organization: any;
 
+  /**
+   * Last known supplier for this product, set automatically whenever a
+   * RECEIVED inventory delivery (linked to a supplier) includes this
+   * product. Nullable since existing products predate this field.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  supplierId: string | null;
+
+  @ManyToOne('Supplier', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'supplierId' })
+  supplier: any;
+
   @CreateDateColumn()
   createdAt: Date;
 

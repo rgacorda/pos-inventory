@@ -65,12 +65,21 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
+type QuantityType = "UNIT" | "PACK" | "HALF_PACK";
+
 interface DeliveryItem {
   productId: string;
   productName: string;
   quantity: number;
   unitCost: number;
   totalCost: number;
+  isFree?: boolean;
+  updateProductCost?: boolean;
+  packInfo?: {
+    type: "PACK" | "HALF_PACK";
+    packs: number;
+    unitsPerPack: number;
+  };
 }
 
 interface Product {
@@ -89,7 +98,14 @@ interface Product {
   markupFixed?: number;
   packPrice?: number;
   packQuantity?: number;
+  halfPackPrice?: number;
+  halfPackQuantity?: number;
   status: string;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
 }
 
 export default function EditDeliveryPage() {
@@ -99,6 +115,7 @@ export default function EditDeliveryPage() {
   
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deliveryDate, setDeliveryDate] = useState<Date>(new Date());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -106,17 +123,26 @@ export default function EditDeliveryPage() {
   const [items, setItems] = useState<DeliveryItem[]>([]);
   const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false);
   const [isCreateProductDialogOpen, setIsCreateProductDialogOpen] = useState(false);
+  const [isCreateSupplierDialogOpen, setIsCreateSupplierDialogOpen] = useState(false);
   const [isProductSearchDialogOpen, setIsProductSearchDialogOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
 
   const [formData, setFormData] = useState({
-    supplier: "",
+    supplierId: "",
+    legacySupplierName: "",
     invoiceNumber: "",
     totalCost: "",
+    discountAmount: "",
     status: "RECEIVED" as "PENDING" | "RECEIVED" | "CANCELLED",
     notes: "",
+  });
+
+  const [supplierFormData, setSupplierFormData] = useState({
+    name: "",
+    contactNumber: "",
+    email: "",
   });
 
   const [productFormData, setProductFormData] = useState({
@@ -141,8 +167,10 @@ export default function EditDeliveryPage() {
   });
 
   const [itemFormData, setItemFormData] = useState({
+    quantityType: "UNIT" as QuantityType,
     quantity: "",
     unitCost: "",
+    isFree: false,
     updatePrice: false,
     packPrice: "",
     packQuantity: "",
@@ -150,6 +178,7 @@ export default function EditDeliveryPage() {
 
   useEffect(() => {
     fetchProducts();
+    fetchSuppliers();
     fetchDelivery();
   }, [deliveryId]);
 
@@ -177,15 +206,51 @@ export default function EditDeliveryPage() {
     }
   }
 
+  async function fetchSuppliers() {
+    try {
+      const data = await apiClient.getSuppliers();
+      setSuppliers(data);
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("suppliers"));
+    }
+  }
+
+  function resetSupplierForm() {
+    setSupplierFormData({ name: "", contactNumber: "", email: "" });
+  }
+
+  async function handleCreateSupplier() {
+    if (!supplierFormData.name.trim()) {
+      showErrorToast("Please enter a supplier name");
+      return;
+    }
+
+    try {
+      const savedSupplier = await apiClient.createSupplier(supplierFormData);
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Supplier"));
+      await fetchSuppliers();
+      setFormData({ ...formData, supplierId: savedSupplier.id });
+      setIsCreateSupplierDialogOpen(false);
+      resetSupplierForm();
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("supplier"));
+    }
+  }
+
   async function fetchDelivery() {
     try {
       setLoading(true);
       const delivery = await apiClient.getInventoryDelivery(deliveryId);
       
       setFormData({
-        supplier: delivery.supplier,
+        // Legacy deliveries created before suppliers were linked may not
+        // have a supplierId - the free-text name is kept for display and
+        // is preserved on save unless a supplier is explicitly selected.
+        supplierId: delivery.supplierId || "",
+        legacySupplierName: delivery.supplier || "",
         invoiceNumber: delivery.invoiceNumber || "",
         totalCost: delivery.totalCost.toString(),
+        discountAmount: delivery.discountAmount ? delivery.discountAmount.toString() : "",
         status: delivery.status,
         notes: delivery.notes || "",
       });
@@ -209,6 +274,11 @@ export default function EditDeliveryPage() {
   const uniqueCategories = Array.from(
     new Set(products.map((p) => p.category).filter((c) => c && c.trim() !== ""))
   ).sort();
+
+  const selectedProductForItem = products.find((p) => p.id === selectedProductId) || null;
+  const itemMultiplier = getUnitMultiplier(itemFormData.quantityType, selectedProductForItem);
+  const itemEnteredQuantity = parseFloat(itemFormData.quantity) || 0;
+  const itemTotalUnits = itemEnteredQuantity * itemMultiplier;
 
   function resetProductForm() {
     setProductFormData({
@@ -235,12 +305,22 @@ export default function EditDeliveryPage() {
 
   function resetItemForm() {
     setItemFormData({
+      quantityType: "UNIT",
       quantity: "",
       unitCost: "",
+      isFree: false,
       updatePrice: false,
       packPrice: "",
       packQuantity: "",
     });
+  }
+
+  // Returns how many individual units make up one of the given quantity type
+  // for a product (e.g. 1 pack = product.packQuantity individual units).
+  function getUnitMultiplier(type: QuantityType, product?: Product | null) {
+    if (type === "PACK") return product?.packQuantity || 1;
+    if (type === "HALF_PACK") return product?.halfPackQuantity || 1;
+    return 1;
   }
 
   function handleOpenAddItemDialog() {
@@ -252,8 +332,10 @@ export default function EditDeliveryPage() {
     const product = products.find(p => p.id === selectedProductId);
     if (product) {
       setItemFormData({
+        quantityType: "UNIT",
         quantity: "",
         unitCost: product.cost.toString(),
+        isFree: false,
         updatePrice: false,
         packPrice: product.packPrice?.toString() || "",
         packQuantity: product.packQuantity?.toString() || "",
@@ -263,7 +345,12 @@ export default function EditDeliveryPage() {
   }
 
   async function handleAddItemToDelivery() {
-    if (!selectedProductId || !itemFormData.quantity || !itemFormData.unitCost) {
+    if (!selectedProductId || !itemFormData.quantity) {
+      showErrorToast("Please fill in all fields");
+      return;
+    }
+
+    if (!itemFormData.isFree && !itemFormData.unitCost) {
       showErrorToast("Please fill in all fields");
       return;
     }
@@ -271,17 +358,34 @@ export default function EditDeliveryPage() {
     const product = products.find(p => p.id === selectedProductId);
     if (!product) return;
 
-    const quantity = parseFloat(itemFormData.quantity);
-    const unitCost = parseFloat(itemFormData.unitCost);
-    const totalCost = quantity * unitCost;
+    const enteredQuantity = parseFloat(itemFormData.quantity);
+    const multiplier = getUnitMultiplier(itemFormData.quantityType, product);
+    const totalUnits = enteredQuantity * multiplier;
+
+    const isFree = itemFormData.isFree;
+    const enteredCost = isFree ? 0 : parseFloat(itemFormData.unitCost) || 0;
+    // Cost is always stored per individual unit, regardless of how it was entered.
+    const unitCost = isFree ? 0 : enteredCost / multiplier;
+    const totalCost = isFree ? 0 : enteredQuantity * enteredCost;
+    // Buying by pack/half-pack means the per-unit cost is derived (packPrice ÷
+    // packQuantity), so the product's cost is kept in sync automatically. For
+    // individual units it's only synced when explicitly requested.
+    const updateProductCost =
+      !isFree && (itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice);
 
     // Update product stock and optionally price
     try {
       const updateData: any = {
-        stockQuantity: product.stockQuantity + quantity,
+        stockQuantity: product.stockQuantity + totalUnits,
       };
 
-      if (itemFormData.updatePrice) {
+      // Tag the product with the delivery's supplier so it can be filtered
+      // by supplier later on.
+      if (formData.supplierId) {
+        updateData.supplierId = formData.supplierId;
+      }
+
+      if (updateProductCost) {
         updateData.cost = unitCost;
         // Recalculate price based on new cost if markups exist
         if (product.markupPercentage || product.markupFixed) {
@@ -304,9 +408,18 @@ export default function EditDeliveryPage() {
       const newItem: DeliveryItem = {
         productId: product.id,
         productName: product.name,
-        quantity,
+        quantity: totalUnits,
         unitCost,
         totalCost,
+        isFree,
+        updateProductCost,
+        ...(itemFormData.quantityType !== "UNIT" && {
+          packInfo: {
+            type: itemFormData.quantityType,
+            packs: enteredQuantity,
+            unitsPerPack: multiplier,
+          },
+        }),
       };
 
       setItems([...items, newItem]);
@@ -355,8 +468,10 @@ export default function EditDeliveryPage() {
       
       // Pre-populate item form with product details
       setItemFormData({
+        quantityType: "UNIT",
         quantity: "",
         unitCost: productFormData.cost,
+        isFree: false,
         updatePrice: false,
         packPrice: productFormData.packPrice || "",
         packQuantity: productFormData.packQuantity || "",
@@ -377,9 +492,18 @@ export default function EditDeliveryPage() {
     updateTotalCost(updatedItems);
   }
 
-  function updateTotalCost(itemsList: DeliveryItem[]) {
-    const total = itemsList.reduce((sum, item) => sum + item.totalCost, 0);
-    setFormData({ ...formData, totalCost: total.toFixed(2) });
+  function getItemsSubtotal(itemsList: DeliveryItem[]) {
+    return itemsList.reduce((sum, item) => sum + item.totalCost, 0);
+  }
+
+  // Recomputes the final totalCost as items subtotal minus any supplier
+  // discount. Pass discountOverride when updating from the discount input's
+  // onChange, since formData may not have re-rendered with the new value yet.
+  function updateTotalCost(itemsList: DeliveryItem[], discountOverride?: string) {
+    const subtotal = getItemsSubtotal(itemsList);
+    const discount = parseFloat(discountOverride ?? formData.discountAmount) || 0;
+    const total = Math.max(subtotal - discount, 0);
+    setFormData((prev) => ({ ...prev, totalCost: total.toFixed(2) }));
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -404,8 +528,8 @@ export default function EditDeliveryPage() {
   }
 
   async function handleSubmit() {
-    if (!formData.supplier) {
-      showErrorToast("Please enter supplier name");
+    if (!formData.supplierId && !formData.legacySupplierName) {
+      showErrorToast("Please select a supplier");
       return;
     }
 
@@ -423,13 +547,25 @@ export default function EditDeliveryPage() {
         receiptImageUrl = uploadResult.url;
       }
 
-      await apiClient.updateInventoryDelivery(deliveryId, {
-        ...formData,
-        deliveryDate: deliveryDate.toISOString(),
+      const payload: Record<string, any> = {
+        invoiceNumber: formData.invoiceNumber,
         totalCost: parseFloat(formData.totalCost),
+        discountAmount: parseFloat(formData.discountAmount) || 0,
+        status: formData.status,
+        notes: formData.notes,
+        deliveryDate: deliveryDate.toISOString(),
         items: items,
         receiptImageUrl,
-      });
+      };
+
+      // Only send supplierId when the admin actually picked a supplier from
+      // the list, so legacy free-text deliveries are left untouched unless
+      // explicitly re-linked.
+      if (formData.supplierId) {
+        payload.supplierId = formData.supplierId;
+      }
+
+      await apiClient.updateInventoryDelivery(deliveryId, payload);
 
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Delivery"));
       router.push("/deliveries");
@@ -473,13 +609,53 @@ export default function EditDeliveryPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Supplier *</Label>
-              <Input
-                value={formData.supplier}
-                onChange={(e) =>
-                  setFormData({ ...formData, supplier: e.target.value })
-                }
-                placeholder="Supplier name"
-              />
+              <div className="flex gap-2">
+                <Select
+                  value={formData.supplierId}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, supplierId: value })
+                  }
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue
+                      placeholder={
+                        formData.legacySupplierName
+                          ? `Legacy: ${formData.legacySupplierName}`
+                          : "Select a supplier"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No suppliers yet
+                      </div>
+                    ) : (
+                      suppliers.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setIsCreateSupplierDialogOpen(true)}
+                  title="Add new supplier"
+                >
+                  <IconPlus className="h-4 w-4" />
+                </Button>
+              </div>
+              {!formData.supplierId && formData.legacySupplierName && (
+                <p className="text-xs text-muted-foreground">
+                  This delivery uses a legacy free-text supplier: &quot;
+                  {formData.legacySupplierName}&quot;. Select a supplier above to
+                  link it going forward, or leave as-is to keep it unchanged.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Invoice Number</Label>
@@ -528,6 +704,27 @@ export default function EditDeliveryPage() {
                   <SelectItem value="CANCELLED">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Discount Amount (₱)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.discountAmount}
+                onChange={(e) => {
+                  const discount = e.target.value;
+                  setFormData((prev) => ({ ...prev, discountAmount: discount }));
+                  updateTotalCost(items, discount);
+                }}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Flat discount from the supplier, subtracted from the items subtotal
+              </p>
             </div>
           </div>
 
@@ -589,15 +786,30 @@ export default function EditDeliveryPage() {
                       <TableRow key={index}>
                         <TableCell className="font-medium">
                           {item.productName}
+                          {item.isFree && (
+                            <span className="ml-2 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
+                              FREE
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           {item.quantity}
+                          {item.packInfo && (
+                            <div className="text-xs text-muted-foreground">
+                              {item.packInfo.packs} {item.packInfo.type === "PACK" ? "pack" : "half pack"}
+                              {item.packInfo.packs === 1 ? "" : "s"}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
-                          ₱{item.unitCost.toFixed(2)}
+                          {item.isFree ? "—" : `₱${item.unitCost.toFixed(2)}`}
                         </TableCell>
                         <TableCell className="text-right">
-                          ₱{item.totalCost.toFixed(2)}
+                          {item.isFree ? (
+                            <span className="font-medium text-emerald-700">FREE</span>
+                          ) : (
+                            `₱${item.totalCost.toFixed(2)}`
+                          )}
                         </TableCell>
                         <TableCell>
                           <Button
@@ -611,6 +823,26 @@ export default function EditDeliveryPage() {
                         </TableCell>
                       </TableRow>
                     ))}
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-right text-muted-foreground">
+                        Subtotal:
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        ₱{getItemsSubtotal(items).toFixed(2)}
+                      </TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                    {parseFloat(formData.discountAmount) > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-right text-muted-foreground">
+                          Discount:
+                        </TableCell>
+                        <TableCell className="text-right text-red-600">
+                          -₱{(parseFloat(formData.discountAmount) || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell colSpan={3} className="text-right font-semibold">
                         Total:
@@ -801,7 +1033,66 @@ export default function EditDeliveryPage() {
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Quantity *</Label>
+              <Label>Quantity Type</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  variant={itemFormData.quantityType === "UNIT" ? "default" : "outline"}
+                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "UNIT" })}
+                >
+                  Unit
+                </Button>
+                <Button
+                  type="button"
+                  variant={itemFormData.quantityType === "PACK" ? "default" : "outline"}
+                  disabled={!selectedProductForItem?.packQuantity}
+                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "PACK" })}
+                >
+                  Pack
+                </Button>
+                <Button
+                  type="button"
+                  variant={itemFormData.quantityType === "HALF_PACK" ? "default" : "outline"}
+                  disabled={!selectedProductForItem?.halfPackQuantity}
+                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "HALF_PACK" })}
+                >
+                  Half Pack
+                </Button>
+              </div>
+              {(selectedProductForItem?.packQuantity || selectedProductForItem?.halfPackQuantity) ? (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  {selectedProductForItem?.packQuantity ? (
+                    <p>
+                      Pack: {selectedProductForItem.packQuantity} pcs
+                      {selectedProductForItem.packPrice
+                        ? ` · sells for ₱${Number(selectedProductForItem.packPrice).toFixed(2)}`
+                        : ""}
+                    </p>
+                  ) : (
+                    <p>Pack: not configured for this product</p>
+                  )}
+                  {selectedProductForItem?.halfPackQuantity ? (
+                    <p>
+                      Half Pack: {selectedProductForItem.halfPackQuantity} pcs
+                      {selectedProductForItem.halfPackPrice
+                        ? ` · sells for ₱${Number(selectedProductForItem.halfPackPrice).toFixed(2)}`
+                        : ""}
+                    </p>
+                  ) : (
+                    <p>Half Pack: not configured for this product</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  This product has no pack/half-pack configured — only individual units can be received.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                Quantity {itemFormData.quantityType === "PACK" ? "(packs)" : itemFormData.quantityType === "HALF_PACK" ? "(half packs)" : "(units)"} *
+              </Label>
               <Input
                 type="number"
                 step="0.01"
@@ -812,43 +1103,82 @@ export default function EditDeliveryPage() {
                 placeholder="Enter quantity received"
                 required
               />
+              {itemFormData.quantityType !== "UNIT" && itemFormData.quantity && (
+                <p className="text-xs text-muted-foreground">
+                  = {itemTotalUnits} individual unit{itemTotalUnits === 1 ? "" : "s"}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 This will be added to the current stock
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label>Unit Cost *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={itemFormData.unitCost}
-                onChange={(e) =>
-                  setItemFormData({ ...itemFormData, unitCost: e.target.value })
-                }
-                placeholder="Cost per unit"
-                required
-              />
-            </div>
-
             <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="updatePrice"
-                checked={itemFormData.updatePrice}
-                onChange={(e) =>
-                  setItemFormData({ ...itemFormData, updatePrice: e.target.checked })
+              <Checkbox
+                id="isFree"
+                checked={itemFormData.isFree}
+                onCheckedChange={(checked) =>
+                  setItemFormData({
+                    ...itemFormData,
+                    isFree: checked === true,
+                    updatePrice: checked === true ? false : itemFormData.updatePrice,
+                  })
                 }
-                className="h-4 w-4"
               />
-              <Label htmlFor="updatePrice" className="cursor-pointer font-normal">
-                Update product cost with this unit cost
+              <Label htmlFor="isFree" className="cursor-pointer font-normal">
+                Free item (given by supplier at no cost — updates stock, excluded from total)
               </Label>
             </div>
 
+            <div className="space-y-2">
+              <Label>
+                Cost per {itemFormData.quantityType === "PACK" ? "Pack" : itemFormData.quantityType === "HALF_PACK" ? "Half Pack" : "Unit"}
+                {!itemFormData.isFree && " *"}
+              </Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={itemFormData.isFree ? "0" : itemFormData.unitCost}
+                onChange={(e) =>
+                  setItemFormData({ ...itemFormData, unitCost: e.target.value })
+                }
+                placeholder="Cost from supplier"
+                disabled={itemFormData.isFree}
+                required={!itemFormData.isFree}
+              />
+              {itemFormData.quantityType !== "UNIT" && itemFormData.unitCost && !itemFormData.isFree && (
+                <p className="text-xs text-muted-foreground">
+                  = ₱{(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)} per unit
+                </p>
+              )}
+            </div>
+
+            {itemFormData.quantityType !== "UNIT" ? (
+              <p className="text-xs text-muted-foreground -mt-2">
+                Since this was bought by {itemFormData.quantityType === "PACK" ? "pack" : "half pack"}, the product&apos;s cost per unit will automatically update to the computed value above.
+              </p>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="updatePrice"
+                  checked={itemFormData.updatePrice}
+                  disabled={itemFormData.isFree}
+                  onCheckedChange={(checked) =>
+                    setItemFormData({ ...itemFormData, updatePrice: checked === true })
+                  }
+                />
+                <Label htmlFor="updatePrice" className="cursor-pointer font-normal">
+                  Update product cost with this unit cost
+                </Label>
+              </div>
+            )}
+
             {/* Pack Pricing */}
             <div className="border-t pt-4 mt-4">
-              <h4 className="text-sm font-semibold mb-3">Pack/Dozen Pricing (Optional)</h4>
+              <h4 className="text-sm font-semibold mb-3">Update Product&apos;s Pack Pricing (Optional)</h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                This sets/updates the product&apos;s own pack configuration (selling side) — separate from the Quantity Type above.
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Pack Quantity</Label>
@@ -882,12 +1212,13 @@ export default function EditDeliveryPage() {
               </div>
             </div>
 
-            {itemFormData.updatePrice && (
+            {(itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice) && !itemFormData.isFree && itemFormData.unitCost && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm">
                 <p className="text-amber-900">
-                  The product's cost will be updated to ₱{itemFormData.unitCost || "0.00"}.
-                  {products.find(p => p.id === selectedProductId)?.markupPercentage || 
-                   products.find(p => p.id === selectedProductId)?.markupFixed ? (
+                  The product's cost will be updated to ₱
+                  {(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)}{" "}
+                  per unit.
+                  {selectedProductForItem?.markupPercentage || selectedProductForItem?.markupFixed ? (
                     <> The selling price will be automatically recalculated based on markups.</>
                   ) : null}
                 </p>
@@ -897,17 +1228,28 @@ export default function EditDeliveryPage() {
             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
               <p className="font-medium text-blue-900">Current Product Info:</p>
               <p className="text-blue-800">
-                Stock: {products.find(p => p.id === selectedProductId)?.stockQuantity || 0} 
-                {itemFormData.quantity && ` → ${(products.find(p => p.id === selectedProductId)?.stockQuantity || 0) + parseFloat(itemFormData.quantity)}`}
+                Stock: {selectedProductForItem?.stockQuantity || 0} 
+                {itemFormData.quantity && ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
               </p>
               <p className="text-blue-800">
-                Cost: ₱{Number(products.find(p => p.id === selectedProductId)?.cost || 0).toFixed(2)}
-                {itemFormData.updatePrice && itemFormData.unitCost && ` → ₱${parseFloat(itemFormData.unitCost).toFixed(2)}`}
+                Cost: ₱{Number(selectedProductForItem?.cost || 0).toFixed(2)} / unit
+                {(itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice) && !itemFormData.isFree && itemFormData.unitCost &&
+                  ` → ₱${(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)} / unit`}
               </p>
-              {(products.find(p => p.id === selectedProductId)?.packPrice || itemFormData.packPrice) && (
+              <p className="text-blue-800">
+                Line Total:{" "}
+                {itemFormData.isFree ? (
+                  <span className="font-semibold text-emerald-700">FREE</span>
+                ) : (
+                  <span className="font-semibold">
+                    ₱{(itemEnteredQuantity * (parseFloat(itemFormData.unitCost) || 0)).toFixed(2)}
+                  </span>
+                )}
+              </p>
+              {(selectedProductForItem?.packPrice || itemFormData.packPrice) && (
                 <p className="text-blue-800">
-                  Pack: {products.find(p => p.id === selectedProductId)?.packQuantity || 0} @ ₱{Number(products.find(p => p.id === selectedProductId)?.packPrice || 0).toFixed(2)}
-                  {(itemFormData.packPrice || itemFormData.packQuantity) && ` → ${itemFormData.packQuantity || products.find(p => p.id === selectedProductId)?.packQuantity || 0} @ ₱${Number(itemFormData.packPrice || products.find(p => p.id === selectedProductId)?.packPrice || 0).toFixed(2)}`}
+                  Pack: {selectedProductForItem?.packQuantity || 0} @ ₱{Number(selectedProductForItem?.packPrice || 0).toFixed(2)}
+                  {(itemFormData.packPrice || itemFormData.packQuantity) && ` → ${itemFormData.packQuantity || selectedProductForItem?.packQuantity || 0} @ ₱${Number(itemFormData.packPrice || selectedProductForItem?.packPrice || 0).toFixed(2)}`}
                 </p>
               )}
             </div>
@@ -1269,6 +1611,67 @@ export default function EditDeliveryPage() {
             <Button onClick={handleCreateProduct}>
               Create Product
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create New Supplier Dialog */}
+      <Dialog open={isCreateSupplierDialogOpen} onOpenChange={setIsCreateSupplierDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Supplier</DialogTitle>
+            <DialogDescription>
+              Quickly add a supplier without leaving this page. You can fill in
+              more details later from the Suppliers page.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Supplier Name *</Label>
+              <Input
+                value={supplierFormData.name}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, name: e.target.value })
+                }
+                placeholder="Enter supplier name"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Contact Number</Label>
+              <Input
+                value={supplierFormData.contactNumber}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, contactNumber: e.target.value })
+                }
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={supplierFormData.email}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, email: e.target.value })
+                }
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateSupplierDialogOpen(false);
+                resetSupplierForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSupplier}>Add Supplier</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

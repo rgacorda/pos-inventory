@@ -128,6 +128,10 @@ export class CreateProductDto {
   @IsUUID()
   @IsOptional()
   organizationId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  supplierId?: string;
 }
 
 export class UpdateProductDto {
@@ -248,4 +252,8 @@ export class UpdateProductDto {
   @IsEnum(ProductStatus)
   @IsOptional()
   status?: ProductStatus;
+
+  @IsUUID()
+  @IsOptional()
+  supplierId?: string;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -70,11 +70,13 @@ import {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isCreateSupplierDialogOpen, setIsCreateSupplierDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
@@ -88,6 +90,7 @@ export default function ProductsPage() {
     name: "",
     description: "",
     category: "",
+    supplierId: "",
     price: "",
     cost: "",
     markupPercentage: "",
@@ -109,10 +112,16 @@ export default function ProductsPage() {
     barcode: "",
     status: "ACTIVE",
   });
+  const [supplierFormData, setSupplierFormData] = useState({
+    name: "",
+    contactNumber: "",
+    email: "",
+  });
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     loadProducts();
+    loadSuppliers();
   }, []);
 
   const loadProducts = async () => {
@@ -126,6 +135,37 @@ export default function ProductsPage() {
     }
   };
 
+  const loadSuppliers = async () => {
+    try {
+      const data = await apiClient.getSuppliers();
+      setSuppliers(data);
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("suppliers"));
+    }
+  };
+
+  const resetSupplierForm = () => {
+    setSupplierFormData({ name: "", contactNumber: "", email: "" });
+  };
+
+  const handleCreateSupplier = async () => {
+    if (!supplierFormData.name.trim()) {
+      showErrorFromException(new Error("Supplier name is required"), "Validation Error");
+      return;
+    }
+
+    try {
+      const savedSupplier = await apiClient.createSupplier(supplierFormData);
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Supplier"));
+      await loadSuppliers();
+      setFormData((prev) => ({ ...prev, supplierId: savedSupplier.id }));
+      setIsCreateSupplierDialogOpen(false);
+      resetSupplierForm();
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("supplier"));
+    }
+  };
+
   const computePrice = (cost: string, pct: string, fixed: string): number => {
     const c = parseFloat(cost) || 0;
     const p = parseFloat(pct) || 0;
@@ -133,13 +173,45 @@ export default function ProductsPage() {
     return c + (c * p / 100) + f;
   };
 
-  const computeTieredPrice = (cost: string, qty: string, pct: string, fixed: string): number => {
-    const c = parseFloat(cost) || 0;
-    const q = parseInt(qty) || 0;
+  // Pack/half-pack pricing keeps a "base" price (cost x quantity, or a
+  // manually-typed price) separate from the displayed price so that markup
+  // (percentage and/or fixed) is always layered ON TOP of that base instead
+  // of replacing it. Without this, editing a markup field recomputed the
+  // price from cost x quantity alone and silently discarded any manually
+  // entered pack price.
+  const packBaseRef = useRef(0);
+  const halfPackBaseRef = useRef(0);
+  const skipPackBaseSyncRef = useRef(false);
+  const skipHalfPackBaseSyncRef = useRef(false);
+
+  const applyTieredMarkup = (base: number, pct: string, fixed: string): number => {
     const p = parseFloat(pct) || 0;
     const f = parseFloat(fixed) || 0;
-    const base = c * q;
-    return base + (base * p / 100) + f;
+    return base + (base * p) / 100 + f;
+  };
+
+  // Reverse-solve the base price so that base + markup === the value the
+  // user just typed, keeping future markup edits consistent.
+  const deriveBaseFromDisplayedPrice = (displayed: number, pct: string, fixed: string): number => {
+    const p = parseFloat(pct) || 0;
+    const f = parseFloat(fixed) || 0;
+    const denom = 1 + p / 100;
+    return denom !== 0 ? (displayed - f) / denom : displayed;
+  };
+
+  // Manually typing a Pack/Half-Pack price updates the underlying base (via
+  // reverse-solve) instead of being blown away the next time a markup field
+  // changes, so pack price + markup now correctly combine.
+  const handleManualPackPriceChange = (value: string) => {
+    const displayed = parseFloat(value) || 0;
+    packBaseRef.current = deriveBaseFromDisplayedPrice(displayed, formData.packMarkupPercentage, formData.packMarkupFixed);
+    setFormData(prev => ({ ...prev, packPrice: value }));
+  };
+
+  const handleManualHalfPackPriceChange = (value: string) => {
+    const displayed = parseFloat(value) || 0;
+    halfPackBaseRef.current = deriveBaseFromDisplayedPrice(displayed, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
+    setFormData(prev => ({ ...prev, halfPackPrice: value }));
   };
 
   useEffect(() => {
@@ -149,27 +221,58 @@ export default function ProductsPage() {
     }
   }, [formData.cost, formData.markupPercentage, formData.markupFixed]);
 
+  // Recompute the pack base whenever cost/quantity change (the most
+  // authoritative source), then re-apply whatever markup is currently set.
   useEffect(() => {
+    if (skipPackBaseSyncRef.current) {
+      skipPackBaseSyncRef.current = false;
+      return;
+    }
     if (!formData.packQuantity) {
+      packBaseRef.current = 0;
       setFormData(prev => ({ ...prev, packPrice: "" }));
       return;
     }
-    if (formData.packMarkupPercentage || formData.packMarkupFixed) {
-      const calculated = computeTieredPrice(formData.cost, formData.packQuantity, formData.packMarkupPercentage, formData.packMarkupFixed);
-      setFormData(prev => ({ ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
-    }
-  }, [formData.cost, formData.packQuantity, formData.packMarkupPercentage, formData.packMarkupFixed]);
+    const cost = parseFloat(formData.cost) || 0;
+    const qty = parseInt(formData.packQuantity) || 0;
+    packBaseRef.current = cost * qty;
+    setFormData(prev => {
+      const calculated = applyTieredMarkup(packBaseRef.current, prev.packMarkupPercentage, prev.packMarkupFixed);
+      return { ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" };
+    });
+  }, [formData.cost, formData.packQuantity]);
+
+  // Markup changes always combine with the current base (never overwrite it).
+  useEffect(() => {
+    if (!formData.packQuantity) return;
+    const calculated = applyTieredMarkup(packBaseRef.current, formData.packMarkupPercentage, formData.packMarkupFixed);
+    setFormData(prev => ({ ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
+  }, [formData.packMarkupPercentage, formData.packMarkupFixed]);
 
   useEffect(() => {
+    if (skipHalfPackBaseSyncRef.current) {
+      skipHalfPackBaseSyncRef.current = false;
+      return;
+    }
     if (!formData.halfPackQuantity) {
+      halfPackBaseRef.current = 0;
       setFormData(prev => ({ ...prev, halfPackPrice: "" }));
       return;
     }
-    if (formData.halfPackMarkupPercentage || formData.halfPackMarkupFixed) {
-      const calculated = computeTieredPrice(formData.cost, formData.halfPackQuantity, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
-      setFormData(prev => ({ ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
-    }
-  }, [formData.cost, formData.halfPackQuantity, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed]);
+    const cost = parseFloat(formData.cost) || 0;
+    const qty = parseInt(formData.halfPackQuantity) || 0;
+    halfPackBaseRef.current = cost * qty;
+    setFormData(prev => {
+      const calculated = applyTieredMarkup(halfPackBaseRef.current, prev.halfPackMarkupPercentage, prev.halfPackMarkupFixed);
+      return { ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" };
+    });
+  }, [formData.cost, formData.halfPackQuantity]);
+
+  useEffect(() => {
+    if (!formData.halfPackQuantity) return;
+    const calculated = applyTieredMarkup(halfPackBaseRef.current, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
+    setFormData(prev => ({ ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
+  }, [formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed]);
 
   const resetForm = () => {
     setFormData({
@@ -177,6 +280,7 @@ export default function ProductsPage() {
       name: "",
       description: "",
       category: "",
+      supplierId: "",
       price: "",
       cost: "",
       markupPercentage: "",
@@ -207,11 +311,30 @@ export default function ProductsPage() {
 
   const handleEditProduct = (product: any) => {
     setSelectedProduct(product);
+
+    // Seed the pack/half-pack base refs from the product's own saved values
+    // (reverse-solving out any already-applied markup) so the cost/quantity
+    // sync effect doesn't clobber a legacy/manual price when the dialog opens.
+    const packQty = Number(product.packQuantity) || 0;
+    const packPriceVal = Number(product.packPrice) || 0;
+    packBaseRef.current = packPriceVal > 0
+      ? deriveBaseFromDisplayedPrice(packPriceVal, product.packMarkupPercentage?.toString() || "", product.packMarkupFixed?.toString() || "")
+      : (Number(product.cost) || 0) * packQty;
+    skipPackBaseSyncRef.current = true;
+
+    const halfPackQty = Number(product.halfPackQuantity) || 0;
+    const halfPackPriceVal = Number(product.halfPackPrice) || 0;
+    halfPackBaseRef.current = halfPackPriceVal > 0
+      ? deriveBaseFromDisplayedPrice(halfPackPriceVal, product.halfPackMarkupPercentage?.toString() || "", product.halfPackMarkupFixed?.toString() || "")
+      : (Number(product.cost) || 0) * halfPackQty;
+    skipHalfPackBaseSyncRef.current = true;
+
     setFormData({
       sku: product.sku || "",
       name: product.name || "",
       description: product.description || "",
       category: product.category || "",
+      supplierId: product.supplierId || product.supplier?.id || "",
       price: product.price?.toString() || "",
       cost: product.cost?.toString() || "",
       markupPercentage: product.markupPercentage?.toString() || "",
@@ -251,6 +374,7 @@ export default function ProductsPage() {
         name: formData.name,
         description: formData.description || undefined,
         category: formData.category || undefined,
+        supplierId: formData.supplierId || null,
         barcode: formData.barcode || undefined,
         status: formData.status,
         price: parseFloat(formData.price),
@@ -295,6 +419,7 @@ export default function ProductsPage() {
         name: formData.name,
         description: formData.description || undefined,
         category: formData.category || undefined,
+        supplierId: formData.supplierId || null,
         barcode: formData.barcode || undefined,
         status: formData.status,
         price: parseFloat(formData.price),
@@ -353,7 +478,8 @@ export default function ProductsPage() {
       p.sku?.toLowerCase().includes(term) ||
       p.category?.toLowerCase().includes(term) ||
       p.description?.toLowerCase().includes(term) ||
-      p.barcode?.toLowerCase().includes(term)
+      p.barcode?.toLowerCase().includes(term) ||
+      p.supplier?.name?.toLowerCase().includes(term)
     );
   });
 
@@ -379,6 +505,11 @@ export default function ProductsPage() {
         if (sortColumn === 'profit') {
           aValue = (Number(a.price) || 0) - (Number(a.cost) || 0);
           bValue = (Number(b.price) || 0) - (Number(b.cost) || 0);
+        }
+
+        if (sortColumn === 'supplier') {
+          aValue = a.supplier?.name || '';
+          bValue = b.supplier?.name || '';
         }
 
         // Handle null/undefined
@@ -515,6 +646,15 @@ export default function ProductsPage() {
                     </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('supplier')}
+                    >
+                      <div className="flex items-center">
+                        Supplier
+                        <SortIcon column="supplier" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleSort('cost')}
                     >
                       <div className="flex items-center">
@@ -603,6 +743,11 @@ export default function ProductsPage() {
                         {product.sku}
                       </TableCell>
                       <TableCell>{product.category || "N/A"}</TableCell>
+                      <TableCell>
+                        {product.supplier?.name || (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </TableCell>
                       <TableCell className="font-medium">
                         ₱{cost.toFixed(2)}
                       </TableCell>
@@ -1018,6 +1163,44 @@ export default function ProductsPage() {
                   )}
                 </div>
 
+                <div className="space-y-2">
+                  <Label>Supplier</Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={formData.supplierId}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, supplierId: value })
+                      }
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select a supplier (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suppliers.length === 0 ? (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No suppliers yet
+                          </div>
+                        ) : (
+                          suppliers.map((supplier) => (
+                            <SelectItem key={supplier.id} value={supplier.id}>
+                              {supplier.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setIsCreateSupplierDialogOpen(true)}
+                      title="Add new supplier"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="cost">Cost *</Label>
@@ -1201,10 +1384,10 @@ export default function ProductsPage() {
                         type="number"
                         step="0.01"
                         value={formData.packPrice}
-                        onChange={(e) => setFormData({ ...formData, packPrice: e.target.value })}
+                        onChange={(e) => handleManualPackPriceChange(e.target.value)}
                         placeholder="120.00"
                       />
-                      <p className="text-xs text-muted-foreground">Manual or auto from markup</p>
+                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
                   {formData.packQuantity && formData.packPrice && (
@@ -1261,10 +1444,10 @@ export default function ProductsPage() {
                         type="number"
                         step="0.01"
                         value={formData.halfPackPrice}
-                        onChange={(e) => setFormData({ ...formData, halfPackPrice: e.target.value })}
+                        onChange={(e) => handleManualHalfPackPriceChange(e.target.value)}
                         placeholder="65.00"
                       />
-                      <p className="text-xs text-muted-foreground">Manual or auto from markup</p>
+                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
                   {formData.halfPackQuantity && formData.halfPackPrice && (
@@ -1502,6 +1685,44 @@ export default function ProductsPage() {
                   )}
                 </div>
 
+                <div className="space-y-2">
+                  <Label>Supplier</Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={formData.supplierId}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, supplierId: value })
+                      }
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select a supplier (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suppliers.length === 0 ? (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No suppliers yet
+                          </div>
+                        ) : (
+                          suppliers.map((supplier) => (
+                            <SelectItem key={supplier.id} value={supplier.id}>
+                              {supplier.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setIsCreateSupplierDialogOpen(true)}
+                      title="Add new supplier"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-cost">Cost *</Label>
@@ -1681,10 +1902,10 @@ export default function ProductsPage() {
                         type="number"
                         step="0.01"
                         value={formData.packPrice}
-                        onChange={(e) => setFormData({ ...formData, packPrice: e.target.value })}
+                        onChange={(e) => handleManualPackPriceChange(e.target.value)}
                         placeholder="120.00"
                       />
-                      <p className="text-xs text-muted-foreground">Manual or auto from markup</p>
+                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
                   {formData.packQuantity && formData.packPrice && (
@@ -1741,10 +1962,10 @@ export default function ProductsPage() {
                         type="number"
                         step="0.01"
                         value={formData.halfPackPrice}
-                        onChange={(e) => setFormData({ ...formData, halfPackPrice: e.target.value })}
+                        onChange={(e) => handleManualHalfPackPriceChange(e.target.value)}
                         placeholder="65.00"
                       />
-                      <p className="text-xs text-muted-foreground">Manual or auto from markup</p>
+                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
                   {formData.halfPackQuantity && formData.halfPackPrice && (
@@ -1873,6 +2094,67 @@ export default function ProductsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create New Supplier Dialog */}
+      <Dialog open={isCreateSupplierDialogOpen} onOpenChange={setIsCreateSupplierDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Supplier</DialogTitle>
+            <DialogDescription>
+              Quickly add a supplier without leaving this page. You can fill in
+              more details later from the Suppliers page.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Supplier Name *</Label>
+              <Input
+                value={supplierFormData.name}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, name: e.target.value })
+                }
+                placeholder="Enter supplier name"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Contact Number</Label>
+              <Input
+                value={supplierFormData.contactNumber}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, contactNumber: e.target.value })
+                }
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={supplierFormData.email}
+                onChange={(e) =>
+                  setSupplierFormData({ ...supplierFormData, email: e.target.value })
+                }
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateSupplierDialogOpen(false);
+                resetSupplierForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSupplier}>Add Supplier</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

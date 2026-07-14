@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -34,8 +35,11 @@ export class ProductsController {
   }
 
   @Get()
-  async findAll(@CurrentUser() user: any) {
-    return this.productsService.findAll(user);
+  async findAll(
+    @CurrentUser() user: any,
+    @Query('supplierId') supplierId?: string,
+  ) {
+    return this.productsService.findAll(user, { supplierId });
   }
 
   @Get('barcode/:barcode')

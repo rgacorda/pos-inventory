@@ -107,8 +107,8 @@ class APIClient {
   }
 
   // Products API
-  async getProducts() {
-    const response = await this.client.get("/products");
+  async getProducts(filters?: { supplierId?: string }) {
+    const response = await this.client.get("/products", { params: filters });
     return response.data;
   }
 

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { ProductEntity } from '../../entities/product.entity';
+import { Supplier } from '../../entities/supplier.entity';
 
 @Injectable()
 export class InventoryDeliveriesService {
@@ -11,7 +12,42 @@ export class InventoryDeliveriesService {
     private readonly deliveryRepository: Repository<InventoryDelivery>,
     @InjectRepository(ProductEntity)
     private readonly productRepository: Repository<ProductEntity>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepository: Repository<Supplier>,
   ) {}
+
+  /**
+   * If a `supplierId` is provided, resolve it against the suppliers table
+   * (scoped to the organization) and overwrite the legacy `supplier` text
+   * field with the canonical name, so old free-text search/display code
+   * keeps working. If `supplierId` is explicitly cleared (null/""), the
+   * link is removed but any manually entered `supplier` text is preserved
+   * for backward compatibility with pre-existing free-text deliveries.
+   */
+  private async resolveSupplierLink(
+    dto: Record<string, any>,
+    organizationId: string,
+  ) {
+    if (!('supplierId' in dto)) {
+      return;
+    }
+
+    if (!dto.supplierId) {
+      dto.supplierId = null;
+      return;
+    }
+
+    const supplier = await this.supplierRepository.findOne({
+      where: { id: dto.supplierId, organizationId },
+    });
+
+    if (!supplier) {
+      throw new NotFoundException('Supplier not found');
+    }
+
+    dto.supplierId = supplier.id;
+    dto.supplier = supplier.name;
+  }
 
   async findAll(
     organizationId: string,
@@ -54,6 +90,8 @@ export class InventoryDeliveriesService {
   }
 
   async create(createDto: any): Promise<InventoryDelivery> {
+    await this.resolveSupplierLink(createDto, createDto.organizationId);
+
     const delivery = this.deliveryRepository.create(createDto);
     const savedDelivery = (await this.deliveryRepository.save(
       delivery,
@@ -67,6 +105,7 @@ export class InventoryDeliveriesService {
       await this.updateProductStock(
         savedDelivery.items,
         savedDelivery.organizationId,
+        savedDelivery.supplierId,
       );
     }
 
@@ -80,6 +119,8 @@ export class InventoryDeliveriesService {
   ): Promise<InventoryDelivery> {
     const delivery = await this.findOne(id, organizationId);
     const oldStatus = delivery.status;
+
+    await this.resolveSupplierLink(updateDto, organizationId);
 
     Object.assign(delivery, updateDto);
     const updatedDelivery = (await this.deliveryRepository.save(
@@ -95,6 +136,7 @@ export class InventoryDeliveriesService {
       await this.updateProductStock(
         updatedDelivery.items,
         updatedDelivery.organizationId,
+        updatedDelivery.supplierId,
       );
     }
 
@@ -102,8 +144,15 @@ export class InventoryDeliveriesService {
   }
 
   private async updateProductStock(
-    items: Array<{ productId: string; quantity: number }>,
+    items: Array<{
+      productId: string;
+      quantity: number;
+      unitCost?: number;
+      isFree?: boolean;
+      updateProductCost?: boolean;
+    }>,
     organizationId: string,
+    supplierId?: string | null,
   ) {
     for (const item of items) {
       const product = await this.productRepository.findOne({
@@ -112,6 +161,27 @@ export class InventoryDeliveriesService {
 
       if (product) {
         product.stockQuantity += item.quantity;
+        // Tag the product with its most recent supplier so it can be
+        // filtered by supplier later on.
+        if (supplierId) {
+          product.supplierId = supplierId;
+        }
+
+        // Keep the product's cost in sync with the latest delivery price.
+        // Always the case when the item was bought by pack/half-pack (the
+        // per-unit cost is derived from packPrice ÷ packQuantity), or when
+        // explicitly requested for individually-priced items. Free items
+        // never touch cost since they carry no real purchase price.
+        if (item.updateProductCost && !item.isFree && item.unitCost != null) {
+          product.cost = item.unitCost;
+          const percentNum = Number(product.markupPercentage) || 0;
+          const fixedNum = Number(product.markupFixed) || 0;
+          if (percentNum || fixedNum) {
+            product.price =
+              item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
+          }
+        }
+
         await this.productRepository.save(product);
       }
     }
@@ -143,20 +213,26 @@ export class InventoryDeliveriesService {
 
     const deliveries = await queryBuilder.getMany();
 
-    const totalCost = deliveries
-      .filter((d) => d.status === 'RECEIVED')
-      .reduce((sum, d) => sum + Number(d.totalCost), 0);
+    const receivedOnly = deliveries.filter((d) => d.status === 'RECEIVED');
+
+    const totalCost = receivedOnly.reduce(
+      (sum, d) => sum + Number(d.totalCost),
+      0,
+    );
+    const totalDiscount = receivedOnly.reduce(
+      (sum, d) => sum + Number(d.discountAmount || 0),
+      0,
+    );
 
     const totalDeliveries = deliveries.length;
-    const receivedDeliveries = deliveries.filter(
-      (d) => d.status === 'RECEIVED',
-    ).length;
+    const receivedDeliveries = receivedOnly.length;
     const pendingDeliveries = deliveries.filter(
       (d) => d.status === 'PENDING',
     ).length;
 
     return {
       totalCost,
+      totalDiscount,
       totalDeliveries,
       receivedDeliveries,
       pendingDeliveries,

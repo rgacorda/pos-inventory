@@ -58,13 +58,22 @@ interface DeliveryItem {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  isFree?: boolean;
+  updateProductCost?: boolean;
+  packInfo?: {
+    type: "PACK" | "HALF_PACK";
+    packs: number;
+    unitsPerPack: number;
+  };
 }
 
 interface InventoryDelivery {
   id: string;
   supplier: string;
+  supplierId?: string | null;
   deliveryDate: string;
   totalCost: number;
+  discountAmount?: number;
   items: DeliveryItem[];
   status: "PENDING" | "RECEIVED" | "CANCELLED";
   notes?: string;
@@ -225,6 +234,11 @@ export default function InventoryDeliveriesPage() {
                       </TableCell>
                       <TableCell>
                         ₱{Number(delivery.totalCost).toFixed(2)}
+                        {Number(delivery.discountAmount) > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            -₱{Number(delivery.discountAmount).toFixed(2)} discount
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>{getStatusBadge(delivery.status)}</TableCell>
                       <TableCell>
