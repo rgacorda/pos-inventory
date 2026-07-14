@@ -94,7 +94,11 @@ WITH candidate_matches AS (
   WHERE d."supplierId" IS NULL
 ),
 unambiguous_matches AS (
-  SELECT delivery_id, MIN(supplier_id) AS supplier_id
+  -- Postgres has no MIN()/MAX() aggregate for the uuid type, so cast to text
+  -- for the aggregate and back to uuid. Since HAVING COUNT(*) = 1 guarantees
+  -- exactly one candidate per delivery here, the choice of aggregate doesn't
+  -- matter - it's just a way to pick "the one value" per group.
+  SELECT delivery_id, MIN(supplier_id::text)::uuid AS supplier_id
   FROM candidate_matches
   GROUP BY delivery_id
   HAVING COUNT(*) = 1
