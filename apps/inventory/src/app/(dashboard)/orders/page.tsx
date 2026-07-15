@@ -288,6 +288,7 @@ export default function OrdersPage() {
                     <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -325,6 +326,9 @@ export default function OrdersPage() {
                       </TableCell>
                       <TableCell>
                         {new Date(order.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        {format(new Date(order.createdAt), "h:mm a")}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
