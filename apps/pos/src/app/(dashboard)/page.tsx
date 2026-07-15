@@ -42,8 +42,23 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, getActivePriceTier } from "@pos/shared-utils";
+import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, PriceBreakdown } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
+
+// Formats a price breakdown into a readable label, e.g. "1 pack + 1 pc" or "2 packs + 3 pcs"
+function formatPriceBreakdownLabel(breakdown: PriceBreakdown): string | null {
+  const parts: string[] = [];
+  if (breakdown.packs > 0) {
+    parts.push(`${breakdown.packs} pack${breakdown.packs > 1 ? "s" : ""}`);
+  }
+  if (breakdown.halfPacks > 0) {
+    parts.push(`${breakdown.halfPacks} half-pack${breakdown.halfPacks > 1 ? "s" : ""}`);
+  }
+  if (breakdown.units > 0) {
+    parts.push(`${breakdown.units} pc${breakdown.units > 1 ? "s" : ""}`);
+  }
+  return parts.length > 0 ? parts.join(" + ") : null;
+}
 
 export default function Page() {
   const router = useRouter();
@@ -243,12 +258,112 @@ export default function Page() {
     }
   }, [orderItems]);
 
-  // Auto-focus quantity input when dialog opens
+  // Keyboard shortcuts + rescan handling while the "Add Product" quantity dialog is open.
+  // Arrow keys adjust quantity / jump to half-box or box presets, Space/C toggle the
+  // add-on checkboxes, and scanning another barcode auto-confirms the current product
+  // before opening the dialog for the newly scanned one.
   useEffect(() => {
-    if (showQuantityDialog) {
-      setTimeout(() => quantityInputRef.current?.focus(), 100);
-    }
-  }, [showQuantityDialog]);
+    if (!showQuantityDialog || !productToAdd) return;
+
+    const hasAddon = Boolean(productToAdd.addonPrice && productToAdd.addonPrice > 0);
+    const hasConvenience = Boolean(
+      (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) ||
+      (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)
+    );
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isQuantityInputFocused = e.target === quantityInputRef.current;
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setQuantityToAdd((prev) => String((parseInt(prev) || 0) + 1));
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setQuantityToAdd((prev) => String(Math.max(1, (parseInt(prev) || 0) - 1)));
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (productToAdd.halfPackQuantity) {
+          setQuantityToAdd(productToAdd.halfPackQuantity.toString());
+        }
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const packQty = productToAdd.packQuantity || 10;
+        setQuantityToAdd((prev) => {
+          const current = parseInt(prev) || 0;
+          // Already a whole number of boxes: stack another one on top so repeated
+          // presses let the cashier ring up multiple boxes (2x, 3x, ...).
+          if (current > 0 && current % packQty === 0) {
+            return String(current + packQty);
+          }
+          return String(packQty);
+        });
+        return;
+      }
+      if (e.key === " ") {
+        e.preventDefault();
+        if (hasAddon) {
+          setIncludeAddon((prev) => !prev);
+        } else if (hasConvenience) {
+          setIncludeConvenience((prev) => !prev);
+        }
+        return;
+      }
+      if (e.key.toLowerCase() === "c" && hasConvenience) {
+        e.preventDefault();
+        setIncludeConvenience((prev) => !prev);
+        return;
+      }
+
+      // Let manual typing/backspace/Enter in the quantity field behave normally,
+      // except Enter is routed through confirmAddToOrder for consistency.
+      if (isQuantityInputFocused) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          confirmAddToOrder();
+        }
+        return;
+      }
+
+      // Not typing into the quantity field: treat keystrokes as a barcode scan.
+      if (e.key === "Enter" && barcodeBufferRef.current.length > 0) {
+        e.preventDefault();
+        const barcode = barcodeBufferRef.current;
+        barcodeBufferRef.current = "";
+        setBarcodeInput("");
+        // Auto-confirm the item currently in the dialog, then process the new scan.
+        confirmAddToOrder();
+        handleBarcodeScan(barcode);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        confirmAddToOrder();
+        return;
+      }
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        barcodeBufferRef.current += e.key;
+        setBarcodeInput(barcodeBufferRef.current);
+        if (barcodeTimerRef.current) {
+          clearTimeout(barcodeTimerRef.current);
+        }
+        barcodeTimerRef.current = setTimeout(() => {
+          barcodeBufferRef.current = "";
+          setBarcodeInput("");
+        }, 100);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showQuantityDialog, productToAdd, quantityToAdd, includeAddon, includeConvenience, orderItems, products]);
 
   // Show quantity dialog for product
   const addToOrder = (product: LocalProduct) => {
@@ -1082,16 +1197,21 @@ export default function Page() {
                               ).toFixed(2)}
                             </div>
                             {(() => {
-                              const tier = getActivePriceTier(
+                              const breakdown = calculatePriceBreakdown(
                                 item.quantity,
+                                item.product.price,
                                 item.product.packPrice,
                                 item.product.packQuantity,
                                 item.product.halfPackPrice,
                                 item.product.halfPackQuantity,
                               );
-                              if (tier === "pack") return <div className="text-xs text-green-600 font-medium">Pack price</div>;
-                              if (tier === "halfPack") return <div className="text-xs text-indigo-600 font-medium">Half-pack price</div>;
-                              return null;
+                              const label = formatPriceBreakdownLabel(breakdown);
+                              if (!label || (breakdown.packs === 0 && breakdown.halfPacks === 0)) return null;
+                              return (
+                                <div className="text-xs text-green-600 font-medium">
+                                  {label}
+                                </div>
+                              );
                             })()}
                           </div>
                         </TableCell>
@@ -1590,11 +1710,14 @@ export default function Page() {
 
       {/* Quantity Selection Dialog */}
       <Dialog open={showQuantityDialog} onOpenChange={setShowQuantityDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Add Product</DialogTitle>
             <DialogDescription>
-              How many items would you like to add?
+              Use the arrow keys to adjust, or scan the next item to add this one and continue.
             </DialogDescription>
           </DialogHeader>
           {productToAdd && (
@@ -1670,13 +1793,15 @@ export default function Page() {
                     effectivePrice += productToAdd.addonPrice;
                   }
                   const lineTotal = effectivePrice * qty;
-                  const activeTier = getActivePriceTier(
+                  const breakdown = calculatePriceBreakdown(
                     qty,
+                    productToAdd.price,
                     productToAdd.packPrice,
                     productToAdd.packQuantity,
                     productToAdd.halfPackPrice,
                     productToAdd.halfPackQuantity,
                   );
+                  const breakdownLabel = formatPriceBreakdownLabel(breakdown);
                   
                   return qty > 0 ? (
                     <div className="mt-3 pt-3 border-t border-gray-300">
@@ -1685,14 +1810,9 @@ export default function Page() {
                           <div className="text-sm text-gray-600">
                             Effective price: ₱{effectivePrice.toFixed(2)}
                           </div>
-                          {activeTier === "pack" && (
+                          {(breakdown.packs > 0 || breakdown.halfPacks > 0) && breakdownLabel && (
                             <div className="text-xs text-green-600 font-medium">
-                              Using pack price
-                            </div>
-                          )}
-                          {activeTier === "halfPack" && (
-                            <div className="text-xs text-indigo-600 font-medium">
-                              Using half-pack price
+                              {breakdownLabel}
                             </div>
                           )}
                           {includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
@@ -1750,7 +1870,7 @@ export default function Page() {
                       )
                     </span>
                     <p className="text-xs text-gray-500 mt-1">
-                      For convenience store markup
+                      For convenience store markup · press <kbd className="px-1 py-0.5 bg-white border rounded text-[10px]">C</kbd> to toggle
                     </p>
                   </label>
                 </div>
@@ -1772,7 +1892,7 @@ export default function Page() {
                   >
                     <span className="font-medium">Add Refrigeration Fee (+₱{productToAdd.addonPrice.toFixed(2)})</span>
                     <p className="text-xs text-gray-500 mt-1">
-                      For refrigerated/chilled products
+                      For refrigerated/chilled products · press <kbd className="px-1 py-0.5 bg-white border rounded text-[10px]">Space</kbd> to toggle
                     </p>
                   </label>
                 </div>
@@ -1785,16 +1905,9 @@ export default function Page() {
                   type="number"
                   value={quantityToAdd}
                   onChange={(e) => setQuantityToAdd(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      confirmAddToOrder();
-                    }
-                  }}
                   placeholder="1"
                   className="text-lg h-12 text-center"
                   min="1"
-                  autoFocus
                 />
               </div>
 
@@ -1826,6 +1939,29 @@ export default function Page() {
                 >
                   {productToAdd.packQuantity || "10"}
                 </Button>
+              </div>
+
+              {/* Keyboard shortcut legend */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-gray-500 border-t pt-3">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">↑</kbd>
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">↓</kbd>
+                  Qty ±1
+                </span>
+                {productToAdd.halfPackQuantity && productToAdd.halfPackPrice && (
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">←</kbd>
+                    Half-box ({productToAdd.halfPackQuantity})
+                  </span>
+                )}
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">→</kbd>
+                  +1 Box ({productToAdd.packQuantity || 10} each, stacks)
+                </span>
+                <span className="flex items-center gap-1 text-blue-600">
+                  <QrCode className="h-3 w-3" />
+                  Scan next item to add &amp; continue
+                </span>
               </div>
             </div>
           )}

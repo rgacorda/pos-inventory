@@ -23,8 +23,25 @@ export function getActivePriceTier(
 }
 
 /**
- * Calculate the effective unit price based on quantity and tiered pricing.
- * Tiers checked in order: pack → half-pack → per-piece.
+ * Breakdown of how a quantity decomposes into full packs, half-packs, and
+ * leftover individual pieces, along with the subtotal for each portion.
+ */
+export interface PriceBreakdown {
+  packs: number;
+  halfPacks: number;
+  units: number;
+  packSubtotal: number;
+  halfPackSubtotal: number;
+  unitSubtotal: number;
+  total: number;
+}
+
+/**
+ * Decompose a quantity into the greatest number of full packs, then
+ * half-packs, then leftover individual pieces — and price each portion at
+ * its own tier. This ensures a quantity like "1 pack + 1 pc" is priced as
+ * (packPrice + 1 × unitPrice) rather than discounting the extra piece at
+ * the pack's per-unit rate.
  *
  * @param quantity       - Number of items being purchased
  * @param unitPrice      - Price per single item
@@ -32,7 +49,51 @@ export function getActivePriceTier(
  * @param packQuantity   - Items that make a full pack (optional)
  * @param halfPackPrice  - Total sell price for a half-pack (optional)
  * @param halfPackQuantity - Items that make a half-pack (optional)
- * @returns Effective price per item
+ */
+export function calculatePriceBreakdown(
+  quantity: number,
+  unitPrice: number,
+  packPrice?: number,
+  packQuantity?: number,
+  halfPackPrice?: number,
+  halfPackQuantity?: number,
+): PriceBreakdown {
+  let remaining = Math.max(0, quantity);
+  let packs = 0;
+  let halfPacks = 0;
+
+  if (packPrice && packQuantity && packQuantity > 0) {
+    packs = Math.floor(remaining / packQuantity);
+    remaining -= packs * packQuantity;
+  }
+
+  if (halfPackPrice && halfPackQuantity && halfPackQuantity > 0) {
+    halfPacks = Math.floor(remaining / halfPackQuantity);
+    remaining -= halfPacks * halfPackQuantity;
+  }
+
+  const units = remaining;
+  const packSubtotal = Number((packs * (packPrice || 0)).toFixed(2));
+  const halfPackSubtotal = Number((halfPacks * (halfPackPrice || 0)).toFixed(2));
+  const unitSubtotal = Number((units * unitPrice).toFixed(2));
+  const total = Number((packSubtotal + halfPackSubtotal + unitSubtotal).toFixed(2));
+
+  return { packs, halfPacks, units, packSubtotal, halfPackSubtotal, unitSubtotal, total };
+}
+
+/**
+ * Calculate the effective (blended) unit price based on quantity and tiered
+ * pricing, e.g. for a quantity made up of a full pack plus one extra piece,
+ * this returns the average price per unit across the whole quantity so that
+ * `effectivePrice * quantity` equals the correct blended total.
+ *
+ * @param quantity       - Number of items being purchased
+ * @param unitPrice      - Price per single item
+ * @param packPrice      - Total sell price for a full pack (optional)
+ * @param packQuantity   - Items that make a full pack (optional)
+ * @param halfPackPrice  - Total sell price for a half-pack (optional)
+ * @param halfPackQuantity - Items that make a half-pack (optional)
+ * @returns Effective (blended) price per item
  */
 export function calculateEffectivePrice(
   quantity: number,
@@ -42,15 +103,22 @@ export function calculateEffectivePrice(
   halfPackPrice?: number,
   halfPackQuantity?: number,
 ): number {
-  const tier = getActivePriceTier(quantity, packPrice, packQuantity, halfPackPrice, halfPackQuantity);
-  if (tier === "pack") return packPrice! / packQuantity!;
-  if (tier === "halfPack") return halfPackPrice! / halfPackQuantity!;
-  return unitPrice;
+  if (quantity <= 0) return unitPrice;
+  const breakdown = calculatePriceBreakdown(
+    quantity,
+    unitPrice,
+    packPrice,
+    packQuantity,
+    halfPackPrice,
+    halfPackQuantity,
+  );
+  return breakdown.total / quantity;
 }
 
 /**
- * Calculate line item subtotal with tiered pricing support
- * (quantity × effective unit price based on pack/half-pack pricing)
+ * Calculate line item subtotal with tiered pricing support. Decomposes the
+ * quantity into packs, half-packs, and leftover units so mixed quantities
+ * (e.g. 1 pack + 1 pc) are priced correctly per-tier.
  */
 export function calculateLineSubtotalWithTieredPrice(
   quantity: number,
@@ -60,7 +128,7 @@ export function calculateLineSubtotalWithTieredPrice(
   halfPackPrice?: number,
   halfPackQuantity?: number,
 ): number {
-  const effectivePrice = calculateEffectivePrice(
+  const breakdown = calculatePriceBreakdown(
     quantity,
     unitPrice,
     packPrice,
@@ -68,7 +136,7 @@ export function calculateLineSubtotalWithTieredPrice(
     halfPackPrice,
     halfPackQuantity,
   );
-  return Number((quantity * effectivePrice).toFixed(2));
+  return breakdown.total;
 }
 
 /**
