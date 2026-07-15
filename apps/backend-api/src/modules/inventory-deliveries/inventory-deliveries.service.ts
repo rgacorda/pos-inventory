@@ -119,6 +119,10 @@ export class InventoryDeliveriesService {
   ): Promise<InventoryDelivery> {
     const delivery = await this.findOne(id, organizationId);
     const oldStatus = delivery.status;
+    // Snapshot the items as they were before this update, since stock was
+    // already applied based on this exact list (if the delivery was
+    // RECEIVED). We need it to compute what changed.
+    const oldItems = delivery.items || [];
 
     await this.resolveSupplierLink(updateDto, organizationId);
 
@@ -127,18 +131,41 @@ export class InventoryDeliveriesService {
       delivery,
     )) as unknown as InventoryDelivery;
 
-    // Update product stock if status changed to RECEIVED and items exist
-    if (
-      oldStatus !== 'RECEIVED' &&
-      updatedDelivery.status === 'RECEIVED' &&
-      updatedDelivery.items?.length > 0
-    ) {
-      await this.updateProductStock(
-        updatedDelivery.items,
+    const wasReceived = oldStatus === 'RECEIVED';
+    const isReceived = updatedDelivery.status === 'RECEIVED';
+    const newItems = updatedDelivery.items || [];
+
+    if (wasReceived && isReceived) {
+      // Delivery was already RECEIVED and still is: only the difference
+      // between the old and new item quantities should move stock, so
+      // adding, removing, or changing the quantity of an item correctly
+      // increases/decreases the product's stock instead of double-applying
+      // or ignoring the change.
+      await this.reconcileProductStock(
+        oldItems,
+        newItems,
         updatedDelivery.organizationId,
         updatedDelivery.supplierId,
       );
+    } else if (!wasReceived && isReceived) {
+      // Transitioning into RECEIVED: nothing was applied to stock before,
+      // so apply the full current item list now.
+      if (newItems.length > 0) {
+        await this.updateProductStock(
+          newItems,
+          updatedDelivery.organizationId,
+          updatedDelivery.supplierId,
+        );
+      }
+    } else if (wasReceived && !isReceived) {
+      // Transitioning out of RECEIVED (e.g. cancelled): reverse whatever
+      // stock was previously added for the old items.
+      if (oldItems.length > 0) {
+        await this.reverseProductStock(oldItems, updatedDelivery.organizationId);
+      }
     }
+    // If it was never RECEIVED and still isn't, items may have changed but
+    // stock was never touched for them, so there's nothing to reconcile.
 
     return updatedDelivery;
   }
@@ -167,28 +194,127 @@ export class InventoryDeliveriesService {
           product.supplierId = supplierId;
         }
 
-        // Keep the product's cost in sync with the latest delivery price.
-        // Always the case when the item was bought by pack/half-pack (the
-        // per-unit cost is derived from packPrice ÷ packQuantity), or when
-        // explicitly requested for individually-priced items. Free items
-        // never touch cost since they carry no real purchase price.
-        if (item.updateProductCost && !item.isFree && item.unitCost != null) {
-          product.cost = item.unitCost;
-          const percentNum = Number(product.markupPercentage) || 0;
-          const fixedNum = Number(product.markupFixed) || 0;
-          if (percentNum || fixedNum) {
-            product.price =
-              item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
-          }
-        }
+        this.applyCostSync(product, item);
 
         await this.productRepository.save(product);
       }
     }
   }
 
+  /**
+   * Reconciles product stock between an old and new set of delivery items,
+   * applying only the net quantity difference per product (positive when
+   * items/quantities were added, negative when removed or decreased), so
+   * editing an already-RECEIVED delivery's items keeps stock accurate
+   * instead of only ever adding.
+   */
+  private async reconcileProductStock(
+    oldItems: Array<{ productId: string; quantity: number }>,
+    newItems: Array<{
+      productId: string;
+      quantity: number;
+      unitCost?: number;
+      isFree?: boolean;
+      updateProductCost?: boolean;
+    }>,
+    organizationId: string,
+    supplierId?: string | null,
+  ) {
+    const oldQuantityByProduct = this.sumQuantitiesByProduct(oldItems);
+    const newQuantityByProduct = this.sumQuantitiesByProduct(newItems);
+    const productIds = new Set([
+      ...oldQuantityByProduct.keys(),
+      ...newQuantityByProduct.keys(),
+    ]);
+
+    for (const productId of productIds) {
+      const oldQuantity = oldQuantityByProduct.get(productId) || 0;
+      const newQuantity = newQuantityByProduct.get(productId) || 0;
+      const delta = newQuantity - oldQuantity;
+
+      const product = await this.productRepository.findOne({
+        where: { id: productId, organizationId },
+      });
+      if (!product) continue;
+
+      if (delta !== 0) {
+        product.stockQuantity += delta;
+      }
+      if (supplierId) {
+        product.supplierId = supplierId;
+      }
+
+      // Sync cost from whichever current item(s) for this product request
+      // it, regardless of whether the quantity itself changed.
+      for (const item of newItems) {
+        if (item.productId === productId) {
+          this.applyCostSync(product, item);
+        }
+      }
+
+      await this.productRepository.save(product);
+    }
+  }
+
+  /** Reverses stock previously added for a set of items (e.g. a RECEIVED delivery was cancelled or deleted). */
+  private async reverseProductStock(
+    items: Array<{ productId: string; quantity: number }>,
+    organizationId: string,
+  ) {
+    const quantityByProduct = this.sumQuantitiesByProduct(items);
+    for (const [productId, quantity] of quantityByProduct) {
+      const product = await this.productRepository.findOne({
+        where: { id: productId, organizationId },
+      });
+      if (product) {
+        product.stockQuantity -= quantity;
+        await this.productRepository.save(product);
+      }
+    }
+  }
+
+  private sumQuantitiesByProduct(
+    items: Array<{ productId: string; quantity: number }> = [],
+  ) {
+    const map = new Map<string, number>();
+    for (const item of items) {
+      map.set(item.productId, (map.get(item.productId) || 0) + item.quantity);
+    }
+    return map;
+  }
+
+  /**
+   * Keeps the product's cost (and price, if markups are set) in sync with
+   * the latest delivery price. Always the case when the item was bought by
+   * pack/half-pack (the per-unit cost is derived from packPrice ÷
+   * packQuantity), or when explicitly requested for individually-priced
+   * items. Free items never touch cost since they carry no real purchase
+   * price.
+   */
+  private applyCostSync(
+    product: ProductEntity,
+    item: { unitCost?: number; isFree?: boolean; updateProductCost?: boolean },
+  ) {
+    if (item.updateProductCost && !item.isFree && item.unitCost != null) {
+      product.cost = item.unitCost;
+      const percentNum = Number(product.markupPercentage) || 0;
+      const fixedNum = Number(product.markupFixed) || 0;
+      if (percentNum || fixedNum) {
+        product.price =
+          item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
+      }
+    }
+  }
+
   async delete(id: string, organizationId: string) {
     const delivery = await this.findOne(id, organizationId);
+
+    // Deleting a delivery that already added stock should reverse it,
+    // otherwise the stock it contributed would be left behind permanently.
+    if (delivery.status === 'RECEIVED' && delivery.items?.length > 0) {
+      await this.reverseProductStock(delivery.items, organizationId);
+    }
+
     await this.deliveryRepository.remove(delivery);
     return { message: 'Delivery deleted successfully' };
   }

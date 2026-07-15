@@ -373,67 +373,56 @@ export default function EditDeliveryPage() {
     const updateProductCost =
       !isFree && (itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice);
 
-    // Update product stock and optionally price
-    try {
-      const updateData: any = {
-        stockQuantity: product.stockQuantity + totalUnits,
-      };
-
-      // Tag the product with the delivery's supplier so it can be filtered
-      // by supplier later on.
-      if (formData.supplierId) {
-        updateData.supplierId = formData.supplierId;
-      }
-
-      if (updateProductCost) {
-        updateData.cost = unitCost;
-        // Recalculate price based on new cost if markups exist
-        if (product.markupPercentage || product.markupFixed) {
-          const percentNum = product.markupPercentage || 0;
-          const fixedNum = product.markupFixed || 0;
-          updateData.price = unitCost + (unitCost * percentNum / 100) + fixedNum;
+    // Pack pricing (the product's own selling-side pack config) is a
+    // standalone product setting, not a stock/cost change tied to this
+    // delivery, so it can be applied right away.
+    if (itemFormData.packPrice || itemFormData.packQuantity) {
+      try {
+        const packUpdate: any = {};
+        if (itemFormData.packPrice) {
+          packUpdate.packPrice = parseFloat(itemFormData.packPrice);
         }
+        if (itemFormData.packQuantity) {
+          packUpdate.packQuantity = parseInt(itemFormData.packQuantity);
+        }
+        await apiClient.updateProduct(product.id, packUpdate);
+        await fetchProducts();
+      } catch (error) {
+        showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("product pack pricing"));
+        return;
       }
-
-      // Update pack pricing if provided
-      if (itemFormData.packPrice) {
-        updateData.packPrice = parseFloat(itemFormData.packPrice);
-      }
-      if (itemFormData.packQuantity) {
-        updateData.packQuantity = parseInt(itemFormData.packQuantity);
-      }
-
-      await apiClient.updateProduct(product.id, updateData);
-
-      const newItem: DeliveryItem = {
-        productId: product.id,
-        productName: product.name,
-        quantity: totalUnits,
-        unitCost,
-        totalCost,
-        isFree,
-        updateProductCost,
-        ...(itemFormData.quantityType !== "UNIT" && {
-          packInfo: {
-            type: itemFormData.quantityType,
-            packs: enteredQuantity,
-            unitsPerPack: multiplier,
-          },
-        }),
-      };
-
-      setItems([...items, newItem]);
-      updateTotalCost([...items, newItem]);
-      
-      setIsAddItemDialogOpen(false);
-      setSelectedProductId("");
-      resetItemForm();
-      
-      showSuccessToast(SUCCESS_MESSAGES.ADDED("Item"));
-      await fetchProducts(); // Refresh products to show updated stock
-    } catch (error) {
-      showErrorFromException(error, ERROR_MESSAGES.UPDATE_FAILED("product stock"));
     }
+
+    // Stock, cost, and supplier changes are NOT applied here. They are
+    // deferred until the delivery itself is saved (see handleSubmit), so
+    // adding an item to this form doesn't touch inventory until the
+    // delivery is actually created/updated - matching the create-delivery
+    // flow and avoiding premature stock changes.
+    const newItem: DeliveryItem = {
+      productId: product.id,
+      productName: product.name,
+      quantity: totalUnits,
+      unitCost,
+      totalCost,
+      isFree,
+      updateProductCost,
+      ...(itemFormData.quantityType !== "UNIT" && {
+        packInfo: {
+          type: itemFormData.quantityType,
+          packs: enteredQuantity,
+          unitsPerPack: multiplier,
+        },
+      }),
+    };
+
+    setItems([...items, newItem]);
+    updateTotalCost([...items, newItem]);
+
+    setIsAddItemDialogOpen(false);
+    setSelectedProductId("");
+    resetItemForm();
+
+    showSuccessToast(SUCCESS_MESSAGES.ADDED("Item"));
   }
 
   async function handleCreateProduct() {
@@ -1109,7 +1098,7 @@ export default function EditDeliveryPage() {
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                This will be added to the current stock
+                Stock will be updated when the delivery is saved
               </p>
             </div>
 
@@ -1226,7 +1215,7 @@ export default function EditDeliveryPage() {
             )}
 
             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
-              <p className="font-medium text-blue-900">Current Product Info:</p>
+              <p className="font-medium text-blue-900">Preview (updates when the delivery is saved):</p>
               <p className="text-blue-800">
                 Stock: {selectedProductForItem?.stockQuantity || 0} 
                 {itemFormData.quantity && ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
