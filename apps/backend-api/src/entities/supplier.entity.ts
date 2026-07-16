@@ -40,6 +40,12 @@ export class Supplier {
   @Column({ type: 'text', nullable: true })
   notes: string;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  totalIncentiveGiven: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastIncentiveDate: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

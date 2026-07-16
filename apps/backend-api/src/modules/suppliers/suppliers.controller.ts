@@ -15,6 +15,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { UserRole } from '@pos/shared-types';
 import { SuppliersService } from './suppliers.service';
 import { CreateSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
+import { CreateSupplierIncentiveDto } from './dto/supplier-incentive.dto';
 
 @Controller('suppliers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,6 +26,26 @@ export class SuppliersController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async findAll(@Request() req) {
     return this.suppliersService.findAll(req.user.organizationId);
+  }
+
+  @Get(':id/incentives')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async getIncentives(@Request() req, @Param('id') id: string) {
+    return this.suppliersService.getIncentives(id, req.user.organizationId);
+  }
+
+  @Post(':id/incentives')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async recordIncentive(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: CreateSupplierIncentiveDto,
+  ) {
+    return this.suppliersService.recordIncentive(
+      id,
+      req.user.organizationId,
+      dto,
+    );
   }
 
   @Get(':id')

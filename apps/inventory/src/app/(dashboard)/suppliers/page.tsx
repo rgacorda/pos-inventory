@@ -54,6 +54,7 @@ import {
   IconEye,
   IconEyeOff,
   IconPackage,
+  IconCash,
 } from "@tabler/icons-react";
 
 interface Supplier {
@@ -65,6 +66,16 @@ interface Supplier {
   website?: string;
   websiteUsername?: string;
   websitePassword?: string;
+  notes?: string;
+  totalIncentiveGiven?: number;
+  lastIncentiveDate?: string | null;
+  createdAt: string;
+}
+
+interface SupplierIncentive {
+  id: string;
+  amount: number;
+  incentiveDate: string;
   notes?: string;
   createdAt: string;
 }
@@ -94,6 +105,16 @@ export default function SuppliersPage() {
   const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [loadingSupplierProducts, setLoadingSupplierProducts] = useState(false);
+
+  const [isIncentiveDialogOpen, setIsIncentiveDialogOpen] = useState(false);
+  const [incentiveSupplier, setIncentiveSupplier] = useState<Supplier | null>(null);
+  const [incentiveFormData, setIncentiveFormData] = useState({
+    amount: "",
+    incentiveDate: new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+  const [incentiveHistory, setIncentiveHistory] = useState<SupplierIncentive[]>([]);
+  const [loadingIncentiveHistory, setLoadingIncentiveHistory] = useState(false);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -154,6 +175,54 @@ export default function SuppliersPage() {
   const handleDeleteSupplier = (supplier: Supplier) => {
     setSelectedSupplier(supplier);
     setShowDeleteDialog(true);
+  };
+
+  const handleRecordIncentive = async (supplier: Supplier) => {
+    setIncentiveSupplier(supplier);
+    setIncentiveFormData({
+      amount: "",
+      incentiveDate: new Date().toISOString().split("T")[0],
+      notes: "",
+    });
+    setIsIncentiveDialogOpen(true);
+    setLoadingIncentiveHistory(true);
+    try {
+      const history = await apiClient.getSupplierIncentives(supplier.id);
+      setIncentiveHistory(history);
+    } catch (error) {
+      showErrorFromException(error, "Failed to load incentive history");
+      setIncentiveHistory([]);
+    } finally {
+      setLoadingIncentiveHistory(false);
+    }
+  };
+
+  const handleSubmitIncentive = async () => {
+    if (!incentiveSupplier) return;
+
+    const amount = parseFloat(incentiveFormData.amount);
+    if (!amount || amount <= 0) {
+      showErrorFromException(new Error("Amount must be greater than zero"), "Validation Error");
+      return;
+    }
+    if (!incentiveFormData.incentiveDate) {
+      showErrorFromException(new Error("Date is required"), "Validation Error");
+      return;
+    }
+
+    try {
+      await apiClient.recordSupplierIncentive(incentiveSupplier.id, {
+        amount,
+        incentiveDate: incentiveFormData.incentiveDate,
+        notes: incentiveFormData.notes || undefined,
+      });
+      showSuccessToast(SUCCESS_MESSAGES.ADDED("Incentive"));
+      setIsIncentiveDialogOpen(false);
+      setIncentiveSupplier(null);
+      loadSuppliers();
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.SAVE_FAILED("incentive"));
+    }
   };
 
   const handleViewSupplierProducts = async (supplier: Supplier) => {
@@ -232,6 +301,20 @@ export default function SuppliersPage() {
     }
     return `https://${url}`;
   };
+
+  const formatCurrency = (value: number) =>
+    `₱${Number(value || 0).toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString("en-PH", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+
   // Filter suppliers by search query
   const filteredSuppliers = suppliers.filter((supplier) => {
     if (!searchQuery) return true;
@@ -297,6 +380,8 @@ export default function SuppliersPage() {
                     <TableHead>Website</TableHead>
                     <TableHead>Username</TableHead>
                     <TableHead>Password</TableHead>
+                    <TableHead className="text-right">Total Incentive</TableHead>
+                    <TableHead>Last Incentive</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -354,8 +439,27 @@ export default function SuppliersPage() {
                           "-"
                         )}
                       </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(Number(supplier.totalIncentiveGiven || 0))}
+                      </TableCell>
+                      <TableCell>
+                        {supplier.lastIncentiveDate
+                          ? formatDate(supplier.lastIncentiveDate)
+                          : "-"}
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Record incentive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRecordIncentive(supplier);
+                            }}
+                          >
+                            <IconCash className="h-4 w-4 text-green-600" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -700,6 +804,116 @@ export default function SuppliersPage() {
             <Button variant="outline" onClick={() => setIsProductsDialogOpen(false)}>
               Close
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Incentive Dialog */}
+      <Dialog open={isIncentiveDialogOpen} onOpenChange={setIsIncentiveDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Record Incentive</DialogTitle>
+            <DialogDescription>
+              Record money given to {incentiveSupplier?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="incentive-amount">Amount (₱) *</Label>
+              <Input
+                id="incentive-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={incentiveFormData.amount}
+                onChange={(e) =>
+                  setIncentiveFormData({ ...incentiveFormData, amount: e.target.value })
+                }
+                placeholder="0.00"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="incentive-date">Date Given *</Label>
+              <Input
+                id="incentive-date"
+                type="date"
+                value={incentiveFormData.incentiveDate}
+                onChange={(e) =>
+                  setIncentiveFormData({ ...incentiveFormData, incentiveDate: e.target.value })
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="incentive-notes">Notes</Label>
+              <Textarea
+                id="incentive-notes"
+                value={incentiveFormData.notes}
+                onChange={(e) =>
+                  setIncentiveFormData({ ...incentiveFormData, notes: e.target.value })
+                }
+                placeholder="Optional notes about this incentive"
+                rows={2}
+              />
+            </div>
+
+            {incentiveSupplier && (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
+                <p>
+                  <span className="text-muted-foreground">Total given so far: </span>
+                  <span className="font-medium">
+                    {formatCurrency(Number(incentiveSupplier.totalIncentiveGiven || 0))}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Last incentive: </span>
+                  <span className="font-medium">
+                    {incentiveSupplier.lastIncentiveDate
+                      ? formatDate(incentiveSupplier.lastIncentiveDate)
+                      : "Never"}
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {loadingIncentiveHistory ? (
+              <div className="text-sm text-muted-foreground py-2">Loading history...</div>
+            ) : incentiveHistory.length > 0 ? (
+              <div className="space-y-2">
+                <Label>Recent History</Label>
+                <div className="border rounded-md max-h-40 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {incentiveHistory.map((incentive) => (
+                        <TableRow key={incentive.id}>
+                          <TableCell className="text-sm">
+                            {formatDate(incentive.incentiveDate)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-medium">
+                            {formatCurrency(Number(incentive.amount))}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {incentive.notes || "-"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsIncentiveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmitIncentive}>Record Incentive</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
