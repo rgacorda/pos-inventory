@@ -46,7 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
-import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -60,6 +60,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { 
   showSuccessToast, 
@@ -67,6 +75,26 @@ import {
   SUCCESS_MESSAGES,
   ERROR_MESSAGES 
 } from "@/lib/toast-utils";
+
+const PRODUCT_TABLE_COLUMNS: { id: string; label: string }[] = [
+  { id: "name", label: "Product" },
+  { id: "sku", label: "SKU" },
+  { id: "category", label: "Category" },
+  { id: "supplier", label: "Supplier" },
+  { id: "cost", label: "Cost" },
+  { id: "markupPercentage", label: "Markup %" },
+  { id: "markupFixed", label: "Fixed ₱" },
+  { id: "price", label: "Selling Price" },
+  { id: "packPrice", label: "Pack / Half-Pack" },
+  { id: "packsAvailable", label: "Packs Sellable" },
+  { id: "profit", label: "Profit" },
+  { id: "stockQuantity", label: "Stock" },
+  { id: "status", label: "Status" },
+];
+
+const DEFAULT_HIDDEN_PRODUCT_COLUMNS = ["markupPercentage", "markupFixed", "sku", "category"];
+
+const PRODUCT_TABLE_COLUMNS_STORAGE_KEY = "products-table-hidden-columns";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -84,6 +112,9 @@ export default function ProductsPage() {
   const [lowStockPage, setLowStockPage] = useState(1);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(
+    new Set(DEFAULT_HIDDEN_PRODUCT_COLUMNS)
+  );
   const itemsPerPage = 20;
   const [formData, setFormData] = useState({
     sku: "",
@@ -123,6 +154,38 @@ export default function ProductsPage() {
     loadProducts();
     loadSuppliers();
   }, []);
+
+  // Restore any previously saved column visibility preference, falling back
+  // to the defaults (markup %, fixed markup, SKU, and category hidden).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PRODUCT_TABLE_COLUMNS_STORAGE_KEY);
+      if (stored) {
+        setHiddenColumns(new Set(JSON.parse(stored)));
+      }
+    } catch {
+      // Ignore malformed/unavailable storage and keep the defaults.
+    }
+  }, []);
+
+  const isColumnVisible = (columnId: string) => !hiddenColumns.has(columnId);
+
+  const toggleColumn = (columnId: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(columnId)) {
+        next.delete(columnId);
+      } else {
+        next.add(columnId);
+      }
+      try {
+        localStorage.setItem(PRODUCT_TABLE_COLUMNS_STORAGE_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // Ignore storage errors (e.g. private browsing mode).
+      }
+      return next;
+    });
+  };
 
   const loadProducts = async () => {
     try {
@@ -609,6 +672,28 @@ export default function ProductsPage() {
                 className="pl-8"
               />
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {PRODUCT_TABLE_COLUMNS.map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={isColumnVisible(column.id)}
+                    onCheckedChange={() => toggleColumn(column.id)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {column.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardHeader>
         <CardContent>
@@ -626,123 +711,149 @@ export default function ProductsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('name')}
-                    >
-                      <div className="flex items-center">
-                        Product
-                        <SortIcon column="name" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('sku')}
-                    >
-                      <div className="flex items-center">
-                        SKU
-                        <SortIcon column="sku" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('category')}
-                    >
-                      <div className="flex items-center">
-                        Category
-                        <SortIcon column="category" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('supplier')}
-                    >
-                      <div className="flex items-center">
-                        Supplier
-                        <SortIcon column="supplier" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('cost')}
-                    >
-                      <div className="flex items-center">
-                        Cost
-                        <SortIcon column="cost" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('markupPercentage')}
-                    >
-                      <div className="flex items-center">
-                        Markup %
-                        <SortIcon column="markupPercentage" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('markupFixed')}
-                    >
-                      <div className="flex items-center">
-                        Fixed ₱
-                        <SortIcon column="markupFixed" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('price')}
-                    >
-                      <div className="flex items-center">
-                        Selling Price
-                        <SortIcon column="price" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('packPrice')}
-                    >
-                      <div className="flex items-center">
-                        Pack / Half-Pack
-                        <SortIcon column="packPrice" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('packsAvailable')}
-                    >
-                      <div className="flex items-center">
-                        Packs Sellable
-                        <SortIcon column="packsAvailable" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('profit')}
-                    >
-                      <div className="flex items-center">
-                        Profit
-                        <SortIcon column="profit" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('stockQuantity')}
-                    >
-                      <div className="flex items-center">
-                        Stock
-                        <SortIcon column="stockQuantity" />
-                      </div>
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleSort('status')}
-                    >
-                      <div className="flex items-center">
-                        Status
-                        <SortIcon column="status" />
-                      </div>
-                    </TableHead>
+                    {isColumnVisible('name') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('name')}
+                      >
+                        <div className="flex items-center">
+                          Product
+                          <SortIcon column="name" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('sku') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('sku')}
+                      >
+                        <div className="flex items-center">
+                          SKU
+                          <SortIcon column="sku" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('category') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('category')}
+                      >
+                        <div className="flex items-center">
+                          Category
+                          <SortIcon column="category" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('supplier') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('supplier')}
+                      >
+                        <div className="flex items-center">
+                          Supplier
+                          <SortIcon column="supplier" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('cost') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('cost')}
+                      >
+                        <div className="flex items-center">
+                          Cost
+                          <SortIcon column="cost" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('markupPercentage') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('markupPercentage')}
+                      >
+                        <div className="flex items-center">
+                          Markup %
+                          <SortIcon column="markupPercentage" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('markupFixed') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('markupFixed')}
+                      >
+                        <div className="flex items-center">
+                          Fixed ₱
+                          <SortIcon column="markupFixed" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('price') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('price')}
+                      >
+                        <div className="flex items-center">
+                          Selling Price
+                          <SortIcon column="price" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('packPrice') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('packPrice')}
+                      >
+                        <div className="flex items-center">
+                          Pack / Half-Pack
+                          <SortIcon column="packPrice" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('packsAvailable') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('packsAvailable')}
+                      >
+                        <div className="flex items-center">
+                          Packs Sellable
+                          <SortIcon column="packsAvailable" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('profit') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('profit')}
+                      >
+                        <div className="flex items-center">
+                          Profit
+                          <SortIcon column="profit" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('stockQuantity') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('stockQuantity')}
+                      >
+                        <div className="flex items-center">
+                          Stock
+                          <SortIcon column="stockQuantity" />
+                        </div>
+                      </TableHead>
+                    )}
+                    {isColumnVisible('status') && (
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleSort('status')}
+                      >
+                        <div className="flex items-center">
+                          Status
+                          <SortIcon column="status" />
+                        </div>
+                      </TableHead>
+                    )}
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -754,107 +865,133 @@ export default function ProductsPage() {
                     
                     return (
                     <TableRow key={product.id}>
-                      <TableCell className="font-medium">
-                        {product.name}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {product.sku}
-                      </TableCell>
-                      <TableCell>{product.category || "N/A"}</TableCell>
-                      <TableCell>
-                        {product.supplier?.name || (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        ₱{cost.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        {product.markupPercentage ? `${Number(product.markupPercentage).toFixed(2)}%` : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {product.markupFixed ? `₱${Number(product.markupFixed).toFixed(2)}` : "-"}
-                      </TableCell>
-                      <TableCell className="font-semibold text-green-600">
-                        ₱{sellingPrice.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        {product.packPrice || product.halfPackPrice ? (
-                          <div className="text-sm space-y-1">
-                            {product.packPrice && product.packQuantity && (
-                              <div>
-                                <div className="font-medium text-blue-600">
-                                  ₱{Number(product.packPrice).toFixed(2)}
+                      {isColumnVisible('name') && (
+                        <TableCell className="font-medium">
+                          {product.name}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('sku') && (
+                        <TableCell className="font-mono text-sm">
+                          {product.sku}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('category') && (
+                        <TableCell>{product.category || "N/A"}</TableCell>
+                      )}
+                      {isColumnVisible('supplier') && (
+                        <TableCell>
+                          {product.supplier?.name || (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('cost') && (
+                        <TableCell className="font-medium">
+                          ₱{cost.toFixed(2)}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('markupPercentage') && (
+                        <TableCell>
+                          {product.markupPercentage ? `${Number(product.markupPercentage).toFixed(2)}%` : "-"}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('markupFixed') && (
+                        <TableCell>
+                          {product.markupFixed ? `₱${Number(product.markupFixed).toFixed(2)}` : "-"}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('price') && (
+                        <TableCell className="font-semibold text-green-600">
+                          ₱{sellingPrice.toFixed(2)}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('packPrice') && (
+                        <TableCell>
+                          {product.packPrice || product.halfPackPrice ? (
+                            <div className="text-sm space-y-1">
+                              {product.packPrice && product.packQuantity && (
+                                <div>
+                                  <div className="font-medium text-blue-600">
+                                    ₱{Number(product.packPrice).toFixed(2)}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    Pack · {product.packQuantity} pcs
+                                  </div>
                                 </div>
-                                <div className="text-xs text-gray-500">
-                                  Pack · {product.packQuantity} pcs
+                              )}
+                              {product.halfPackPrice && product.halfPackQuantity && (
+                                <div>
+                                  <div className="font-medium text-indigo-600">
+                                    ₱{Number(product.halfPackPrice).toFixed(2)}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    Half · {product.halfPackQuantity} pcs
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                            {product.halfPackPrice && product.halfPackQuantity && (
-                              <div>
-                                <div className="font-medium text-indigo-600">
-                                  ₱{Number(product.halfPackPrice).toFixed(2)}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  Half · {product.halfPackQuantity} pcs
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {product.packQuantity ? (
-                          (() => {
-                            const packsSellable = Math.floor(
-                              (Number(product.stockQuantity) || 0) / Number(product.packQuantity)
-                            );
-                            return (
-                              <span
-                                className={`font-medium ${
-                                  packsSellable > 0 ? "text-blue-600" : "text-red-600"
-                                }`}
-                              >
-                                {packsSellable} pack{packsSellable === 1 ? "" : "s"}
-                              </span>
-                            );
-                          })()
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className={`font-medium ${
-                        profit > 0 ? "text-green-600" : profit < 0 ? "text-red-600" : "text-gray-600"
-                      }`}>
-                        ₱{profit.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`font-medium ${
-                            product.stockQuantity > 10
-                              ? "text-green-600"
-                              : product.stockQuantity > 0
-                                ? "text-yellow-600"
-                                : "text-red-600"
-                          }`}
-                        >
-                          {product.stockQuantity}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            product.status === "ACTIVE"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {product.status}
-                        </Badge>
-                      </TableCell>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('packsAvailable') && (
+                        <TableCell>
+                          {product.packQuantity ? (
+                            (() => {
+                              const packsSellable = Math.floor(
+                                (Number(product.stockQuantity) || 0) / Number(product.packQuantity)
+                              );
+                              return (
+                                <span
+                                  className={`font-medium ${
+                                    packsSellable > 0 ? "text-blue-600" : "text-red-600"
+                                  }`}
+                                >
+                                  {packsSellable} pack{packsSellable === 1 ? "" : "s"}
+                                </span>
+                              );
+                            })()
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('profit') && (
+                        <TableCell className={`font-medium ${
+                          profit > 0 ? "text-green-600" : profit < 0 ? "text-red-600" : "text-gray-600"
+                        }`}>
+                          ₱{profit.toFixed(2)}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('stockQuantity') && (
+                        <TableCell>
+                          <span
+                            className={`font-medium ${
+                              product.stockQuantity > 10
+                                ? "text-green-600"
+                                : product.stockQuantity > 0
+                                  ? "text-yellow-600"
+                                  : "text-red-600"
+                            }`}
+                          >
+                            {product.stockQuantity}
+                          </span>
+                        </TableCell>
+                      )}
+                      {isColumnVisible('status') && (
+                        <TableCell>
+                          <Badge
+                            variant={
+                              product.status === "ACTIVE"
+                                ? "default"
+                                : "secondary"
+                            }
+                          >
+                            {product.status}
+                          </Badge>
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button
