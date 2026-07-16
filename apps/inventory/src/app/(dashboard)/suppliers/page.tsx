@@ -77,6 +77,7 @@ interface SupplierProduct {
   stockQuantity: number;
   lowStockThreshold?: number;
   status: string;
+  packQuantity?: number;
 }
 
 export default function SuppliersPage() {
@@ -647,12 +648,16 @@ export default function SuppliersPage() {
                       <TableHead className="text-base py-3">SKU</TableHead>
                       <TableHead className="text-right text-base py-3">Price</TableHead>
                       <TableHead className="text-right text-base py-3">Stock Quantity</TableHead>
+                      <TableHead className="text-right text-base py-3">Packs Sellable</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {supplierProducts.map((product) => {
                       const isLowStock =
                         product.stockQuantity <= (product.lowStockThreshold ?? 10);
+                      const packsSellable = product.packQuantity
+                        ? Math.floor((Number(product.stockQuantity) || 0) / Number(product.packQuantity))
+                        : null;
                       return (
                         <TableRow key={product.id}>
                           <TableCell className="font-medium py-3">{product.name}</TableCell>
@@ -666,6 +671,21 @@ export default function SuppliersPage() {
                             <span className={isLowStock ? "font-semibold text-red-600" : ""}>
                               {product.stockQuantity}
                             </span>
+                          </TableCell>
+                          <TableCell className="text-right py-3">
+                            {packsSellable !== null ? (
+                              <span
+                                className={
+                                  packsSellable > 0
+                                    ? "font-medium text-blue-600"
+                                    : "font-medium text-red-600"
+                                }
+                              >
+                                {packsSellable} pack{packsSellable === 1 ? "" : "s"}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );

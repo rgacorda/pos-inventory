@@ -512,6 +512,15 @@ export default function ProductsPage() {
           bValue = b.supplier?.name || '';
         }
 
+        if (sortColumn === 'packsAvailable') {
+          aValue = a.packQuantity
+            ? Math.floor((Number(a.stockQuantity) || 0) / Number(a.packQuantity))
+            : -1;
+          bValue = b.packQuantity
+            ? Math.floor((Number(b.stockQuantity) || 0) / Number(b.packQuantity))
+            : -1;
+        }
+
         // Handle null/undefined
         if (aValue == null) aValue = '';
         if (bValue == null) bValue = '';
@@ -700,6 +709,15 @@ export default function ProductsPage() {
                     </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleSort('packsAvailable')}
+                    >
+                      <div className="flex items-center">
+                        Packs Sellable
+                        <SortIcon column="packsAvailable" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleSort('profit')}
                     >
                       <div className="flex items-center">
@@ -784,6 +802,26 @@ export default function ProductsPage() {
                               </div>
                             )}
                           </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {product.packQuantity ? (
+                          (() => {
+                            const packsSellable = Math.floor(
+                              (Number(product.stockQuantity) || 0) / Number(product.packQuantity)
+                            );
+                            return (
+                              <span
+                                className={`font-medium ${
+                                  packsSellable > 0 ? "text-blue-600" : "text-red-600"
+                                }`}
+                              >
+                                {packsSellable} pack{packsSellable === 1 ? "" : "s"}
+                              </span>
+                            );
+                          })()
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
