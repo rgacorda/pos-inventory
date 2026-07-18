@@ -2,84 +2,25 @@
 
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
+import type { ReceiptData } from "@/lib/receipt-template";
 
-export interface ReceiptItem {
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-}
-
-export interface ReceiptData {
-  orderNumber: string;
-  items: ReceiptItem[];
-  subtotal: number;
-  taxAmount: number;
-  discountAmount: number;
-  totalAmount: number;
-  paymentMethod: string;
-  paymentReference?: string;
-  customerName?: string;
-  customerAddress?: string;
-  cashReceived?: number;
-  change?: number;
-  cashierName: string;
-  terminalName?: string;
-  dateTime: Date;
-  pointsRedeemed?: number;
-  pointsEarned?: number;
-  loyaltyCustomerName?: string;
-}
-
-interface OrganizationData {
-  name: string;
-  address?: string;
-  phone?: string;
-}
+export type { ReceiptItem, ReceiptOrganization, ReceiptData } from "@/lib/receipt-template";
 
 interface ReceiptContentProps extends ReceiptData {
   paperSize: ReceiptPaperSize;
-  organization: OrganizationData | null;
   className?: string;
 }
 
-/** Printable page/container widths per paper size (usable print area, not the raw roll width). */
-export const PAPER_DIMENSIONS: Record<
-  ReceiptPaperSize,
-  { rollWidth: string; containerWidth: string }
-> = {
-  "58mm": { rollWidth: "58mm", containerWidth: "50mm" },
-  "80mm": { rollWidth: "80mm", containerWidth: "72mm" },
-};
-
-/** CSS injected into the print iframe/page — shared by the live receipt and the test-printer dialog. */
-export function getReceiptPrintStyles(
-  paperSize: ReceiptPaperSize,
-  containerSelector: string,
-): string {
-  const { rollWidth, containerWidth } = PAPER_DIMENSIONS[paperSize];
-  return `
-    @page { size: ${rollWidth} auto; margin: 2mm; }
-    html, body { margin: 0; padding: 0; height: auto; }
-    @media print {
-      body * { visibility: visible !important; }
-      ${containerSelector} {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: ${containerWidth} !important;
-        max-width: ${containerWidth} !important;
-      }
-    }
-  `;
-}
-
-const DASH = (
-  <div className="border-b border-dashed border-gray-400 my-2" />
-);
+const DASH = <div className="border-b border-dashed border-gray-400 my-2" />;
 
 /**
- * Renders the printable receipt body. Layout differs meaningfully by paper size:
+ * On-screen preview of the receipt shown inside dialogs (checkout,
+ * transactions reprint, test printer). This is Tailwind-based and purely
+ * for display — the actual print output is generated separately from plain
+ * data by `buildReceiptDocument()` in `@/lib/receipt-template`, so this
+ * component's markup/CSS never affects what gets printed.
+ *
+ * Layout differs meaningfully by paper size:
  * - 58mm: narrow roll, so each line item stacks onto two short lines (name+total,
  *   then qty x price) to avoid squeezing columns into an unreadably tight space.
  * - 80mm: wider roll, so line items use a proper 4-column inline table
@@ -162,10 +103,7 @@ export function ReceiptContent({
           </div>
           <div className="border-b border-gray-300 mb-1" />
           {items.map((item, index) => (
-            <div
-              key={index}
-              className="flex gap-2 mb-1 tabular-nums"
-            >
+            <div key={index} className="flex gap-2 mb-1 tabular-nums">
               <span className="w-5 text-right shrink-0">{item.quantity}</span>
               <span className="flex-1 min-w-0 break-words">{item.name}</span>
               <span className="w-14 text-right shrink-0 text-gray-500">
@@ -182,9 +120,7 @@ export function ReceiptContent({
           {items.map((item, index) => (
             <div key={index} className="mb-1">
               <div className="flex justify-between gap-2">
-                <span className="break-words flex-1 min-w-0">
-                  {item.name}
-                </span>
+                <span className="break-words flex-1 min-w-0">{item.name}</span>
                 <span className="whitespace-nowrap flex-shrink-0">
                   {formatCurrency(item.total)}
                 </span>

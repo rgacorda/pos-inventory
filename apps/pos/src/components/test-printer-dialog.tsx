@@ -12,10 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
 import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
-import {
-  ReceiptContent,
-  getReceiptPrintStyles,
-} from "@/components/receipt-content";
+import { ReceiptContent } from "@/components/receipt-content";
+import { printReceipt } from "@/lib/receipt-print";
+import type { ReceiptData, ReceiptOrganization } from "@/lib/receipt-template";
 
 interface TestPrinterDialogProps {
   children?: React.ReactNode;
@@ -54,11 +53,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     unitPrice: number;
     total: number;
   }>>([]);
-  const [organizationData, setOrganizationData] = useState<{
-    name: string;
-    address?: string;
-    phone?: string;
-  } | null>(null);
+  const [organization, setOrganization] = useState<ReceiptOrganization | null>(null);
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("58mm");
   const [testOrderNumber, setTestOrderNumber] = useState("");
 
@@ -66,7 +61,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     const loadOrganization = async () => {
       const org = await dbHelpers.getOrganization();
       if (org) {
-        setOrganizationData(org);
+        setOrganization(org);
       }
     };
     loadOrganization();
@@ -101,26 +96,6 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     refreshPaperSize();
   }, [open]);
 
-  useEffect(() => {
-    // Inject print styles into document head — kept in sync with the
-    // currently selected paper size so test prints match the real receipt.
-    const styleId = "test-receipt-print-styles";
-    let style = document.getElementById(styleId) as HTMLStyleElement | null;
-    if (!style) {
-      style = document.createElement("style");
-      style.id = styleId;
-      document.head.appendChild(style);
-    }
-    style.textContent = `
-      @media print {
-        body * { visibility: hidden; }
-        .test-receipt-print-container,
-        .test-receipt-print-container * { visibility: visible; }
-      }
-      ${getReceiptPrintStyles(paperSize, ".test-receipt-print-container")}
-    `;
-  }, [paperSize]);
-
   const generateTestReceipt = (productCount: 5 | 10 | 20) => {
     // Generate test items
     const items = sampleProducts.slice(0, productCount).map((product) => {
@@ -146,20 +121,35 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     return { subtotal, taxAmount, totalAmount };
   };
 
-  const handlePrint = () => {
-    window.print();
-    setTimeout(() => {
-      setShowReceipt(false);
-      setOpen(false);
-    }, 500);
-  };
-
   const { subtotal, taxAmount, totalAmount } = showReceipt
     ? calculateTotals()
     : { subtotal: 0, taxAmount: 0, totalAmount: 0 };
   const cashReceived = Math.ceil(totalAmount / 100) * 100;
   const change = cashReceived - totalAmount;
   const testDate = new Date();
+
+  const handlePrint = () => {
+    const receiptData: ReceiptData = {
+      orderNumber: testOrderNumber,
+      items: testItems,
+      subtotal,
+      taxAmount,
+      discountAmount: 0,
+      totalAmount,
+      paymentMethod: "cash",
+      customerName: "Sample Customer",
+      customerAddress: "123 Test Street, Test City",
+      cashReceived,
+      change,
+      cashierName: "Test Cashier",
+      dateTime: testDate,
+      organization,
+    };
+    printReceipt(receiptData, paperSize, () => {
+      setShowReceipt(false);
+      setOpen(false);
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -220,27 +210,27 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
           </div>
         ) : (
           <>
+            {/* On-screen preview only — actual printing uses a fully
+                separate, self-contained document (see handlePrint) so the
+                dialog's own scroll wrapper/chrome never ends up printed. */}
             <div className="max-h-[500px] overflow-y-auto">
-              {/* Receipt content for printing */}
-              <div className="test-receipt-print-container">
-                <ReceiptContent
-                  paperSize={paperSize}
-                  organization={organizationData}
-                  orderNumber={testOrderNumber}
-                  items={testItems}
-                  subtotal={subtotal}
-                  taxAmount={taxAmount}
-                  discountAmount={0}
-                  totalAmount={totalAmount}
-                  paymentMethod="cash"
-                  customerName="Sample Customer"
-                  customerAddress="123 Test Street, Test City"
-                  cashReceived={cashReceived}
-                  change={change}
-                  cashierName="Test Cashier"
-                  dateTime={testDate}
-                />
-              </div>
+              <ReceiptContent
+                paperSize={paperSize}
+                organization={organization}
+                orderNumber={testOrderNumber}
+                items={testItems}
+                subtotal={subtotal}
+                taxAmount={taxAmount}
+                discountAmount={0}
+                totalAmount={totalAmount}
+                paymentMethod="cash"
+                customerName="Sample Customer"
+                customerAddress="123 Test Street, Test City"
+                cashReceived={cashReceived}
+                change={change}
+                cashierName="Test Cashier"
+                dateTime={testDate}
+              />
             </div>
 
             {/* Print button */}
