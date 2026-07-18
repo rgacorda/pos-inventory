@@ -15,7 +15,6 @@ import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
 import {
   ReceiptContent,
   getReceiptPrintStyles,
-  measureReceiptHeightMm,
 } from "@/components/receipt-content";
 
 interface TestPrinterDialogProps {
@@ -103,23 +102,24 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
   }, [open]);
 
   useEffect(() => {
-    // Base print visibility rules (hide everything except the receipt).
-    // The exact @page size is computed and injected separately right
-    // before printing, once the receipt content is fully rendered.
+    // Inject print styles into document head — kept in sync with the
+    // currently selected paper size so test prints match the real receipt.
     const styleId = "test-receipt-print-styles";
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement("style");
+    let style = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement("style");
       style.id = styleId;
-      style.textContent = `
-        @media print {
-          body * { visibility: hidden; }
-          .test-receipt-print-container,
-          .test-receipt-print-container * { visibility: visible; }
-        }
-      `;
       document.head.appendChild(style);
     }
-  }, []);
+    style.textContent = `
+      @media print {
+        body * { visibility: hidden; }
+        .test-receipt-print-container,
+        .test-receipt-print-container * { visibility: visible; }
+      }
+      ${getReceiptPrintStyles(paperSize, ".test-receipt-print-container")}
+    `;
+  }, [paperSize]);
 
   const generateTestReceipt = (productCount: 5 | 10 | 20) => {
     // Generate test items
@@ -147,30 +147,6 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
   };
 
   const handlePrint = () => {
-    // Measure the actual rendered receipt height so we can request an
-    // exact-fit page size instead of relying on the CSS `auto` keyword —
-    // see getReceiptPrintStyles() for why this matters on some thermal
-    // printer drivers (e.g. ones that only expose fixed page lengths like
-    // 210mm/297mm/3276mm and pad the remainder with blank paper).
-    const styleId = "test-receipt-page-size-style";
-    let pageStyle = document.getElementById(styleId) as HTMLStyleElement | null;
-    if (!pageStyle) {
-      pageStyle = document.createElement("style");
-      pageStyle.id = styleId;
-      document.head.appendChild(pageStyle);
-    }
-    const containerEl = document.querySelector(
-      ".test-receipt-print-container"
-    );
-    const exactHeightMm = containerEl
-      ? measureReceiptHeightMm(containerEl)
-      : undefined;
-    pageStyle.textContent = getReceiptPrintStyles(
-      paperSize,
-      ".test-receipt-print-container",
-      exactHeightMm
-    );
-
     window.print();
     setTimeout(() => {
       setShowReceipt(false);

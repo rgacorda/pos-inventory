@@ -52,54 +52,21 @@ export const PAPER_DIMENSIONS: Record<
   "80mm": { rollWidth: "80mm", containerWidth: "72mm" },
 };
 
-const PAGE_MARGIN_MM = 2;
-
-/** Converts a CSS pixel measurement (96px = 1in) into millimeters. */
-export function pxToMm(px: number): number {
-  return (px * 25.4) / 96;
-}
-
-/**
- * Measures the rendered height of a receipt container and returns the exact
- * page height (in mm) it should be printed at, including page margins and a
- * small rounding buffer.
- */
-export function measureReceiptHeightMm(el: Element): number {
-  const heightPx = el.getBoundingClientRect().height;
-  return Math.ceil(pxToMm(heightPx)) + PAGE_MARGIN_MM * 2 + 3;
-}
-
-/**
- * CSS injected into the print iframe/page — shared by the live receipt and
- * the test-printer dialog.
- *
- * `exactHeightMm`, when provided, is used instead of the CSS `size: <w> auto`
- * keyword. Many thermal-printer Windows drivers (e.g. generic 80mm "RP-"
- * series drivers) only expose a handful of fixed page lengths — commonly
- * 210mm / 297mm / 3276mm — and silently snap an "auto" page height request to
- * the nearest one of those instead of sizing to content. That prints the
- * receipt correctly but then feeds a large amount of blank paper before
- * cutting. Sending an explicit height that matches the actual rendered
- * receipt avoids depending on the browser/driver honoring `auto` at all.
- */
+/** CSS injected into the print iframe/page — shared by the live receipt and the test-printer dialog. */
 export function getReceiptPrintStyles(
   paperSize: ReceiptPaperSize,
   containerSelector: string,
-  exactHeightMm?: number,
 ): string {
   const { rollWidth, containerWidth } = PAPER_DIMENSIONS[paperSize];
-  const pageSize = exactHeightMm
-    ? `${rollWidth} ${exactHeightMm}mm`
-    : `${rollWidth} auto`;
   return `
-    @page { size: ${pageSize}; margin: ${PAGE_MARGIN_MM}mm; }
+    @page { size: ${rollWidth} auto; margin: 2mm; }
     html, body { margin: 0; padding: 0; height: auto; }
     @media print {
       body * { visibility: visible !important; }
       ${containerSelector} {
-        position: static !important;
-        left: auto !important;
-        top: auto !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
         width: ${containerWidth} !important;
         max-width: ${containerWidth} !important;
       }

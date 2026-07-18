@@ -3,11 +3,7 @@
 import { useEffect, useState } from "react";
 import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
 import { Button } from "@/components/ui/button";
-import {
-  ReceiptContent,
-  getReceiptPrintStyles,
-  measureReceiptHeightMm,
-} from "@/components/receipt-content";
+import { ReceiptContent, getReceiptPrintStyles } from "@/components/receipt-content";
 
 interface ReceiptProps {
   orderNumber: string;
@@ -102,16 +98,9 @@ export function Receipt(props: ReceiptProps) {
       .map((el) => el.outerHTML)
       .join("\n");
 
-    // Measure the actual rendered receipt height so we can request an
-    // exact-fit page size instead of relying on the CSS `auto` keyword —
-    // see getReceiptPrintStyles() for why this matters on some thermal
-    // printer drivers.
-    const exactHeightMm = measureReceiptHeightMm(receiptEl);
-
     const printStyles = getReceiptPrintStyles(
       paperSize,
-      ".receipt-print-container",
-      exactHeightMm
+      ".receipt-print-container"
     );
 
     iframeDoc.open();
