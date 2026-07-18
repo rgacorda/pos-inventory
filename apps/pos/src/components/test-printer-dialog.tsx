@@ -11,8 +11,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
-import { formatCurrency, formatDateTime } from "@pos/shared-utils";
-import { dbHelpers } from "@/lib/db";
+import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
+import {
+  ReceiptContent,
+  getReceiptPrintStyles,
+  measureReceiptHeightMm,
+} from "@/components/receipt-content";
 
 interface TestPrinterDialogProps {
   children?: React.ReactNode;
@@ -56,9 +60,10 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     address?: string;
     phone?: string;
   } | null>(null);
+  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("58mm");
+  const [testOrderNumber, setTestOrderNumber] = useState("");
 
   useEffect(() => {
-    // Load organization data from IndexedDB
     const loadOrganization = async () => {
       const org = await dbHelpers.getOrganization();
       if (org) {
@@ -66,34 +71,50 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
       }
     };
     loadOrganization();
+
+    const loadPaperSize = async () => {
+      setPaperSize(await dbHelpers.getPaperSize());
+    };
+    loadPaperSize();
+
+    // Stay in sync if the paper size is changed in Settings while this
+    // dialog's component tree is already mounted (e.g. sidebar stays alive
+    // across navigation) — no page reload required.
+    const handlePaperSizeChange = (e: Event) => {
+      const size = (e as CustomEvent<ReceiptPaperSize>).detail;
+      if (size) setPaperSize(size);
+    };
+    window.addEventListener(PAPER_SIZE_CHANGE_EVENT, handlePaperSizeChange);
+    return () =>
+      window.removeEventListener(
+        PAPER_SIZE_CHANGE_EVENT,
+        handlePaperSizeChange,
+      );
   }, []);
 
+  // Re-check the saved paper size every time the dialog is opened, as a
+  // fallback in case the change event was missed for any reason.
   useEffect(() => {
-    // Inject print styles into document head
+    if (!open) return;
+    const refreshPaperSize = async () => {
+      setPaperSize(await dbHelpers.getPaperSize());
+    };
+    refreshPaperSize();
+  }, [open]);
+
+  useEffect(() => {
+    // Base print visibility rules (hide everything except the receipt).
+    // The exact @page size is computed and injected separately right
+    // before printing, once the receipt content is fully rendered.
     const styleId = "test-receipt-print-styles";
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style");
       style.id = styleId;
       style.textContent = `
         @media print {
-          body * {
-            visibility: hidden;
-          }
+          body * { visibility: hidden; }
           .test-receipt-print-container,
-          .test-receipt-print-container * {
-            visibility: visible;
-          }
-          .test-receipt-print-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            max-width: 58mm;
-          }
-          @page {
-            size: 58mm auto;
-            margin: 0;
-          }
+          .test-receipt-print-container * { visibility: visible; }
         }
       `;
       document.head.appendChild(style);
@@ -102,7 +123,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
 
   const generateTestReceipt = (productCount: 5 | 10 | 20) => {
     // Generate test items
-    const items = sampleProducts.slice(0, productCount).map((product, index) => {
+    const items = sampleProducts.slice(0, productCount).map((product) => {
       const quantity = Math.floor(Math.random() * 3) + 1; // Random quantity 1-3
       return {
         name: product.name,
@@ -113,6 +134,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     });
 
     setTestItems(items);
+    setTestOrderNumber(`TEST-${Date.now()}`);
     setShowReceipt(true);
   };
 
@@ -120,11 +142,35 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     const subtotal = testItems.reduce((sum, item) => sum + item.total, 0);
     const taxAmount = subtotal * 0.12; // 12% tax
     const totalAmount = subtotal + taxAmount;
-    
+
     return { subtotal, taxAmount, totalAmount };
   };
 
   const handlePrint = () => {
+    // Measure the actual rendered receipt height so we can request an
+    // exact-fit page size instead of relying on the CSS `auto` keyword —
+    // see getReceiptPrintStyles() for why this matters on some thermal
+    // printer drivers (e.g. ones that only expose fixed page lengths like
+    // 210mm/297mm/3276mm and pad the remainder with blank paper).
+    const styleId = "test-receipt-page-size-style";
+    let pageStyle = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!pageStyle) {
+      pageStyle = document.createElement("style");
+      pageStyle.id = styleId;
+      document.head.appendChild(pageStyle);
+    }
+    const containerEl = document.querySelector(
+      ".test-receipt-print-container"
+    );
+    const exactHeightMm = containerEl
+      ? measureReceiptHeightMm(containerEl)
+      : undefined;
+    pageStyle.textContent = getReceiptPrintStyles(
+      paperSize,
+      ".test-receipt-print-container",
+      exactHeightMm
+    );
+
     window.print();
     setTimeout(() => {
       setShowReceipt(false);
@@ -132,7 +178,9 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     }, 500);
   };
 
-  const { subtotal, taxAmount, totalAmount } = showReceipt ? calculateTotals() : { subtotal: 0, taxAmount: 0, totalAmount: 0 };
+  const { subtotal, taxAmount, totalAmount } = showReceipt
+    ? calculateTotals()
+    : { subtotal: 0, taxAmount: 0, totalAmount: 0 };
   const cashReceived = Math.ceil(totalAmount / 100) * 100;
   const change = cashReceived - totalAmount;
   const testDate = new Date();
@@ -152,6 +200,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
           <DialogTitle>Test Thermal Printer</DialogTitle>
           <DialogDescription>
             Print a test receipt to verify your thermal printer configuration
+            (currently set to {paperSize})
           </DialogDescription>
         </DialogHeader>
 
@@ -190,7 +239,7 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
               </Button>
             </div>
             <p className="text-xs text-gray-500 mt-4">
-              Paper size: 48mm × auto (supports 210mm, 297mm, 600mm, 1200mm)
+              Paper size: {paperSize} × auto (change in Settings)
             </p>
           </div>
         ) : (
@@ -198,106 +247,28 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
             <div className="max-h-[500px] overflow-y-auto">
               {/* Receipt content for printing */}
               <div className="test-receipt-print-container">
-                <div className="w-full max-w-[58mm] px-1 py-2 font-sans text-[11pt] leading-snug bg-white">
-                  {/* Header */}
-                  <div className="text-center mb-2">
-                    <div>
-                      {organizationData?.name || "YOUR STORE NAME"}
-                    </div>
-                    {organizationData?.address && (
-                      <div>{organizationData.address}</div>
-                    )}
-                    {organizationData?.phone && (
-                      <div>Tel: {organizationData.phone}</div>
-                    )}
-                    <div className="border-b border-dashed border-gray-400 my-2" />
-                  </div>
-
-                  {/* Order Info */}
-                  <div className="mb-2">
-                    <div>Order: TEST-{Date.now()}</div>
-                    <div>Date: {formatDateTime(testDate)}</div>
-                  </div>
-
-                  {/* Customer Info */}
-                  <div className="mb-2">
-                    <div className="border-b border-dashed border-gray-400 my-2" />
-                    <div>CUSTOMER:</div>
-                    <div>Name: Sample Customer</div>
-                    <div>Address: 123 Test Street, Test City</div>
-                  </div>
-
-                  {/* Items */}
-                  <div className="border-b border-dashed border-gray-400 my-2" />
-                  <div>
-                    {testItems.map((item, index) => (
-                      <div key={index} className="flex justify-between gap-1 mb-1">
-                        <span className="flex-1 min-w-0">
-                          {item.name}
-                        </span>
-                        <span className="whitespace-nowrap">
-                          x{item.quantity}
-                        </span>
-                        <span className="whitespace-nowrap">
-                          {formatCurrency(item.total)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Totals */}
-                  <div className="border-b border-dashed border-gray-400 my-2" />
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <span>Subtotal:</span>
-                      <span>{formatCurrency(subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between mb-1">
-                      <span>Tax:</span>
-                      <span>{formatCurrency(taxAmount)}</span>
-                    </div>
-                    <div className="border-t border-black pt-2 mt-2">
-                      <div className="flex justify-between">
-                        <span>TOTAL:</span>
-                        <span>{formatCurrency(totalAmount)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Payment Info */}
-                  <div className="border-b border-dashed border-gray-400 my-2" />
-                  <div className="mb-2">
-                    <div>PAYMENT:</div>
-                    <div className="flex justify-between">
-                      <span>Method:</span>
-                      <span className="capitalize">cash</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Cash Received:</span>
-                      <span>{formatCurrency(cashReceived)}</span>
-                    </div>
-                    {change > 0 && (
-                      <div className="flex justify-between">
-                        <span>Change:</span>
-                        <span>{formatCurrency(change)}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Footer */}
-                  <div className="border-t border-dashed border-gray-400 pt-3 text-center text-[13pt]">
-                    <div>Thank you for your purchase!</div>
-                    <div className="mt-2">Please come again</div>
-                  </div>
-                </div>
+                <ReceiptContent
+                  paperSize={paperSize}
+                  organization={organizationData}
+                  orderNumber={testOrderNumber}
+                  items={testItems}
+                  subtotal={subtotal}
+                  taxAmount={taxAmount}
+                  discountAmount={0}
+                  totalAmount={totalAmount}
+                  paymentMethod="cash"
+                  customerName="Sample Customer"
+                  customerAddress="123 Test Street, Test City"
+                  cashReceived={cashReceived}
+                  change={change}
+                  cashierName="Test Cashier"
+                  dateTime={testDate}
+                />
               </div>
             </div>
 
             {/* Print button */}
-            <Button
-              onClick={handlePrint}
-              className="w-full mt-2"
-            >
+            <Button onClick={handlePrint} className="w-full mt-2">
               Print Receipt
             </Button>
           </>

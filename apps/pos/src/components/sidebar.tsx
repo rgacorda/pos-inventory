@@ -39,7 +39,7 @@ import {
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useState, useEffect } from "react";
-import { dbHelpers } from "@/lib/db";
+import { dbHelpers, ReceiptPaperSize } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
 import {
   showSuccessToast,
@@ -71,6 +71,7 @@ export function Sidebar() {
   const [newVoidPin, setNewVoidPin] = useState<string>("");
   const [voidPinSaved, setVoidPinSaved] = useState(false);
   const [voidPinError, setVoidPinError] = useState<string>("");
+  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("58mm");
 
   const todaysSales =
     todaysOrders
@@ -110,6 +111,14 @@ export function Sidebar() {
       setNewTerminalId(id || "");
     };
     loadTerminalId();
+  }, []);
+
+  // Load receipt printer paper size on mount
+  useEffect(() => {
+    const loadPaperSize = async () => {
+      setPaperSize(await dbHelpers.getPaperSize());
+    };
+    loadPaperSize();
   }, []);
 
   // Fetch available terminals when dialog opens and online
@@ -192,6 +201,21 @@ export function Sidebar() {
       setTimeout(() => setVoidPinSaved(false), 3000);
     } catch {
       setVoidPinError("Failed to save PIN. Try again.");
+    }
+  };
+
+  const handleSelectPaperSize = async (size: ReceiptPaperSize) => {
+    if (size === paperSize) return;
+    try {
+      await dbHelpers.setPaperSize(size);
+      setPaperSize(size);
+      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Receipt printer"), {
+        description: `Receipts will now print on ${size} paper.`,
+      });
+    } catch (error) {
+      showErrorToast(ERROR_MESSAGES.UPDATE_FAILED("printer paper size"), {
+        description: "Unable to update receipt printer setting.",
+      });
     }
   };
 
@@ -373,6 +397,39 @@ export function Sidebar() {
                   </Select>
                 )}
               </div>
+              <div className="pt-2">
+                <Separator className="mb-4" />
+                <p className="text-sm font-medium text-gray-700 mb-1">
+                  Receipt Printer
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Choose your thermal printer&apos;s paper size. This stays
+                  saved on this device until you change it again.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={paperSize === "58mm" ? "default" : "outline"}
+                    className="h-14 flex flex-col items-center justify-center gap-0.5"
+                    onClick={() => handleSelectPaperSize("58mm")}
+                  >
+                    <span className="text-sm font-semibold">58mm</span>
+                    <span className="text-[10px] opacity-80">
+                      Narrow roll
+                    </span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paperSize === "80mm" ? "default" : "outline"}
+                    className="h-14 flex flex-col items-center justify-center gap-0.5"
+                    onClick={() => handleSelectPaperSize("80mm")}
+                  >
+                    <span className="text-sm font-semibold">80mm</span>
+                    <span className="text-[10px] opacity-80">Wide roll</span>
+                  </Button>
+                </div>
+              </div>
+
               <div className="pt-2">
                 <Separator className="mb-4" />
                 <p className="text-sm font-medium text-gray-700 mb-1">Change Void PIN</p>

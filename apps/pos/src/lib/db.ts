@@ -68,6 +68,13 @@ export interface OrganizationData {
   updatedAt: Date;
 }
 
+export type ReceiptPaperSize = "58mm" | "80mm";
+
+// Dispatched on window whenever the receipt paper size is changed, so any
+// already-mounted component (test printer dialog, receipt dialogs, etc.)
+// can pick up the new setting immediately without needing a page reload.
+export const PAPER_SIZE_CHANGE_EVENT = "pos:paper-size-changed";
+
 export interface UnknownBarcode {
   id?: number;
   barcode: string;
@@ -530,6 +537,42 @@ export const dbHelpers = {
         value: pin,
         updatedAt: new Date(),
       });
+    }
+  },
+
+  // Get receipt paper size (defaults to "58mm" if never set)
+  async getPaperSize(): Promise<ReceiptPaperSize> {
+    const metadata = await db.syncMetadata
+      .where("key")
+      .equals("receiptPaperSize")
+      .first();
+    return metadata?.value === "80mm" ? "80mm" : "58mm";
+  },
+
+  // Set receipt paper size — persists until explicitly changed again
+  async setPaperSize(paperSize: ReceiptPaperSize) {
+    const existing = await db.syncMetadata
+      .where("key")
+      .equals("receiptPaperSize")
+      .first();
+
+    if (existing) {
+      await db.syncMetadata.update(existing.id!, {
+        value: paperSize,
+        updatedAt: new Date(),
+      });
+    } else {
+      await db.syncMetadata.add({
+        key: "receiptPaperSize",
+        value: paperSize,
+        updatedAt: new Date(),
+      });
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(PAPER_SIZE_CHANGE_EVENT, { detail: paperSize }),
+      );
     }
   },
 };
