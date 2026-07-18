@@ -24,6 +24,7 @@ export function printReceipt(
     iframe.parentNode?.removeChild(iframe);
     onDone?.();
   };
+  //asd
 
   const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
   if (!iframeDoc) {
