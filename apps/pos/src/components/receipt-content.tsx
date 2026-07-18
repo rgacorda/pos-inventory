@@ -54,8 +54,8 @@ export function ReceiptContent({
     <div
       className={`w-full font-sans bg-white ${
         isWide
-          ? "max-w-[72mm] px-2 py-2 text-[9pt] leading-snug"
-          : "max-w-[50mm] px-1 py-2 text-[11pt] leading-snug"
+          ? "max-w-[68mm] px-2 py-2 text-[9pt] leading-snug"
+          : "max-w-[46mm] px-1 py-2 text-[11pt] leading-snug"
       } ${className ?? ""}`}
     >
       {/* Header */}

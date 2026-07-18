@@ -42,13 +42,19 @@ export interface ReceiptData {
   organization: ReceiptOrganization | null;
 }
 
-/** Roll width (matches the printer's physical paper) vs. usable content width (leaves a safe margin on each side). */
+/**
+ * Roll width (matches the printer's physical paper) vs. usable content
+ * width. Kept a few mm narrower than the printer's nominal printable area —
+ * many thermal printers can't actually print all the way to the roll's
+ * physical edge, so text sized right up to the nominal width gets clipped on
+ * the sides. This leaves a safety margin on both left and right.
+ */
 export const PAPER_DIMENSIONS: Record<
   ReceiptPaperSize,
   { rollWidthMm: number; contentWidthMm: number }
 > = {
-  "58mm": { rollWidthMm: 58, contentWidthMm: 50 },
-  "80mm": { rollWidthMm: 80, contentWidthMm: 72 },
+  "58mm": { rollWidthMm: 58, contentWidthMm: 46 },
+  "80mm": { rollWidthMm: 80, contentWidthMm: 68 },
 };
 
 function escapeHtml(value: string): string {
@@ -195,7 +201,7 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
   const { rollWidthMm, contentWidthMm } = PAPER_DIMENSIONS[paperSize];
   const isWide = paperSize === "80mm";
   return `
-    @page { size: ${rollWidthMm}mm auto; margin: 2mm; }
+    @page { size: ${rollWidthMm}mm auto; margin: 3mm; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
