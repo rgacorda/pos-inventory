@@ -75,7 +75,7 @@ export class PaymentsService {
   ) {
     const query = this.paymentsRepository
       .createQueryBuilder('payment')
-      .orderBy('payment.createdAt', 'DESC');
+      .orderBy('COALESCE(payment.processedAt, payment.createdAt)', 'DESC');
 
     // Filter by organization for non-super-admins
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
@@ -233,10 +233,13 @@ export class PaymentsService {
       .leftJoin('payment.order', 'order')
       .select('payment.method', 'method')
       .addSelect('SUM(payment.amount)', 'amount')
-      .where('payment.createdAt BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      })
+      .where(
+        'COALESCE(payment.processedAt, payment.createdAt) BETWEEN :startDate AND :endDate',
+        {
+          startDate,
+          endDate,
+        },
+      )
       .andWhere('order.status != :voidStatus', { voidStatus: 'VOID' })
       .andWhere('payment.status = :status', {
         status: PaymentStatus.COMPLETED,

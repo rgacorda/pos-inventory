@@ -39,10 +39,13 @@ export class FinancialsService {
         .andWhere('order.status IN (:...statuses)', {
           statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED],
         })
-        .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-          startDate,
-          endDate,
-        })
+        .andWhere(
+          'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+          {
+            startDate,
+            endDate,
+          },
+        )
         .getRawOne(),
 
       // COGS: SUM via SQL

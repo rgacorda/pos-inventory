@@ -185,6 +185,15 @@ export class SyncService {
           ? Math.floor(amountPaid / 500)
           : undefined;
 
+        // Use the actual completion time from the POS device, not the sync time,
+        // so that an order synced late (e.g. after a sync error) still lands on the
+        // day/time it actually happened rather than the day it happened to sync.
+        const completedAt = this.resolveTimestamp(
+          orderDto.completedAt,
+          orderDto.posLocalId,
+          'order',
+        );
+
         // Create order entity
         const order = this.orderRepository.create({
           orderNumber,
@@ -197,7 +206,7 @@ export class SyncService {
           discountAmount: orderDto.discountAmount,
           totalAmount: orderDto.totalAmount,
           status: isExchangeOrder ? OrderStatus.EXCHANGE : OrderStatus.SYNCED,
-          completedAt: orderDto.completedAt,
+          completedAt,
           syncedAt: new Date(),
           customerName: orderDto.customerName,
           customerAddress: orderDto.customerAddress,
@@ -400,6 +409,14 @@ export class SyncService {
       // Generate payment number
       const paymentNumber = await this.generatePaymentNumber();
 
+      // Use the actual processing time from the POS device, not the sync time,
+      // so a late-synced payment is still attributed to the day it actually occurred.
+      const processedAt = this.resolveTimestamp(
+        paymentDto.processedAt,
+        paymentDto.posLocalId,
+        'payment',
+      );
+
       // Create payment
       const payment = this.paymentRepository.create({
         paymentNumber,
@@ -411,7 +428,7 @@ export class SyncService {
         amount: paymentDto.amount,
         status: PaymentStatus.COMPLETED,
         reference: paymentDto.reference,
-        processedAt: paymentDto.processedAt,
+        processedAt,
         syncedAt: new Date(),
       });
 
@@ -509,6 +526,35 @@ export class SyncService {
       .toString()
       .padStart(3, '0');
     return `PAY-${timestamp}${random}`;
+  }
+
+  /**
+   * Parses a client-supplied timestamp (arrives as an ISO string over JSON)
+   * into a Date, falling back to "now" and logging a warning if it's missing
+   * or invalid. This is what anchors an order/payment to the day and time it
+   * actually happened on the POS, independent of when the sync request lands
+   * on the server — critical for offline devices that retry a failed sync
+   * hours or days later.
+   */
+  private resolveTimestamp(
+    value: Date | string | undefined,
+    posLocalId: string,
+    entityLabel: string,
+  ): Date {
+    if (value) {
+      const parsed = new Date(value);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+      this.logger.warn(
+        `Invalid timestamp received for ${entityLabel} ${posLocalId}: ${value}. Falling back to server time.`,
+      );
+    } else {
+      this.logger.warn(
+        `Missing timestamp for ${entityLabel} ${posLocalId}. Falling back to server time.`,
+      );
+    }
+    return new Date();
   }
 
   private isUUID(value: string): boolean {

@@ -98,7 +98,7 @@ export class OrdersService {
       .leftJoinAndSelect('order.terminal', 'terminal')
       .leftJoinAndSelect('order.cashier', 'cashier')
       .leftJoinAndSelect('order.payments', 'payments')
-      .orderBy('order.createdAt', 'DESC');
+      .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC');
 
     // Filter by organization for non-super-admins
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
@@ -119,10 +119,13 @@ export class OrdersService {
     }
 
     if (filters?.startDate && filters?.endDate) {
-      query.andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-      });
+      query.andWhere(
+        'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+        {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+        },
+      );
     }
 
     // Cashiers can only see their own orders
@@ -155,10 +158,13 @@ export class OrdersService {
       .select('SUM(order.totalAmount)', 'revenue')
       .addSelect('COUNT(order.id)', 'orderCount')
       .where('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
-      .andWhere('order.createdAt BETWEEN :start AND :end', {
-        start: todayStart.toISOString(),
-        end: todayEnd.toISOString(),
-      });
+      .andWhere(
+        'COALESCE(order.completedAt, order.createdAt) BETWEEN :start AND :end',
+        {
+          start: todayStart.toISOString(),
+          end: todayEnd.toISOString(),
+        },
+      );
 
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
       qb.andWhere('order.organizationId = :orgId', {
@@ -197,10 +203,13 @@ export class OrdersService {
     const applyFilters = (qb: any) => {
       qb.andWhere('order.status != :voidStatus', {
         voidStatus: OrderStatus.VOID,
-      }).andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-        startDate,
-        endDate,
-      });
+      }).andWhere(
+        'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+        {
+          startDate,
+          endDate,
+        },
+      );
       if (!isSuperAdmin) {
         qb.andWhere('order.organizationId = :orgId', { orgId });
       }
@@ -235,12 +244,20 @@ export class OrdersService {
       applyFilters(
         this.ordersRepository
           .createQueryBuilder('order')
-          .select("TO_CHAR(order.createdAt, 'YYYY-MM-DD')", 'date')
+          .select(
+            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
+            'date',
+          )
           .addSelect('SUM(order.totalAmount)', 'revenue')
           .addSelect('COUNT(order.id)', 'orders')
           .where('1=1')
-          .groupBy("TO_CHAR(order.createdAt, 'YYYY-MM-DD')")
-          .orderBy("TO_CHAR(order.createdAt, 'YYYY-MM-DD')", 'ASC'),
+          .groupBy(
+            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
+          )
+          .orderBy(
+            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
+            'ASC',
+          ),
       ).getRawMany(),
 
       // 3. Top products — GROUP BY (productId, name, sku) in order_items
@@ -256,10 +273,13 @@ export class OrdersService {
           .where('order.status != :voidStatus', {
             voidStatus: OrderStatus.VOID,
           })
-          .andWhere('order.createdAt BETWEEN :startDate AND :endDate', {
-            startDate,
-            endDate,
-          });
+          .andWhere(
+            'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+            {
+              startDate,
+              endDate,
+            },
+          );
         if (!isSuperAdmin) {
           qb.andWhere('order.organizationId = :orgId', { orgId });
         }
@@ -310,12 +330,20 @@ export class OrdersService {
       applyFilters(
         this.ordersRepository
           .createQueryBuilder('order')
-          .select('EXTRACT(HOUR FROM order.createdAt)', 'hour')
+          .select(
+            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
+            'hour',
+          )
           .addSelect('SUM(order.totalAmount)', 'revenue')
           .addSelect('COUNT(order.id)', 'orders')
           .where('1=1')
-          .groupBy('EXTRACT(HOUR FROM order.createdAt)')
-          .orderBy('EXTRACT(HOUR FROM order.createdAt)', 'ASC'),
+          .groupBy(
+            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
+          )
+          .orderBy(
+            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
+            'ASC',
+          ),
       ).getRawMany(),
 
       // 7. Recent orders (lightweight — for CSV export)
@@ -323,17 +351,18 @@ export class OrdersService {
         this.ordersRepository
           .createQueryBuilder('order')
           .select('order.id', 'id')
-          .addSelect('order.createdAt', 'createdAt')
+          .addSelect('COALESCE(order.completedAt, order.createdAt)', 'createdAt')
           .addSelect('order.totalAmount', 'totalAmount')
           .addSelect('order.status', 'status')
           .addSelect('COUNT(items.id)', 'itemCount')
           .leftJoin('order.items', 'items')
           .where('1=1')
           .groupBy('order.id')
+          .addGroupBy('order.completedAt')
           .addGroupBy('order.createdAt')
           .addGroupBy('order.totalAmount')
           .addGroupBy('order.status')
-          .orderBy('order.createdAt', 'DESC')
+          .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC')
           .limit(10),
       ).getRawMany(),
     ]);
@@ -654,7 +683,7 @@ export class OrdersService {
       .leftJoinAndSelect('item.order', 'order')
       .where('item.sku = :sku', { sku: 'MANUAL' })
       .andWhere('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
-      .orderBy('order.createdAt', 'DESC');
+      .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC');
 
     // Filter by organization
     if (requestingUser.role !== UserRole.SUPER_ADMIN) {
