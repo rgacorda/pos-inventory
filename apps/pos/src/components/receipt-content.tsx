@@ -11,7 +11,7 @@ interface ReceiptContentProps extends ReceiptData {
   className?: string;
 }
 
-const DASH = <div className="border-b border-dashed border-gray-400 my-2" />;
+const DASH = <div className="border-b border-dashed border-gray-400 my-3" />;
 
 /**
  * On-screen preview of the receipt shown inside dialogs (checkout,
@@ -54,12 +54,12 @@ export function ReceiptContent({
     <div
       className={`w-full font-sans bg-white ${
         isWide
-          ? "max-w-[68mm] px-2 py-2 text-[9pt] leading-snug"
-          : "max-w-[46mm] px-1 py-2 text-[11pt] leading-snug"
+          ? "max-w-[68mm] px-2 pt-2 pb-4 text-[9pt] leading-relaxed"
+          : "max-w-[46mm] px-1.5 pt-2 pb-4 text-[11pt] leading-relaxed"
       } ${className ?? ""}`}
     >
       {/* Header */}
-      <div className="text-center mb-2">
+      <div className="text-center mb-3">
         <div className={isWide ? "font-semibold text-[10pt]" : ""}>
           {organization?.name || "YOUR STORE NAME"}
         </div>
@@ -70,12 +70,12 @@ export function ReceiptContent({
 
       {/* Order Info */}
       {isWide ? (
-        <div className="flex justify-between mb-2 gap-2">
+        <div className="flex justify-between mb-3 gap-2">
           <span>Date: {formatDateTime(dateTime)}</span>
           <span>Cashier: {cashierName}</span>
         </div>
       ) : (
-        <div className="mb-2">
+        <div className="mb-3">
           <div>Date: {formatDateTime(dateTime)}</div>
           <div>Cashier: {cashierName}</div>
         </div>
@@ -83,7 +83,7 @@ export function ReceiptContent({
 
       {/* Customer Info */}
       {(customerName || customerAddress) && (
-        <div className="mb-2">
+        <div className="mb-3">
           {DASH}
           <div className="font-medium">CUSTOMER:</div>
           {customerName && <div>Name: {customerName}</div>}
@@ -95,15 +95,15 @@ export function ReceiptContent({
       {DASH}
       {isWide ? (
         <div>
-          <div className="flex gap-2 text-[8pt] font-semibold text-gray-600 mb-1">
+          <div className="flex gap-2 text-[8pt] font-semibold text-gray-600 mb-1.5">
             <span className="w-5 text-right shrink-0">Qty</span>
             <span className="flex-1 min-w-0">Item</span>
             <span className="w-14 text-right shrink-0">Price</span>
             <span className="w-16 text-right shrink-0">Total</span>
           </div>
-          <div className="border-b border-gray-300 mb-1" />
+          <div className="border-b border-gray-300 mb-1.5" />
           {items.map((item, index) => (
-            <div key={index} className="flex gap-2 mb-1 tabular-nums">
+            <div key={index} className="flex gap-2 mb-1.5 tabular-nums">
               <span className="w-5 text-right shrink-0">{item.quantity}</span>
               <span className="flex-1 min-w-0 break-words">{item.name}</span>
               <span className="w-14 text-right shrink-0 text-gray-500">
@@ -118,7 +118,7 @@ export function ReceiptContent({
       ) : (
         <div>
           {items.map((item, index) => (
-            <div key={index} className="mb-1">
+            <div key={index} className="mb-1.5">
               <div className="flex justify-between gap-2">
                 <span className="break-words flex-1 min-w-0">{item.name}</span>
                 <span className="whitespace-nowrap flex-shrink-0">
@@ -136,27 +136,27 @@ export function ReceiptContent({
       {/* Totals */}
       {DASH}
       <div>
-        <div className="flex justify-between mb-1">
+        <div className="flex justify-between mb-1.5">
           <span>Subtotal:</span>
           <span>{formatCurrency(subtotal)}</span>
         </div>
-        <div className="flex justify-between mb-1">
+        <div className="flex justify-between mb-1.5">
           <span>Tax:</span>
           <span>{formatCurrency(taxAmount)}</span>
         </div>
         {discountAmount > 0 && (
-          <div className="flex justify-between mb-1">
+          <div className="flex justify-between mb-1.5">
             <span>Discount:</span>
             <span>-{formatCurrency(discountAmount)}</span>
           </div>
         )}
         {pointsRedeemed && pointsRedeemed > 0 ? (
-          <div className="flex justify-between mb-1">
+          <div className="flex justify-between mb-1.5">
             <span>Points Redeemed ({pointsRedeemed} pts):</span>
             <span>-{formatCurrency(pointsRedeemed)}</span>
           </div>
         ) : null}
-        <div className="border-t border-black pt-2 mt-2">
+        <div className="border-t border-black pt-2.5 mt-2.5">
           <div
             className={`flex justify-between ${isWide ? "text-[10.5pt] font-bold" : "font-semibold"}`}
           >
@@ -178,8 +178,8 @@ export function ReceiptContent({
 
       {/* Payment Info */}
       {DASH}
-      <div className="mb-2">
-        <div className="font-medium">PAYMENT:</div>
+      <div className="mb-3 space-y-0.5">
+        <div className="font-medium mb-1">PAYMENT:</div>
         <div className="flex justify-between">
           <span>Method:</span>
           <span className="capitalize">

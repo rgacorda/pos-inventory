@@ -213,24 +213,30 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .receipt {
       width: ${contentWidthMm}mm;
       margin: 0 auto;
-      padding: 2mm 1mm;
+      /* Extra bottom padding is intentional: many thermal printer drivers
+         only reliably honor the @page top margin on an auto-height page,
+         not the bottom one, which left the receipt cut right at the last
+         line of text. Baking guaranteed blank space into the content itself
+         (rather than relying solely on @page margin) ensures there's always
+         a clean gap before the paper is cut, matching the top. */
+      padding: 2mm 1.5mm 7mm 1.5mm;
       font-size: ${isWide ? "9pt" : "11pt"};
-      line-height: 1.35;
+      line-height: 1.45;
     }
     .center { text-align: center; }
     .bold { font-weight: 700; }
     .muted { color: #555; }
     .small { font-size: ${isWide ? "8pt" : "9pt"}; }
-    .mb-1 { margin-bottom: 2px; }
-    .mb-2 { margin-bottom: 6px; }
-    .dash { border-bottom: 1px dashed #999; margin: 6px 0; }
-    .hr { border-bottom: 1px solid #bbb; margin-bottom: 3px; }
+    .mb-1 { margin-bottom: 3px; }
+    .mb-2 { margin-bottom: 8px; }
+    .dash { border-bottom: 1px dashed #999; margin: 8px 0; }
+    .hr { border-bottom: 1px solid #bbb; margin-bottom: 4px; }
     .row { display: flex; justify-content: space-between; gap: 6px; }
     .store-name { font-weight: 700; font-size: ${isWide ? "10pt" : "12pt"}; }
-    .total-row { border-top: 1px solid #000; padding-top: 6px; margin-top: 6px; }
+    .total-row { border-top: 1px solid #000; padding-top: 7px; margin-top: 7px; }
     .total-wide .row { font-size: 10.5pt; }
-    .item-header { display: flex; gap: 6px; font-size: 8pt; font-weight: 700; color: #555; margin-bottom: 3px; }
-    .item-row { display: flex; gap: 6px; margin-bottom: 3px; }
+    .item-header { display: flex; gap: 6px; font-size: 8pt; font-weight: 700; color: #555; margin-bottom: 4px; }
+    .item-row { display: flex; gap: 6px; margin-bottom: 4px; }
     .col-qty { width: 14px; text-align: right; flex-shrink: 0; }
     .col-name { flex: 1; min-width: 0; word-break: break-word; }
     .col-price { width: 40px; text-align: right; flex-shrink: 0; }
