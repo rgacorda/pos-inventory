@@ -11,7 +11,8 @@ interface ReceiptContentProps extends ReceiptData {
   className?: string;
 }
 
-const DASH = <div className="border-b border-dashed border-gray-400 my-3" />;
+const SPACER = <div className="my-2" />;
+const LINE = <div className="border-t border-gray-300 mb-2" />;
 
 /**
  * On-screen preview of the receipt shown inside dialogs (checkout,
@@ -21,11 +22,8 @@ const DASH = <div className="border-b border-dashed border-gray-400 my-3" />;
  * component's markup/CSS never affects what gets printed.
  *
  * Layout differs meaningfully by paper size:
- * - 58mm: narrow roll, so each line item stacks onto two short lines (name+total,
- *   then qty x price) to avoid squeezing columns into an unreadably tight space.
- * - 80mm: wider roll, so line items use a proper 4-column inline table
- *   (qty / item / unit price / total) with tabular numerals for clean alignment,
- *   plus a two-column header row for date/cashier to make better use of the width.
+ * - 58mm: product name on its own full-width line; qty, unit price, and total grouped on the right.
+ * - 80mm: product name on the left; qty, unit price, and total grouped on the right.
  */
 export function ReceiptContent({
   paperSize,
@@ -44,7 +42,6 @@ export function ReceiptContent({
   cashierName,
   dateTime,
   pointsRedeemed,
-  loyaltyCustomerName,
   className,
 }: ReceiptContentProps) {
   const isWide = paperSize === "80mm";
@@ -52,30 +49,29 @@ export function ReceiptContent({
 
   return (
     <div
-      className={`w-full font-sans bg-white ${
+      className={`w-full font-sans bg-white text-gray-500 ${
         isWide
-          ? "max-w-[68mm] px-2 pt-2 pb-4 text-[9pt] leading-relaxed"
-          : "max-w-[46mm] px-1.5 pt-2 pb-4 text-[11pt] leading-relaxed"
+          ? "max-w-[68mm] px-2 pt-2 pb-4 text-[7pt] leading-snug"
+          : "max-w-[46mm] px-1.5 pt-2 pb-4 text-[8pt] leading-snug"
       } ${className ?? ""}`}
     >
       {/* Header */}
-      <div className="text-center mb-3">
-        <div className={isWide ? "font-semibold text-[10pt]" : ""}>
+      <div className="text-center mb-2">
+        <div className={isWide ? "text-[9pt]" : "text-[10pt]"}>
           {organization?.name || "YOUR STORE NAME"}
         </div>
         {organization?.address && <div>{organization.address}</div>}
         {organization?.phone && <div>Tel: {organization.phone}</div>}
-        {DASH}
       </div>
 
       {/* Order Info */}
       {isWide ? (
-        <div className="flex justify-between mb-3 gap-2">
+        <div className="flex justify-between mb-2 gap-2">
           <span>Date: {formatDateTime(dateTime)}</span>
           <span>Cashier: {cashierName}</span>
         </div>
       ) : (
-        <div className="mb-3">
+        <div className="mb-2">
           <div>Date: {formatDateTime(dateTime)}</div>
           <div>Cashier: {cashierName}</div>
         </div>
@@ -83,34 +79,33 @@ export function ReceiptContent({
 
       {/* Customer Info */}
       {(customerName || customerAddress) && (
-        <div className="mb-3">
-          {DASH}
-          <div className="font-medium">CUSTOMER:</div>
+        <div className="mb-2">
+          {LINE}
+          <div>CUSTOMER:</div>
           {customerName && <div>Name: {customerName}</div>}
           {customerAddress && <div>Address: {customerAddress}</div>}
         </div>
       )}
 
       {/* Items */}
-      {DASH}
+      {SPACER}
       {isWide ? (
         <div>
-          <div className="flex gap-2 text-[8pt] font-semibold text-gray-600 mb-1.5">
-            <span className="w-5 text-right shrink-0">Qty</span>
+          <div className="flex gap-1 text-[6.5pt] mb-0.5 items-baseline">
             <span className="flex-1 min-w-0">Item</span>
-            <span className="w-14 text-right shrink-0">Price</span>
-            <span className="w-16 text-right shrink-0">Total</span>
+            <span className="flex gap-1 shrink-0 whitespace-nowrap text-right">
+              <span className="w-5 text-right">Qty</span>
+              <span>Price</span>
+              <span className="min-w-[38px]">Total</span>
+            </span>
           </div>
-          <div className="border-b border-gray-300 mb-1.5" />
           {items.map((item, index) => (
-            <div key={index} className="flex gap-2 mb-1.5 tabular-nums">
-              <span className="w-5 text-right shrink-0">{item.quantity}</span>
+            <div key={index} className="flex gap-1 mb-0.5 tabular-nums items-start">
               <span className="flex-1 min-w-0 break-words">{item.name}</span>
-              <span className="w-14 text-right shrink-0 text-gray-500">
-                {formatCurrency(item.unitPrice)}
-              </span>
-              <span className="w-16 text-right shrink-0 font-medium">
-                {formatCurrency(item.total)}
+              <span className="flex gap-1 shrink-0 whitespace-nowrap text-right">
+                <span className="w-5 text-right">{item.quantity}</span>
+                <span>{formatCurrency(item.unitPrice)}</span>
+                <span className="min-w-[38px]">{formatCurrency(item.total)}</span>
               </span>
             </div>
           ))}
@@ -118,15 +113,12 @@ export function ReceiptContent({
       ) : (
         <div>
           {items.map((item, index) => (
-            <div key={index} className="mb-1.5">
-              <div className="flex justify-between gap-2">
-                <span className="break-words flex-1 min-w-0">{item.name}</span>
-                <span className="whitespace-nowrap flex-shrink-0">
-                  {formatCurrency(item.total)}
-                </span>
-              </div>
-              <div className="text-gray-500 text-[9pt]">
-                {formatCurrency(item.unitPrice)} x {item.quantity}
+            <div key={index} className="mb-0.5">
+              <div className="break-words w-full">{item.name}</div>
+              <div className="flex justify-end gap-1.5 whitespace-nowrap tabular-nums text-[7pt]">
+                <span>{formatCurrency(item.unitPrice)}</span>
+                <span className="w-4 text-right">{item.quantity}</span>
+                <span className="min-w-[38px] text-right">{formatCurrency(item.total)}</span>
               </div>
             </div>
           ))}
@@ -134,52 +126,39 @@ export function ReceiptContent({
       )}
 
       {/* Totals */}
-      {DASH}
+      {SPACER}
       <div>
-        <div className="flex justify-between mb-1.5">
+        <div className="flex justify-between mb-1">
           <span>Subtotal:</span>
           <span>{formatCurrency(subtotal)}</span>
         </div>
-        <div className="flex justify-between mb-1.5">
+        <div className="flex justify-between mb-1">
           <span>Tax:</span>
           <span>{formatCurrency(taxAmount)}</span>
         </div>
         {discountAmount > 0 && (
-          <div className="flex justify-between mb-1.5">
+          <div className="flex justify-between mb-1">
             <span>Discount:</span>
             <span>-{formatCurrency(discountAmount)}</span>
           </div>
         )}
         {pointsRedeemed && pointsRedeemed > 0 ? (
-          <div className="flex justify-between mb-1.5">
+          <div className="flex justify-between mb-1">
             <span>Points Redeemed ({pointsRedeemed} pts):</span>
             <span>-{formatCurrency(pointsRedeemed)}</span>
           </div>
         ) : null}
-        <div className="border-t border-black pt-2.5 mt-2.5">
-          <div
-            className={`flex justify-between ${isWide ? "text-[10.5pt] font-bold" : "font-semibold"}`}
-          >
+        <div className="border-t border-gray-300 pt-1.5 mt-1.5">
+          <div className="flex justify-between">
             <span>TOTAL:</span>
             <span>{formatCurrency(totalAmount)}</span>
           </div>
         </div>
       </div>
 
-      {/* Loyalty member name */}
-      {loyaltyCustomerName && (
-        <>
-          {DASH}
-          <div className="text-center">
-            <div>Member: {loyaltyCustomerName}</div>
-          </div>
-        </>
-      )}
-
       {/* Payment Info */}
-      {DASH}
-      <div className="mb-3 space-y-0.5">
-        <div className="font-medium mb-1">PAYMENT:</div>
+      <div className="mb-2 space-y-0.5">
+        <div className="mb-0.5">PAYMENT:</div>
         <div className="flex justify-between">
           <span>Method:</span>
           <span className="capitalize">
@@ -210,6 +189,7 @@ export function ReceiptContent({
           <span>Total Items:</span>
           <span>{totalItemCount}</span>
         </div>
+        {LINE}
       </div>
     </div>
   );

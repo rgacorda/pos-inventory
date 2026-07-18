@@ -72,8 +72,12 @@ function esc(value: string | number | undefined | null): string {
   return escapeHtml(String(value));
 }
 
-function dash(): string {
-  return `<div class="dash"></div>`;
+function line(): string {
+  return `<div class="line"></div>`;
+}
+
+function spacer(): string {
+  return `<div class="spacer"></div>`;
 }
 
 function row(label: string, value: string, extraClass = ""): string {
@@ -87,10 +91,9 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
 
   const header = `
     <div class="center mb-2">
-      <div class="${isWide ? "store-name" : ""}">${esc(org?.name || "YOUR STORE NAME")}</div>
+      <div class="store-name">${esc(org?.name || "YOUR STORE NAME")}</div>
       ${org?.address ? `<div>${esc(org.address)}</div>` : ""}
       ${org?.phone ? `<div>Tel: ${esc(org.phone)}</div>` : ""}
-      ${dash()}
     </div>
   `;
 
@@ -102,8 +105,8 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
     data.customerName || data.customerAddress
       ? `
         <div class="mb-2">
-          ${dash()}
-          <div class="bold">CUSTOMER:</div>
+          ${line()}
+          <div>CUSTOMER:</div>
           ${data.customerName ? `<div>Name: ${esc(data.customerName)}</div>` : ""}
           ${data.customerAddress ? `<div>Address: ${esc(data.customerAddress)}</div>` : ""}
         </div>
@@ -113,20 +116,23 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
   const items = isWide
     ? `
       <div class="item-header">
-        <span class="col-qty">Qty</span>
         <span class="col-name">Item</span>
-        <span class="col-price">Price</span>
-        <span class="col-total">Total</span>
+        <span class="col-amounts">
+          <span class="col-qty">Qty</span>
+          <span class="col-price">Price</span>
+          <span class="col-total">Total</span>
+        </span>
       </div>
-      <div class="hr"></div>
       ${data.items
         .map(
           (item) => `
         <div class="item-row">
-          <span class="col-qty">${esc(item.quantity)}</span>
           <span class="col-name">${esc(item.name)}</span>
-          <span class="col-price muted">${esc(formatCurrency(item.unitPrice))}</span>
-          <span class="col-total bold">${esc(formatCurrency(item.total))}</span>
+          <span class="col-amounts">
+            <span class="col-qty">${esc(item.quantity)}</span>
+            <span class="col-price">${esc(formatCurrency(item.unitPrice))}</span>
+            <span class="col-total">${esc(formatCurrency(item.total))}</span>
+          </span>
         </div>
       `,
         )
@@ -135,9 +141,13 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
     : data.items
         .map(
           (item) => `
-        <div class="mb-1">
-          <div class="row"><span>${esc(item.name)}</span><span>${esc(formatCurrency(item.total))}</span></div>
-          <div class="muted small">${esc(formatCurrency(item.unitPrice))} x ${esc(item.quantity)}</div>
+        <div class="item-narrow">
+          <div class="item-name">${esc(item.name)}</div>
+          <div class="item-amounts">
+            <span class="col-price">${esc(formatCurrency(item.unitPrice))}</span>
+            <span class="col-qty">${esc(item.quantity)}</span>
+            <span class="col-total">${esc(formatCurrency(item.total))}</span>
+          </div>
         </div>
       `,
         )
@@ -156,19 +166,15 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
           )
         : ""
     }
-    <div class="total-row ${isWide ? "total-wide" : "bold"}">
+    <div class="total-row">
       ${row("TOTAL:", esc(formatCurrency(data.totalAmount)))}
     </div>
   `;
 
-  const loyalty = data.loyaltyCustomerName
-    ? `${dash()}<div class="center"><div>Member: ${esc(data.loyaltyCustomerName)}</div></div>`
-    : "";
-
   const paymentMethodLabel = esc(data.paymentMethod.replace(/_/g, " ").toLowerCase());
   const payment = `
     <div class="mb-2">
-      <div class="bold">PAYMENT:</div>
+      <div>PAYMENT:</div>
       ${row("Method:", paymentMethodLabel)}
       ${data.paymentReference ? row("Ref:", esc(data.paymentReference)) : ""}
       ${data.cashReceived ? row("Cash Received:", esc(formatCurrency(data.cashReceived))) : ""}
@@ -178,6 +184,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
           : ""
       }
       ${row("Total Items:", esc(totalItemCount))}
+      ${line()}
     </div>
   `;
 
@@ -186,12 +193,10 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
       ${header}
       ${orderInfo}
       ${customer}
-      ${dash()}
+      ${spacer()}
       ${items}
-      ${dash()}
+      ${spacer()}
       ${totals}
-      ${loyalty}
-      ${dash()}
       ${payment}
     </div>
   `;
@@ -207,7 +212,7 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
       margin: 0;
       padding: 0;
       background: #fff;
-      color: #000;
+      color: #777;
       font-family: Arial, Helvetica, sans-serif;
     }
     .receipt {
@@ -220,27 +225,28 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
          (rather than relying solely on @page margin) ensures there's always
          a clean gap before the paper is cut, matching the top. */
       padding: 2mm 1.5mm 7mm 1.5mm;
-      font-size: ${isWide ? "9pt" : "11pt"};
-      line-height: 1.45;
+      font-size: ${isWide ? "7pt" : "8pt"};
+      line-height: 1.4;
     }
     .center { text-align: center; }
-    .bold { font-weight: 700; }
-    .muted { color: #555; }
-    .small { font-size: ${isWide ? "8pt" : "9pt"}; }
-    .mb-1 { margin-bottom: 3px; }
-    .mb-2 { margin-bottom: 8px; }
-    .dash { border-bottom: 1px dashed #999; margin: 8px 0; }
-    .hr { border-bottom: 1px solid #bbb; margin-bottom: 4px; }
+    .small { font-size: ${isWide ? "6.5pt" : "7pt"}; }
+    .mb-1 { margin-bottom: 2px; }
+    .mb-2 { margin-bottom: 6px; }
+    .spacer { margin: 6px 0; }
+    .line { border-top: 1px solid #ccc; margin-bottom: 6px; }
     .row { display: flex; justify-content: space-between; gap: 6px; }
-    .store-name { font-weight: 700; font-size: ${isWide ? "10pt" : "12pt"}; }
-    .total-row { border-top: 1px solid #000; padding-top: 7px; margin-top: 7px; }
-    .total-wide .row { font-size: 10.5pt; }
-    .item-header { display: flex; gap: 6px; font-size: 8pt; font-weight: 700; color: #555; margin-bottom: 4px; }
-    .item-row { display: flex; gap: 6px; margin-bottom: 4px; }
-    .col-qty { width: 14px; text-align: right; flex-shrink: 0; }
+    .store-name { font-size: ${isWide ? "9pt" : "10pt"}; }
+    .total-row { border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px; }
+    .item-header { display: flex; gap: 4px; font-size: 6.5pt; margin-bottom: 1px; align-items: baseline; }
+    .item-row { display: flex; gap: 4px; margin-bottom: 1px; align-items: flex-start; }
     .col-name { flex: 1; min-width: 0; word-break: break-word; }
-    .col-price { width: 40px; text-align: right; flex-shrink: 0; }
-    .col-total { width: 46px; text-align: right; flex-shrink: 0; }
+    .col-amounts { display: flex; gap: 4px; flex-shrink: 0; white-space: nowrap; text-align: right; margin-left: auto; }
+    .col-qty { width: 14px; text-align: right; flex-shrink: 0; }
+    .col-price { flex-shrink: 0; }
+    .col-total { flex-shrink: 0; min-width: 38px; }
+    .item-name { width: 100%; word-break: break-word; margin-bottom: 0; }
+    .item-narrow { margin-bottom: 1px; }
+    .item-amounts { display: flex; justify-content: flex-end; gap: 6px; align-items: baseline; white-space: nowrap; }
   `;
 }
 
