@@ -89,7 +89,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
   `;
 
   const orderInfo = isWide
-    ? `<div class="row small mb-2"><span>Date: ${esc(formatDateTime(data.dateTime))}</span><span>Cashier: ${esc(data.cashierName)}</span></div>`
+    ? `<div class="row mb-2"><span>Date: ${esc(formatDateTime(data.dateTime))}</span><span>Cashier: ${esc(data.cashierName)}</span></div>`
     : `<div class="mb-2"><div>Date: ${esc(formatDateTime(data.dateTime))}</div><div>Cashier: ${esc(data.cashierName)}</div></div>`;
 
   const customer =
@@ -208,22 +208,22 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
       width: ${contentWidthMm}mm;
       margin: 0 auto;
       padding: 2mm 1mm;
-      font-size: ${isWide ? "10.5pt" : "11pt"};
+      font-size: ${isWide ? "9pt" : "11pt"};
       line-height: 1.35;
     }
     .center { text-align: center; }
     .bold { font-weight: 700; }
     .muted { color: #555; }
-    .small { font-size: 9pt; }
+    .small { font-size: ${isWide ? "8pt" : "9pt"}; }
     .mb-1 { margin-bottom: 2px; }
     .mb-2 { margin-bottom: 6px; }
     .dash { border-bottom: 1px dashed #999; margin: 6px 0; }
     .hr { border-bottom: 1px solid #bbb; margin-bottom: 3px; }
     .row { display: flex; justify-content: space-between; gap: 6px; }
-    .store-name { font-weight: 700; font-size: 12pt; }
+    .store-name { font-weight: 700; font-size: ${isWide ? "10pt" : "12pt"}; }
     .total-row { border-top: 1px solid #000; padding-top: 6px; margin-top: 6px; }
-    .total-wide .row { font-size: 12pt; }
-    .item-header { display: flex; gap: 6px; font-size: 9pt; font-weight: 700; color: #555; margin-bottom: 3px; }
+    .total-wide .row { font-size: 10.5pt; }
+    .item-header { display: flex; gap: 6px; font-size: 8pt; font-weight: 700; color: #555; margin-bottom: 3px; }
     .item-row { display: flex; gap: 6px; margin-bottom: 3px; }
     .col-qty { width: 14px; text-align: right; flex-shrink: 0; }
     .col-name { flex: 1; min-width: 0; word-break: break-word; }

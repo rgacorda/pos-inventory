@@ -54,13 +54,13 @@ export function ReceiptContent({
     <div
       className={`w-full font-sans bg-white ${
         isWide
-          ? "max-w-[72mm] px-2 py-2 text-[10.5pt] leading-snug"
+          ? "max-w-[72mm] px-2 py-2 text-[9pt] leading-snug"
           : "max-w-[50mm] px-1 py-2 text-[11pt] leading-snug"
       } ${className ?? ""}`}
     >
       {/* Header */}
       <div className="text-center mb-2">
-        <div className={isWide ? "font-semibold text-[12pt]" : ""}>
+        <div className={isWide ? "font-semibold text-[10pt]" : ""}>
           {organization?.name || "YOUR STORE NAME"}
         </div>
         {organization?.address && <div>{organization.address}</div>}
@@ -70,7 +70,7 @@ export function ReceiptContent({
 
       {/* Order Info */}
       {isWide ? (
-        <div className="flex justify-between mb-2 gap-2 text-[9.5pt]">
+        <div className="flex justify-between mb-2 gap-2">
           <span>Date: {formatDateTime(dateTime)}</span>
           <span>Cashier: {cashierName}</span>
         </div>
@@ -95,7 +95,7 @@ export function ReceiptContent({
       {DASH}
       {isWide ? (
         <div>
-          <div className="flex gap-2 text-[9pt] font-semibold text-gray-600 mb-1">
+          <div className="flex gap-2 text-[8pt] font-semibold text-gray-600 mb-1">
             <span className="w-5 text-right shrink-0">Qty</span>
             <span className="flex-1 min-w-0">Item</span>
             <span className="w-14 text-right shrink-0">Price</span>
@@ -158,7 +158,7 @@ export function ReceiptContent({
         ) : null}
         <div className="border-t border-black pt-2 mt-2">
           <div
-            className={`flex justify-between ${isWide ? "text-[12pt] font-bold" : "font-semibold"}`}
+            className={`flex justify-between ${isWide ? "text-[10.5pt] font-bold" : "font-semibold"}`}
           >
             <span>TOTAL:</span>
             <span>{formatCurrency(totalAmount)}</span>
