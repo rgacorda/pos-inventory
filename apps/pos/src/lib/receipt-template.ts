@@ -101,8 +101,9 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
     ? `<div class="row mb-2"><span>Date: ${esc(formatDateTime(data.dateTime))}</span><span>Cashier: ${esc(data.cashierName)}</span></div>`
     : `<div class="mb-2"><div>Date: ${esc(formatDateTime(data.dateTime))}</div><div>Cashier: ${esc(data.cashierName)}</div></div>`;
 
-  const customer =
-    data.customerName || data.customerAddress
+  const hasCustomer = !!(data.customerName || data.customerAddress);
+
+  const customer = hasCustomer
       ? `
         <div class="mb-2">
           ${line()}
@@ -193,7 +194,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
       ${header}
       ${orderInfo}
       ${customer}
-      ${spacer()}
+      ${hasCustomer ? spacer() : line()}
       ${items}
       ${spacer()}
       ${totals}
@@ -233,10 +234,10 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .mb-1 { margin-bottom: 2px; }
     .mb-2 { margin-bottom: 6px; }
     .spacer { margin: 6px 0; }
-    .line { border-top: 1px solid #ccc; margin-bottom: 6px; }
+    .line { border-top: 0.5px dashed #ccc; margin-bottom: 6px; }
     .row { display: flex; justify-content: space-between; gap: 6px; }
     .store-name { font-size: ${isWide ? "9pt" : "10pt"}; }
-    .total-row { border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px; }
+    .total-row { border-top: 0.5px dashed #ccc; padding-top: 5px; margin-top: 5px; }
     .item-header { display: flex; gap: 4px; font-size: 6.5pt; margin-bottom: 1px; align-items: baseline; }
     .item-row { display: flex; gap: 4px; margin-bottom: 1px; align-items: flex-start; }
     .col-name { flex: 1; min-width: 0; word-break: break-word; }

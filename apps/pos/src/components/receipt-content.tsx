@@ -12,7 +12,7 @@ interface ReceiptContentProps extends ReceiptData {
 }
 
 const SPACER = <div className="my-2" />;
-const LINE = <div className="border-t border-gray-300 mb-2" />;
+const LINE = <div className="border-t border-dashed border-gray-300 mb-2 [border-top-width:0.5px]" />;
 
 /**
  * On-screen preview of the receipt shown inside dialogs (checkout,
@@ -45,6 +45,7 @@ export function ReceiptContent({
   className,
 }: ReceiptContentProps) {
   const isWide = paperSize === "80mm";
+  const hasCustomer = !!(customerName || customerAddress);
   const totalItemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -78,7 +79,7 @@ export function ReceiptContent({
       )}
 
       {/* Customer Info */}
-      {(customerName || customerAddress) && (
+      {hasCustomer && (
         <div className="mb-2">
           {LINE}
           <div>CUSTOMER:</div>
@@ -88,7 +89,7 @@ export function ReceiptContent({
       )}
 
       {/* Items */}
-      {SPACER}
+      {hasCustomer ? SPACER : LINE}
       {isWide ? (
         <div>
           <div className="flex gap-1 text-[6.5pt] mb-0.5 items-baseline">
@@ -148,7 +149,7 @@ export function ReceiptContent({
             <span>-{formatCurrency(pointsRedeemed)}</span>
           </div>
         ) : null}
-        <div className="border-t border-gray-300 pt-1.5 mt-1.5">
+        <div className="border-t border-dashed border-gray-300 pt-1.5 mt-1.5 [border-top-width:0.5px]">
           <div className="flex justify-between">
             <span>TOTAL:</span>
             <span>{formatCurrency(totalAmount)}</span>
