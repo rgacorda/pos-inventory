@@ -107,6 +107,7 @@ export default function Page() {
   const [manualItemPriceType, setManualItemPriceType] = useState<"selling" | "cost" | "custom">("custom");
   const [manualItemRefSellingPrice, setManualItemRefSellingPrice] = useState<number | null>(null);
   const [manualItemRefCostPrice, setManualItemRefCostPrice] = useState<number | null>(null);
+  const [manualItemRefProduct, setManualItemRefProduct] = useState<LocalProduct | null>(null);
   const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
   const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
@@ -479,15 +480,21 @@ export default function Page() {
       return;
     }
 
-    // Create a temporary product object for manual items
+    // If a real product was referenced (via barcode scan or search), link the
+    // line item to that product's real id so inventory sync decrements its
+    // stock. The sku stays "MANUAL" so it still shows up in manual item
+    // reports; only synthetic entries (fees with no product reference) keep
+    // the placeholder id and are excluded from stock updates.
+    const refProduct = manualItemRefProduct;
     const manualProduct: LocalProduct = {
-      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: refProduct ? refProduct.id : `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: itemName,
       sku: "MANUAL",
       price: price,
-      cost: 0,
-      taxRate: 0,
-      stockQuantity: 999999, // Manual items don't affect stock
+      cost: refProduct?.cost ?? 0,
+      taxRate: refProduct?.taxRate ?? 0,
+      stockQuantity: refProduct ? refProduct.stockQuantity : 999999,
+      barcode: refProduct?.barcode,
       status: ProductStatus.ACTIVE,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -506,6 +513,7 @@ export default function Page() {
     setManualItemPriceType("custom");
     setManualItemRefSellingPrice(null);
     setManualItemRefCostPrice(null);
+    setManualItemRefProduct(null);
     setManualItemQuantity("1");
     setManualItemBarcode("");
     setManualItemBarcodeError("");
@@ -522,6 +530,7 @@ export default function Page() {
     setManualItemPriceType("custom");
     setManualItemRefSellingPrice(null);
     setManualItemRefCostPrice(null);
+    setManualItemRefProduct(null);
     setManualItemQuantity("1");
     setManualItemSearch("");
     setManualItemBarcode("");
@@ -553,6 +562,7 @@ export default function Page() {
     setManualItemName(product.name);
     setManualItemRefSellingPrice(product.price);
     setManualItemRefCostPrice(product.cost ?? null);
+    setManualItemRefProduct(product);
     setManualItemPriceType("selling");
     setManualItemPrice("");
     setManualItemSearch("");
@@ -564,6 +574,7 @@ export default function Page() {
     setManualItemName(product.name + " (Individual)");
     setManualItemRefSellingPrice(product.price);
     setManualItemRefCostPrice(product.cost ?? null);
+    setManualItemRefProduct(product);
     setManualItemPriceType("selling");
     setManualItemPrice("");
     setManualItemSearch("");
@@ -2516,7 +2527,7 @@ export default function Page() {
               {manualItemName && !manualItemBarcodeError && manualItemBarcode && (
                 <p className="text-xs text-green-700 flex items-center gap-1 font-medium">
                   <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                  Product identified: {manualItemName}
+                  Product identified: {manualItemName} (stock will be reduced)
                 </p>
               )}
             </div>
@@ -2526,6 +2537,7 @@ export default function Page() {
             {/* Product Price Reference Search */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-blue-700">Or Search Product for Price Reference</label>
+              <p className="text-xs text-gray-500">Selecting a product below will also reduce its stock quantity.</p>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
@@ -2710,7 +2722,16 @@ export default function Page() {
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-blue-800 text-sm">
-                <span className="font-semibold">Quick Tip:</span> Manual items are one-time charges that don&apos;t affect inventory. Perfect for refrigeration fees, add-ons, or selling individual items from packs.
+                {manualItemRefProduct ? (
+                  <>
+                    <span className="font-semibold">Stock will be reduced:</span> This item is linked to{" "}
+                    <span className="font-medium">{manualItemRefProduct.name}</span>, so {manualItemQuantity || "1"} unit(s) will be deducted from its inventory when checked out.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">Quick Tip:</span> Manual items without a linked product (e.g. custom fees) don&apos;t affect inventory. Scan a barcode or search for a product above to link this item and reduce its stock.
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -2724,6 +2745,7 @@ export default function Page() {
                 setManualItemPriceType("custom");
                 setManualItemRefSellingPrice(null);
                 setManualItemRefCostPrice(null);
+                setManualItemRefProduct(null);
                 setManualItemQuantity("1");
                 setManualItemSearch("");
                 setManualItemBarcode("");
