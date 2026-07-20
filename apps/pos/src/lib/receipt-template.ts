@@ -80,6 +80,10 @@ function spacer(): string {
   return `<div class="spacer"></div>`;
 }
 
+function cutSpacer(): string {
+  return `<div class="cut-spacer"></div>`;
+}
+
 function row(label: string, value: string, extraClass = ""): string {
   return `<div class="row ${extraClass}"><span>${label}</span><span>${value}</span></div>`;
 }
@@ -199,6 +203,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
       ${spacer()}
       ${totals}
       ${payment}
+      ${cutSpacer()}
     </div>
   `;
 }
@@ -219,13 +224,10 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .receipt {
       width: ${contentWidthMm}mm;
       margin: 0 auto;
-      /* Extra bottom padding is intentional: many thermal printer drivers
-         only reliably honor the @page top margin on an auto-height page,
-         not the bottom one, which left the receipt cut right at the last
-         line of text. Baking guaranteed blank space into the content itself
-         (rather than relying solely on @page margin) ensures there's always
-         a clean gap before the paper is cut, matching the top. */
-      padding: 2mm 1.5mm 7mm 1.5mm;
+      /* Bottom feed space lives in .cut-spacer after the last line — thermal
+         printer drivers often cut at the last rendered content, ignoring @page
+         bottom margin, so a dedicated blank block is more reliable than padding. */
+      padding: 2mm 1.5mm 2mm 1.5mm;
       font-size: ${isWide ? "7pt" : "8pt"};
       line-height: 1.4;
     }
@@ -234,7 +236,8 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .mb-1 { margin-bottom: 2px; }
     .mb-2 { margin-bottom: 6px; }
     .spacer { margin: 6px 0; }
-    .line { border-top: 0.5px dashed #ccc; margin-bottom: 6px; }
+    .line { border-top: 0.5px dashed #ccc; margin-bottom: 4px; }
+    .cut-spacer { height: 15mm; }
     .row { display: flex; justify-content: space-between; gap: 6px; }
     .store-name { font-size: ${isWide ? "9pt" : "10pt"}; }
     .total-row { border-top: 0.5px dashed #ccc; padding-top: 5px; margin-top: 5px; }

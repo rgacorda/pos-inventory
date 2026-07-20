@@ -191,6 +191,7 @@ export function ReceiptContent({
           <span>{totalItemCount}</span>
         </div>
         {LINE}
+        <div className="h-[15mm]" aria-hidden="true" />
       </div>
     </div>
   );
