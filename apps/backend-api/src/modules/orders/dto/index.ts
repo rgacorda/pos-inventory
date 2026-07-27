@@ -115,6 +115,7 @@ export class ExchangeOrderDto {
 
   @IsArray()
   returnedItems: {
+    productId: string;
     name: string;
     quantity: number;
     unitPrice: number;

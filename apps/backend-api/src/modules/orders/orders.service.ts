@@ -628,8 +628,68 @@ export class OrdersService {
       throw new BadRequestException('Cannot exchange a voided order');
     }
 
-    order.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
-    return this.ordersRepository.save(order);
+    // Use a transaction so restocking returned items and marking the order
+    // as exchanged happen atomically.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const returnedItems = dto.returnedItems ?? [];
+
+      this.logger.log(
+        `Exchanging order ${order.orderNumber} — restoring stock for ${returnedItems.length} returned item(s)`,
+      );
+
+      let restoredCount = 0;
+      for (const item of returnedItems) {
+        // Skip manual items and items without a productId (nothing to restock)
+        if (!item.productId || item.productId.startsWith('manual-')) {
+          this.logger.log(
+            `Skipping stock restoration for returned item without productId: ${item.name}`,
+          );
+          continue;
+        }
+
+        const product = await queryRunner.manager.findOne(ProductEntity, {
+          where: { id: item.productId },
+        });
+
+        if (product) {
+          await queryRunner.manager.increment(
+            ProductEntity,
+            { id: item.productId },
+            'stockQuantity',
+            item.quantity,
+          );
+
+          this.logger.log(
+            `Restored ${item.quantity} units of ${item.name} - Stock: ${product.stockQuantity} → ${product.stockQuantity + item.quantity}`,
+          );
+          restoredCount++;
+        } else {
+          this.logger.warn(
+            `Product not found for stock restoration: ${item.productId} (${item.name})`,
+          );
+        }
+      }
+
+      order.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
+      await queryRunner.manager.save(OrderEntity, order);
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Order ${order.orderNumber} exchanged successfully. Stock restored for ${restoredCount} returned item(s).`,
+      );
+
+      return this.findOne(order.id, requestingUser);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Failed to exchange order ${order.orderNumber}:`, error);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async getOrderStats(requestingUser: any) {

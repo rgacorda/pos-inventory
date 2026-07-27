@@ -969,6 +969,10 @@ export default function Page() {
         ...(isExchange && {
           exchangeRef: exchangeRef!,
           originalOrderServerId: originalOrderServerId ?? undefined,
+          returnedItems: exchangedItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
         }),
         // Loyalty points fields
         ...(loyaltyCustomer && {

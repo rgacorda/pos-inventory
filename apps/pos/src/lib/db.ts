@@ -20,6 +20,10 @@ export interface LocalOrder extends Omit<
   // Exchange fields
   exchangeRef?: string;       // original order number this exchange references
   originalServerId?: string;  // server UUID of original order (used to call /orders/{id}/exchange)
+  returnedItems?: {           // items returned as part of this exchange (used to restore
+    productId: string;        // inventory via sync fallback if the direct /exchange call fails)
+    quantity: number;
+  }[];
   // Loyalty points fields
   customerId?: string;        // server UUID of loyalty customer
   pointsEarned?: number;

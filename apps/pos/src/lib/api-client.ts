@@ -699,6 +699,7 @@ export class SyncService {
       totalAmount: order.totalAmount,
       completedAt: order.completedAt,
       exchangeRef: order.exchangeRef,
+      returnedItems: order.returnedItems,
     };
   }
 

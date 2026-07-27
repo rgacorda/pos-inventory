@@ -219,6 +219,11 @@ export class SyncService {
         const savedOrder = await queryRunner.manager.save(order);
 
         // If this is an exchange order, mark the original order as exchanged
+        // and restore stock for the items that were returned. This is a
+        // fallback path for when the POS couldn't call POST /orders/{id}/exchange
+        // directly (e.g. offline, or the original order wasn't synced yet).
+        // The `!originalOrder.exchangedAt` guard prevents double-restoring stock
+        // if the direct exchange call already handled it.
         if (isExchangeOrder && orderDto.exchangeRef) {
           const originalOrder = await queryRunner.manager.findOne(OrderEntity, {
             where: { orderNumber: orderDto.exchangeRef },
@@ -228,6 +233,37 @@ export class SyncService {
               ? new Date(orderDto.completedAt)
               : new Date();
             await queryRunner.manager.save(OrderEntity, originalOrder);
+
+            const returnedItems = orderDto.returnedItems ?? [];
+            for (const returnedItem of returnedItems) {
+              if (
+                !returnedItem.productId ||
+                returnedItem.productId.startsWith('manual-')
+              ) {
+                continue;
+              }
+
+              const returnedProduct = await queryRunner.manager.findOne(
+                ProductEntity,
+                { where: { id: returnedItem.productId } },
+              );
+
+              if (returnedProduct) {
+                await queryRunner.manager.increment(
+                  ProductEntity,
+                  { id: returnedItem.productId },
+                  'stockQuantity',
+                  returnedItem.quantity,
+                );
+                this.logger.log(
+                  `Restored ${returnedItem.quantity} units of product ${returnedItem.productId} from exchange of order ${originalOrder.orderNumber} (via sync fallback)`,
+                );
+              } else {
+                this.logger.warn(
+                  `Product not found for exchange stock restoration: ${returnedItem.productId}`,
+                );
+              }
+            }
           }
         }
 

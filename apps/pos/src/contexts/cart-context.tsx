@@ -12,6 +12,7 @@ export interface OrderItem {
 }
 
 export interface ExchangedItem {
+  productId: string;
   name: string;
   quantity: number;
   unitPrice: number;

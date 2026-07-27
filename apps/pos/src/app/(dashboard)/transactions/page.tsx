@@ -165,6 +165,7 @@ export default function OrdersPage() {
     );
 
     const exchangedItems: ExchangedItem[] = items.map((item) => ({
+      productId: item.productId,
       name: item.name,
       quantity: item.quantity,
       unitPrice: item.unitPrice,

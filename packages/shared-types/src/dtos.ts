@@ -31,6 +31,13 @@ export interface CreateOrderDto {
   totalAmount: number;
   completedAt: Date;
   exchangeRef?: string;
+  // Items being returned as part of an exchange (used to restore inventory
+  // when the exchange notification wasn't already sent via /orders/{id}/exchange,
+  // e.g. because the original order wasn't synced yet or the device was offline).
+  returnedItems?: {
+    productId: string;
+    quantity: number;
+  }[];
 }
 
 /**
@@ -41,6 +48,7 @@ export interface CreateOrderDto {
 export interface ExchangeOrderDto {
   newOrderPosLocalId: string;
   returnedItems: {
+    productId: string;
     name: string;
     quantity: number;
     unitPrice: number;
