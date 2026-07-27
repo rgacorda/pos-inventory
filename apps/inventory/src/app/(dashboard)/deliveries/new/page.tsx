@@ -281,6 +281,24 @@ export default function NewDeliveryPage() {
     return 1;
   }
 
+  // Switching quantity type (unit/pack/half-pack) should rescale the entered
+  // cost so it keeps representing the same per-unit cost, instead of leaving
+  // the raw number unchanged (which made "cost per pack" look identical to
+  // "cost per unit").
+  function handleQuantityTypeChange(type: QuantityType) {
+    const oldMultiplier = getUnitMultiplier(itemFormData.quantityType, selectedProductForItem);
+    const newMultiplier = getUnitMultiplier(type, selectedProductForItem);
+    const enteredCost = parseFloat(itemFormData.unitCost) || 0;
+    const perUnitCost = oldMultiplier > 0 ? enteredCost / oldMultiplier : enteredCost;
+    const rescaledCost = perUnitCost * newMultiplier;
+
+    setItemFormData({
+      ...itemFormData,
+      quantityType: type,
+      unitCost: rescaledCost > 0 ? rescaledCost.toFixed(2) : itemFormData.unitCost,
+    });
+  }
+
   function handleOpenAddItemDialog() {
     if (!selectedProductId) {
       showErrorToast("Please select a product first");
@@ -929,7 +947,7 @@ export default function NewDeliveryPage() {
                 <Button
                   type="button"
                   variant={itemFormData.quantityType === "UNIT" ? "default" : "outline"}
-                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "UNIT" })}
+                  onClick={() => handleQuantityTypeChange("UNIT")}
                 >
                   Unit
                 </Button>
@@ -937,7 +955,7 @@ export default function NewDeliveryPage() {
                   type="button"
                   variant={itemFormData.quantityType === "PACK" ? "default" : "outline"}
                   disabled={!selectedProductForItem?.packQuantity}
-                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "PACK" })}
+                  onClick={() => handleQuantityTypeChange("PACK")}
                 >
                   Pack
                 </Button>
@@ -945,7 +963,7 @@ export default function NewDeliveryPage() {
                   type="button"
                   variant={itemFormData.quantityType === "HALF_PACK" ? "default" : "outline"}
                   disabled={!selectedProductForItem?.halfPackQuantity}
-                  onClick={() => setItemFormData({ ...itemFormData, quantityType: "HALF_PACK" })}
+                  onClick={() => handleQuantityTypeChange("HALF_PACK")}
                 >
                   Half Pack
                 </Button>
