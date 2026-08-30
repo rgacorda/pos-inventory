@@ -300,6 +300,55 @@ class APIClient {
     return response.data;
   }
 
+  // Inventory Returns API
+  async getInventoryReturns(filters?: any) {
+    const response = await this.client.get("/inventory-returns", {
+      params: filters,
+    });
+    return response.data;
+  }
+
+  async getInventoryReturn(id: string) {
+    const response = await this.client.get(`/inventory-returns/${id}`);
+    return response.data;
+  }
+
+  async getInventoryReturnStats(filters?: any) {
+    const response = await this.client.get("/inventory-returns/stats", {
+      params: filters,
+    });
+    return response.data;
+  }
+
+  async createInventoryReturn(data: any) {
+    const response = await this.client.post("/inventory-returns", data);
+    return response.data;
+  }
+
+  async updateInventoryReturn(id: string, data: any) {
+    const response = await this.client.put(`/inventory-returns/${id}`, data);
+    return response.data;
+  }
+
+  async resolveInventoryReturn(id: string, data: any) {
+    const response = await this.client.put(
+      `/inventory-returns/${id}/resolve`,
+      data,
+    );
+    return response.data;
+  }
+
+  async unresolveInventoryReturn(id: string) {
+    const response = await this.client.put(
+      `/inventory-returns/${id}/unresolve`,
+    );
+    return response.data;
+  }
+
+  async deleteInventoryReturn(id: string) {
+    await this.client.delete(`/inventory-returns/${id}`);
+  }
+
   // Expenses API
   async getExpenses(filters?: any) {
     const response = await this.client.get("/expenses", { params: filters });

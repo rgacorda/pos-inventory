@@ -13,6 +13,7 @@ import {
   IconDeviceDesktop,
   IconBuilding,
   IconTruck,
+  IconTruckReturn,
   IconReceipt,
   IconReportMoney,
   IconEdit,
@@ -68,6 +69,11 @@ const data = {
           title: "Deliveries",
           url: "/deliveries",
           icon: IconTruck,
+        },
+        {
+          title: "Return Items",
+          url: "/returns",
+          icon: IconTruckReturn,
         },
         {
           title: "Manual Items",

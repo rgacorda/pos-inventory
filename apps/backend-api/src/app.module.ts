@@ -13,6 +13,7 @@ import { TerminalsModule } from './modules/terminals/terminals.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { InventoryDeliveriesModule } from './modules/inventory-deliveries/inventory-deliveries.module';
+import { InventoryReturnsModule } from './modules/inventory-returns/inventory-returns.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FinancialsModule } from './modules/financials/financials.module';
 import { UploadModule } from './modules/upload/upload.module';
@@ -47,6 +48,7 @@ import jwtConfig from './config/jwt.config';
     OrdersModule,
     PaymentsModule,
     InventoryDeliveriesModule,
+    InventoryReturnsModule,
     ExpensesModule,
     FinancialsModule,
     UploadModule,
