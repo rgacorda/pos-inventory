@@ -59,6 +59,8 @@ import {
   Calendar as CalendarIcon,
   XCircle,
   ArrowLeftRight,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   showErrorFromException,
@@ -69,6 +71,26 @@ import {
 } from "@/lib/toast-utils";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
+
+function formatPaymentMethod(method?: string) {
+  if (!method) return "";
+  return method
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getOrderPaymentMethods(order: any) {
+  const methods = (order.payments ?? [])
+    .map((payment: any) => formatPaymentMethod(payment.method))
+    .filter(Boolean);
+  if (methods.length === 0) return "N/A";
+  return [...new Set(methods)].join(" + ");
+}
+
+function getOrderTimestamp(order: any) {
+  return new Date(order.createdAt).getTime();
+}
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -81,7 +103,8 @@ export default function OrdersPage() {
   const [isVoiding, setIsVoiding] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [timeSort, setTimeSort] = useState<"asc" | "desc">("desc");
+  const itemsPerPage = 20;
 
   useEffect(() => {
     loadOrders();
@@ -150,10 +173,14 @@ export default function OrdersPage() {
   };
 
   const filteredOrders = orders.filter((order) => {
+    const query = searchQuery.toLowerCase();
     const matchesSearch =
+      !query ||
       order.id?.toString().includes(searchQuery) ||
-      order.terminal?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.cashier?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      order.orderNumber?.toLowerCase().includes(query) ||
+      order.terminal?.name?.toLowerCase().includes(query) ||
+      order.cashier?.name?.toLowerCase().includes(query) ||
+      order.customerName?.toLowerCase().includes(query);
 
     const matchesStatus =
       statusFilter === "ALL" || order.status === statusFilter;
@@ -173,15 +200,20 @@ export default function OrdersPage() {
     return matchesSearch && matchesStatus && matchesDateRange;
   });
 
-  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
-  const paginatedOrders = filteredOrders.slice(
+  const sortedOrders = [...filteredOrders].sort((a, b) => {
+    const diff = getOrderTimestamp(a) - getOrderTimestamp(b);
+    return timeSort === "asc" ? diff : -diff;
+  });
+
+  const totalPages = Math.ceil(sortedOrders.length / itemsPerPage);
+  const paginatedOrders = sortedOrders.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
   );
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, dateRange]);
+  }, [searchQuery, statusFilter, dateRange, timeSort]);
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
@@ -204,7 +236,7 @@ export default function OrdersPage() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Search by order ID, terminal, or cashier..."
+                placeholder="Search by customer name, order ID, terminal, or cashier..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-8"
@@ -284,11 +316,30 @@ export default function OrdersPage() {
                   <TableRow>
                     <TableHead>Terminal</TableHead>
                     <TableHead>Cashier</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead>Items</TableHead>
                     <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Time</TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          setTimeSort((current) =>
+                            current === "asc" ? "desc" : "asc",
+                          )
+                        }
+                        className="-ml-3 h-8"
+                      >
+                        Time
+                        {timeSort === "asc" ? (
+                          <ArrowUp className="h-4 w-4" />
+                        ) : (
+                          <ArrowDown className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -297,6 +348,8 @@ export default function OrdersPage() {
                     <TableRow key={order.id}>
                       <TableCell>{order.terminal?.name || "N/A"}</TableCell>
                       <TableCell>{order.cashier?.name || "N/A"}</TableCell>
+                      <TableCell>{order.customerName || "N/A"}</TableCell>
+                      <TableCell>{getOrderPaymentMethods(order)}</TableCell>
                       <TableCell>{order.items?.length || 0}</TableCell>
                       <TableCell className="font-semibold">
                         ₱{Number(order.totalAmount || 0).toFixed(2)}
@@ -350,8 +403,8 @@ export default function OrdersPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-                {Math.min(currentPage * itemsPerPage, filteredOrders.length)} of{" "}
-                {filteredOrders.length} results
+                {Math.min(currentPage * itemsPerPage, sortedOrders.length)} of{" "}
+                {sortedOrders.length} results
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
