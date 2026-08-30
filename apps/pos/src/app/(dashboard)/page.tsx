@@ -416,18 +416,6 @@ export default function Page() {
       setOrderItems([...orderItems, { product: productWithPrice, quantity: qty }]);
     }
 
-    const markupNotes = [];
-    if (includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
-                                (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0))) {
-      markupNotes.push('Convenience');
-    }
-    if (includeAddon && productToAdd.addonPrice) markupNotes.push('Refrigeration');
-    const markupText = markupNotes.length > 0 ? ` (+ ${markupNotes.join(' + ')})` : '';
-
-    showSuccessToast(SUCCESS_MESSAGES.ADDED("Product"), {
-      description: `${qty}x ${productToAdd.name}${markupText} added to cart`,
-    });
-
     setShowQuantityDialog(false);
     setProductToAdd(null);
     setQuantityToAdd("1");
@@ -502,10 +490,6 @@ export default function Page() {
     };
 
     setOrderItems([...orderItems, { product: manualProduct, quantity: qty }]);
-
-    showSuccessToast(SUCCESS_MESSAGES.ADDED("Manual Item"), {
-      description: `${qty}x ${itemName} @ ₱${price.toFixed(2)}`,
-    });
 
     // Reset form
     setManualItemName("");

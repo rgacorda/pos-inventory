@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -76,6 +77,14 @@ interface DeliveryItem {
   totalCost: number;
   isFree?: boolean;
   updateProductCost?: boolean;
+  // Manual selling-price overrides, applied together with the cost sync
+  // above (i.e. only once the delivery is RECEIVED) so pricing changes
+  // never partially apply if the delivery itself is never saved.
+  priceOverride?: number;
+  packPriceOverride?: number;
+  packQuantityOverride?: number;
+  halfPackPriceOverride?: number;
+  halfPackQuantityOverride?: number;
   packInfo?: {
     type: "PACK" | "HALF_PACK";
     packs: number;
@@ -102,6 +111,8 @@ interface Product {
   halfPackPrice?: number;
   halfPackQuantity?: number;
   status: string;
+  supplierId?: string | null;
+  supplier?: { id: string; name: string } | null;
 }
 
 interface Supplier {
@@ -124,6 +135,7 @@ export default function NewDeliveryPage() {
   const [isProductSearchDialogOpen, setIsProductSearchDialogOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [showAllSuppliers, setShowAllSuppliers] = useState(false);
   const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -167,7 +179,11 @@ export default function NewDeliveryPage() {
     quantity: "",
     unitCost: "",
     isFree: false,
-    updatePrice: false,
+    sellingPrice: "",
+    packPrice: "",
+    packQuantity: "",
+    halfPackPrice: "",
+    halfPackQuantity: "",
   });
 
   useEffect(() => {
@@ -199,6 +215,29 @@ export default function NewDeliveryPage() {
   const itemMultiplier = getUnitMultiplier(itemFormData.quantityType, selectedProductForItem);
   const itemEnteredQuantity = parseFloat(itemFormData.quantity) || 0;
   const itemTotalUnits = itemEnteredQuantity * itemMultiplier;
+
+  // Live "Pricing & Profit" preview for the Add Item dialog. The unit cost
+  // is derived from whatever was entered above (per unit, pack, or half
+  // pack), then used as the basis for pack/half-pack cost so the profit
+  // numbers always reflect the cost that's about to be saved - not the
+  // product's current (stale) cost.
+  const previewUnitCost = itemFormData.isFree
+    ? 0
+    : itemMultiplier > 0
+      ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier
+      : 0;
+  const previewSellingPrice = parseFloat(itemFormData.sellingPrice) || 0;
+  const previewUnitProfit = previewSellingPrice - previewUnitCost;
+
+  const previewPackQuantity = parseInt(itemFormData.packQuantity) || 0;
+  const previewPackPrice = parseFloat(itemFormData.packPrice) || 0;
+  const previewPackCost = previewUnitCost * previewPackQuantity;
+  const previewPackProfit = previewPackPrice - previewPackCost;
+
+  const previewHalfPackQuantity = parseInt(itemFormData.halfPackQuantity) || 0;
+  const previewHalfPackPrice = parseFloat(itemFormData.halfPackPrice) || 0;
+  const previewHalfPackCost = previewUnitCost * previewHalfPackQuantity;
+  const previewHalfPackProfit = previewHalfPackPrice - previewHalfPackCost;
 
   async function fetchProducts() {
     try {
@@ -269,7 +308,11 @@ export default function NewDeliveryPage() {
       quantity: "",
       unitCost: "",
       isFree: false,
-      updatePrice: false,
+      sellingPrice: "",
+      packPrice: "",
+      packQuantity: "",
+      halfPackPrice: "",
+      halfPackQuantity: "",
     });
   }
 
@@ -312,7 +355,11 @@ export default function NewDeliveryPage() {
         quantity: "",
         unitCost: product.cost?.toString() || "0",
         isFree: false,
-        updatePrice: false,
+        sellingPrice: product.price?.toString() || "",
+        packPrice: product.packPrice?.toString() || "",
+        packQuantity: product.packQuantity?.toString() || "",
+        halfPackPrice: product.halfPackPrice?.toString() || "",
+        halfPackQuantity: product.halfPackQuantity?.toString() || "",
       });
     }
     setIsAddItemDialogOpen(true);
@@ -341,11 +388,22 @@ export default function NewDeliveryPage() {
     // Cost is always stored per individual unit, regardless of how it was entered.
     const unitCost = isFree ? 0 : enteredCost / multiplier;
     const totalCost = isFree ? 0 : enteredQuantity * enteredCost;
-    // Buying by pack/half-pack means the per-unit cost is derived (packPrice ÷
-    // packQuantity), so the product's cost is kept in sync automatically. For
-    // individual units it's only synced when explicitly requested.
-    const updateProductCost =
-      !isFree && (itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice);
+    // The product's cost per unit is always kept in sync with the latest
+    // delivery price (whether bought by unit, pack, or half-pack), unless
+    // the item was free (free items carry no real purchase price).
+    const updateProductCost = !isFree;
+
+    // Manual selling-price overrides entered in the Pricing & Profit section
+    // below. These are only sent when they differ from "unset" so a blank
+    // field never accidentally wipes out an existing price. They're applied
+    // by the backend at the same time as the cost sync above (i.e. only once
+    // the delivery is RECEIVED), never immediately, so nothing is left
+    // half-applied if this delivery is never saved.
+    const sellingPriceNum = parseFloat(itemFormData.sellingPrice) || 0;
+    const packPriceNum = parseFloat(itemFormData.packPrice) || 0;
+    const packQuantityNum = parseInt(itemFormData.packQuantity) || 0;
+    const halfPackPriceNum = parseFloat(itemFormData.halfPackPrice) || 0;
+    const halfPackQuantityNum = parseInt(itemFormData.halfPackQuantity) || 0;
 
     // Just add item to local state - backend will handle stock/cost updates when delivery is submitted
     const newItem: DeliveryItem = {
@@ -357,6 +415,11 @@ export default function NewDeliveryPage() {
       totalCost,
       isFree,
       updateProductCost,
+      ...(!isFree && sellingPriceNum > 0 && { priceOverride: sellingPriceNum }),
+      ...(!isFree && packQuantityNum > 0 && { packQuantityOverride: packQuantityNum }),
+      ...(!isFree && packPriceNum > 0 && { packPriceOverride: packPriceNum }),
+      ...(!isFree && halfPackQuantityNum > 0 && { halfPackQuantityOverride: halfPackQuantityNum }),
+      ...(!isFree && halfPackPriceNum > 0 && { halfPackPriceOverride: halfPackPriceNum }),
       ...(itemFormData.quantityType !== "UNIT" && {
         packInfo: {
           type: itemFormData.quantityType,
@@ -414,7 +477,11 @@ export default function NewDeliveryPage() {
           quantity: "",
           unitCost: productData.cost.toString(),
           isFree: false,
-          updatePrice: false,
+          sellingPrice: productData.price?.toString() || "",
+          packPrice: productData.packPrice?.toString() || "",
+          packQuantity: productData.packQuantity?.toString() || "",
+          halfPackPrice: "",
+          halfPackQuantity: "",
         });
         setIsAddItemDialogOpen(true);
       }, 100);
@@ -501,6 +568,45 @@ export default function NewDeliveryPage() {
       setUploading(false);
     }
   }
+
+  const currentSupplierName = suppliers.find((s) => s.id === formData.supplierId)?.name;
+
+  // Products matching the delivery's selected supplier are shown first (and,
+  // unless "show all suppliers" is enabled, are the only ones shown) so it's
+  // easy to restock from the current supplier while still allowing a product
+  // to be picked from another supplier (which reassigns it once received).
+  const searchDialogProducts = useMemo(() => {
+    const searchTerms = productSearchQuery
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter((term) => term.length > 0);
+
+    const matchesSearch = (product: Product) =>
+      searchTerms.length === 0 ||
+      searchTerms.every(
+        (term) =>
+          product.name.toLowerCase().includes(term) ||
+          product.sku.toLowerCase().includes(term) ||
+          product.barcode?.toLowerCase().includes(term) ||
+          product.category?.toLowerCase().includes(term)
+      );
+
+    return products
+      .filter(matchesSearch)
+      .filter((product) => {
+        if (showAllSuppliers || !formData.supplierId) return true;
+        // Unassigned products (never delivered yet) are always visible so
+        // brand-new products aren't hidden just for lacking a supplier tag.
+        return !product.supplierId || product.supplierId === formData.supplierId;
+      })
+      .sort((a, b) => {
+        if (!formData.supplierId) return 0;
+        const aMatches = !a.supplierId || a.supplierId === formData.supplierId ? 0 : 1;
+        const bMatches = !b.supplierId || b.supplierId === formData.supplierId ? 0 : 1;
+        return aMatches - bMatches;
+      });
+  }, [products, productSearchQuery, showAllSuppliers, formData.supplierId]);
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
@@ -845,24 +951,35 @@ export default function NewDeliveryPage() {
               />
             </div>
 
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                {formData.supplierId ? (
+                  showAllSuppliers ? (
+                    <>Showing products from all suppliers • <span className="font-medium">{currentSupplierName || "current supplier"}</span> shown first</>
+                  ) : (
+                    <>Showing products from <span className="font-medium">{currentSupplierName || "current supplier"}</span> only</>
+                  )
+                ) : (
+                  "Select a supplier above to filter this list by supplier"
+                )}
+              </p>
+              {formData.supplierId && (
+                <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+                  <Checkbox
+                    checked={showAllSuppliers}
+                    onCheckedChange={(checked) => setShowAllSuppliers(checked === true)}
+                  />
+                  Show all suppliers
+                </label>
+              )}
+            </div>
+
             <ScrollArea className="h-[400px] border rounded-md">
               <div className="p-2">
-                {products
-                  .filter(product => {
-                    if (!productSearchQuery) return true;
-                    
-                    // Split search query into individual terms for multi-word search
-                    const searchTerms = productSearchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
-                    
-                    // Check if ALL search terms are present in any of the product fields
-                    return searchTerms.every(term => 
-                      product.name.toLowerCase().includes(term) ||
-                      product.sku.toLowerCase().includes(term) ||
-                      product.barcode?.toLowerCase().includes(term) ||
-                      product.category?.toLowerCase().includes(term)
-                    );
-                  })
-                  .map((product) => (
+                {searchDialogProducts.map((product) => {
+                  const isOtherSupplier =
+                    !!formData.supplierId && !!product.supplierId && product.supplierId !== formData.supplierId;
+                  return (
                     <button
                       key={product.id}
                       onClick={() => {
@@ -876,7 +993,14 @@ export default function NewDeliveryPage() {
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="font-medium">{product.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{product.name}</p>
+                            {isOtherSupplier && (
+                              <Badge variant="outline" className="text-xs">
+                                {product.supplier?.name || "Other supplier"}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-sm text-muted-foreground">
                             SKU: {product.sku}
                             {product.category && ` • ${product.category}`}
@@ -889,25 +1013,22 @@ export default function NewDeliveryPage() {
                           </p>
                         </div>
                       </div>
+                      {isOtherSupplier && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Selecting this will reassign it to {currentSupplierName || "this delivery's supplier"} once received
+                        </p>
+                      )}
                     </button>
-                  ))}
-                {products.filter(product => {
-                  if (!productSearchQuery) return true;
-                  
-                  // Split search query into individual terms for multi-word search
-                  const searchTerms = productSearchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
-                  
-                  // Check if ALL search terms are present in any of the product fields
-                  return searchTerms.every(term => 
-                    product.name.toLowerCase().includes(term) ||
-                    product.sku.toLowerCase().includes(term) ||
-                    product.barcode?.toLowerCase().includes(term) ||
-                    product.category?.toLowerCase().includes(term)
                   );
-                }).length === 0 && (
+                })}
+                {searchDialogProducts.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>No products found</p>
-                    <p className="text-sm mt-1">Try a different search term</p>
+                    <p className="text-sm mt-1">
+                      {!showAllSuppliers && formData.supplierId
+                        ? "Try showing all suppliers or a different search term"
+                        : "Try a different search term"}
+                    </p>
                   </div>
                 )}
               </div>
@@ -1030,7 +1151,6 @@ export default function NewDeliveryPage() {
                   setItemFormData({
                     ...itemFormData,
                     isFree: checked === true,
-                    updatePrice: checked === true ? false : itemFormData.updatePrice,
                   })
                 }
               />
@@ -1062,23 +1182,135 @@ export default function NewDeliveryPage() {
               )}
             </div>
 
-            {itemFormData.quantityType !== "UNIT" ? (
+            {!itemFormData.isFree && (
               <p className="text-xs text-muted-foreground -mt-2">
-                Since this was bought by {itemFormData.quantityType === "PACK" ? "pack" : "half pack"}, the product&apos;s cost per unit will automatically update to the computed value above.
+                {itemFormData.quantityType === "UNIT"
+                  ? "The product's cost per unit will automatically update to this value."
+                  : `Since this was bought by ${itemFormData.quantityType === "PACK" ? "pack" : "half pack"}, the product's cost per unit will automatically update to the computed value above.`}
               </p>
-            ) : (
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="updatePrice"
-                  checked={itemFormData.updatePrice}
-                  disabled={itemFormData.isFree}
-                  onCheckedChange={(checked) =>
-                    setItemFormData({ ...itemFormData, updatePrice: checked === true })
-                  }
-                />
-                <Label htmlFor="updatePrice" className="cursor-pointer font-normal">
-                  Update product cost with this unit cost
-                </Label>
+            )}
+
+            {!itemFormData.isFree && (
+              <div className="border-t pt-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-semibold">Selling Price &amp; Potential Profit</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Adjust the selling price(s) here if needed — applied together with the cost update above when this delivery is submitted. Pack/Half Pack quantity here only updates the product&apos;s own pack size for future sales; it&apos;s independent of the Quantity Type selected above for this delivery.
+                  </p>
+                </div>
+
+                {/* Unit */}
+                <div className="grid grid-cols-3 gap-3 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Unit Cost</Label>
+                    <div className="h-9 flex items-center text-sm font-medium">₱{previewUnitCost.toFixed(2)}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Unit Selling Price</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={itemFormData.sellingPrice}
+                      onChange={(e) => setItemFormData({ ...itemFormData, sellingPrice: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Profit / Unit</Label>
+                    <div className={`h-9 flex items-center text-sm font-semibold ${previewUnitProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      ₱{previewUnitProfit.toFixed(2)}
+                      {previewSellingPrice > 0 && (
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">
+                          ({((previewUnitProfit / previewSellingPrice) * 100).toFixed(1)}%)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pack */}
+                <div className="grid grid-cols-4 gap-3 items-end">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Pack Qty</Label>
+                    <Input
+                      type="number"
+                      value={itemFormData.packQuantity}
+                      onChange={(e) => setItemFormData({ ...itemFormData, packQuantity: e.target.value })}
+                      placeholder="12"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Pack Cost</Label>
+                    <div className="h-9 flex items-center text-sm font-medium">₱{previewPackCost.toFixed(2)}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Pack Selling Price</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={itemFormData.packPrice}
+                      onChange={(e) => setItemFormData({ ...itemFormData, packPrice: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Profit / Pack</Label>
+                    <div className={`h-9 flex items-center text-sm font-semibold ${previewPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {previewPackQuantity > 0 && previewPackPrice > 0 ? (
+                        <>
+                          ₱{previewPackProfit.toFixed(2)}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            ({((previewPackProfit / previewPackPrice) * 100).toFixed(1)}%)
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Half Pack */}
+                <div className="grid grid-cols-4 gap-3 items-end">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Half Pack Qty</Label>
+                    <Input
+                      type="number"
+                      value={itemFormData.halfPackQuantity}
+                      onChange={(e) => setItemFormData({ ...itemFormData, halfPackQuantity: e.target.value })}
+                      placeholder="6"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Half Pack Cost</Label>
+                    <div className="h-9 flex items-center text-sm font-medium">₱{previewHalfPackCost.toFixed(2)}</div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Half Pack Selling Price</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={itemFormData.halfPackPrice}
+                      onChange={(e) => setItemFormData({ ...itemFormData, halfPackPrice: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Profit / Half Pack</Label>
+                    <div className={`h-9 flex items-center text-sm font-semibold ${previewHalfPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 ? (
+                        <>
+                          ₱{previewHalfPackProfit.toFixed(2)}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            ({((previewHalfPackProfit / previewHalfPackPrice) * 100).toFixed(1)}%)
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1094,13 +1326,11 @@ export default function NewDeliveryPage() {
               </p>
               <p className="text-blue-800">
                 Product Cost: ₱{Number(selectedProductForItem?.cost || 0).toFixed(2)} / unit
-                {!itemFormData.isFree &&
-                  itemFormData.unitCost &&
-                  (itemFormData.quantityType !== "UNIT" || itemFormData.updatePrice) && (
-                    <span className="text-green-700 font-semibold">
-                      {" → "}₱{(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)} / unit
-                    </span>
-                  )}
+                {!itemFormData.isFree && itemFormData.unitCost && (
+                  <span className="text-green-700 font-semibold">
+                    {" → "}₱{(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)} / unit
+                  </span>
+                )}
               </p>
               <p className="text-blue-800">
                 Line Total:{" "}
@@ -1112,6 +1342,14 @@ export default function NewDeliveryPage() {
                   </span>
                 )}
               </p>
+              {!itemFormData.isFree && previewSellingPrice > 0 && previewSellingPrice !== Number(selectedProductForItem?.price || 0) && (
+                <p className="text-blue-800">
+                  Selling Price: ₱{Number(selectedProductForItem?.price || 0).toFixed(2)} / unit
+                  <span className="text-green-700 font-semibold">
+                    {" → "}₱{previewSellingPrice.toFixed(2)} / unit
+                  </span>
+                </p>
+              )}
             </div>
           </div>
 

@@ -1565,16 +1565,27 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.packQuantity && formData.packPrice && (
-                    <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
-                      <span className="text-blue-900">
-                        Pack sell price ({formData.packQuantity} pcs):&nbsp;
-                        <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
-                        &nbsp;·&nbsp;per item:&nbsp;
-                        <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
-                      </span>
-                    </div>
-                  )}
+                  {formData.packQuantity && formData.packPrice && (() => {
+                    const packCost = (parseFloat(formData.cost) || 0) * parseInt(formData.packQuantity);
+                    const packProfit = parseFloat(formData.packPrice) - packCost;
+                    return (
+                      <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
+                        <span className="text-blue-900">
+                          Pack sell price ({formData.packQuantity} pcs):&nbsp;
+                          <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
+                          &nbsp;·&nbsp;per item:&nbsp;
+                          <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
+                        </span>
+                        <div className="text-blue-900">
+                          Total cost of pack:&nbsp;<strong>₱{packCost.toFixed(2)}</strong>
+                          &nbsp;·&nbsp;Potential profit:&nbsp;
+                          <strong className={packProfit >= 0 ? "text-green-700" : "text-red-700"}>
+                            ₱{packProfit.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Half-Pack */}
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
@@ -1625,16 +1636,27 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (
-                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm">
-                      <span className="text-indigo-900">
-                        Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
-                        <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
-                        &nbsp;·&nbsp;per item:&nbsp;
-                        <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
-                      </span>
-                    </div>
-                  )}
+                  {formData.halfPackQuantity && formData.halfPackPrice && (() => {
+                    const halfPackCost = (parseFloat(formData.cost) || 0) * parseInt(formData.halfPackQuantity);
+                    const halfPackProfit = parseFloat(formData.halfPackPrice) - halfPackCost;
+                    return (
+                      <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm space-y-1">
+                        <span className="text-indigo-900">
+                          Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
+                          <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
+                          &nbsp;·&nbsp;per item:&nbsp;
+                          <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
+                        </span>
+                        <div className="text-indigo-900">
+                          Total cost of half-pack:&nbsp;<strong>₱{halfPackCost.toFixed(2)}</strong>
+                          &nbsp;·&nbsp;Potential profit:&nbsp;
+                          <strong className={halfPackProfit >= 0 ? "text-green-700" : "text-red-700"}>
+                            ₱{halfPackProfit.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -2083,16 +2105,27 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.packQuantity && formData.packPrice && (
-                    <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
-                      <span className="text-blue-900">
-                        Pack sell price ({formData.packQuantity} pcs):&nbsp;
-                        <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
-                        &nbsp;·&nbsp;per item:&nbsp;
-                        <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
-                      </span>
-                    </div>
-                  )}
+                  {formData.packQuantity && formData.packPrice && (() => {
+                    const packCost = (parseFloat(formData.cost) || 0) * parseInt(formData.packQuantity);
+                    const packProfit = parseFloat(formData.packPrice) - packCost;
+                    return (
+                      <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
+                        <span className="text-blue-900">
+                          Pack sell price ({formData.packQuantity} pcs):&nbsp;
+                          <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
+                          &nbsp;·&nbsp;per item:&nbsp;
+                          <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
+                        </span>
+                        <div className="text-blue-900">
+                          Total cost of pack:&nbsp;<strong>₱{packCost.toFixed(2)}</strong>
+                          &nbsp;·&nbsp;Potential profit:&nbsp;
+                          <strong className={packProfit >= 0 ? "text-green-700" : "text-red-700"}>
+                            ₱{packProfit.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Half-Pack */}
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
@@ -2143,16 +2176,27 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (
-                    <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm">
-                      <span className="text-indigo-900">
-                        Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
-                        <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
-                        &nbsp;·&nbsp;per item:&nbsp;
-                        <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
-                      </span>
-                    </div>
-                  )}
+                  {formData.halfPackQuantity && formData.halfPackPrice && (() => {
+                    const halfPackCost = (parseFloat(formData.cost) || 0) * parseInt(formData.halfPackQuantity);
+                    const halfPackProfit = parseFloat(formData.halfPackPrice) - halfPackCost;
+                    return (
+                      <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm space-y-1">
+                        <span className="text-indigo-900">
+                          Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
+                          <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
+                          &nbsp;·&nbsp;per item:&nbsp;
+                          <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
+                        </span>
+                        <div className="text-indigo-900">
+                          Total cost of half-pack:&nbsp;<strong>₱{halfPackCost.toFixed(2)}</strong>
+                          &nbsp;·&nbsp;Potential profit:&nbsp;
+                          <strong className={halfPackProfit >= 0 ? "text-green-700" : "text-red-700"}>
+                            ₱{halfPackProfit.toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

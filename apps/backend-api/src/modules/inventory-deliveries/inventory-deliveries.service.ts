@@ -177,6 +177,11 @@ export class InventoryDeliveriesService {
       unitCost?: number;
       isFree?: boolean;
       updateProductCost?: boolean;
+      priceOverride?: number;
+      packPriceOverride?: number;
+      packQuantityOverride?: number;
+      halfPackPriceOverride?: number;
+      halfPackQuantityOverride?: number;
     }>,
     organizationId: string,
     supplierId?: string | null,
@@ -216,6 +221,11 @@ export class InventoryDeliveriesService {
       unitCost?: number;
       isFree?: boolean;
       updateProductCost?: boolean;
+      priceOverride?: number;
+      packPriceOverride?: number;
+      packQuantityOverride?: number;
+      halfPackPriceOverride?: number;
+      halfPackQuantityOverride?: number;
     }>,
     organizationId: string,
     supplierId?: string | null,
@@ -290,18 +300,53 @@ export class InventoryDeliveriesService {
    * packQuantity), or when explicitly requested for individually-priced
    * items. Free items never touch cost since they carry no real purchase
    * price.
+   *
+   * Also applies any manual selling-price overrides entered alongside the
+   * cost (unit/pack/half-pack selling price and pack/half-pack quantity),
+   * gated on the same `updateProductCost`/`isFree` conditions as cost so
+   * they only ever take effect once the delivery is actually RECEIVED -
+   * never immediately when the item is added to the form, and never
+   * partially applied if the delivery is never saved. A manual
+   * `priceOverride` always takes precedence over the markup calculation.
    */
   private applyCostSync(
     product: ProductEntity,
-    item: { unitCost?: number; isFree?: boolean; updateProductCost?: boolean },
+    item: {
+      unitCost?: number;
+      isFree?: boolean;
+      updateProductCost?: boolean;
+      priceOverride?: number;
+      packPriceOverride?: number;
+      packQuantityOverride?: number;
+      halfPackPriceOverride?: number;
+      halfPackQuantityOverride?: number;
+    },
   ) {
     if (item.updateProductCost && !item.isFree && item.unitCost != null) {
       product.cost = item.unitCost;
-      const percentNum = Number(product.markupPercentage) || 0;
-      const fixedNum = Number(product.markupFixed) || 0;
-      if (percentNum || fixedNum) {
-        product.price =
-          item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
+
+      if (item.priceOverride != null && item.priceOverride > 0) {
+        product.price = item.priceOverride;
+      } else {
+        const percentNum = Number(product.markupPercentage) || 0;
+        const fixedNum = Number(product.markupFixed) || 0;
+        if (percentNum || fixedNum) {
+          product.price =
+            item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
+        }
+      }
+
+      if (item.packQuantityOverride != null) {
+        product.packQuantity = item.packQuantityOverride;
+      }
+      if (item.packPriceOverride != null && item.packPriceOverride > 0) {
+        product.packPrice = item.packPriceOverride;
+      }
+      if (item.halfPackQuantityOverride != null) {
+        product.halfPackQuantity = item.halfPackQuantityOverride;
+      }
+      if (item.halfPackPriceOverride != null && item.halfPackPriceOverride > 0) {
+        product.halfPackPrice = item.halfPackPriceOverride;
       }
     }
   }

@@ -73,6 +73,18 @@ export class InventoryDelivery {
     isFree?: boolean;
     /** When true, the product's `cost` (and `price`, if markups are set) is synced to `unitCost`. */
     updateProductCost?: boolean;
+    /**
+     * Manual selling-price overrides entered in the delivery's "Selling
+     * Price & Potential Profit" section. Applied together with the cost
+     * sync above (only once the delivery is RECEIVED) so a manual price
+     * always wins over the markup-based auto-calculation, and nothing is
+     * left half-applied if the delivery is never saved.
+     */
+    priceOverride?: number;
+    packPriceOverride?: number;
+    packQuantityOverride?: number;
+    halfPackPriceOverride?: number;
+    halfPackQuantityOverride?: number;
     /** Present when the item was entered as packs/half-packs, for display/audit purposes only. */
     packInfo?: {
       type: 'PACK' | 'HALF_PACK';
