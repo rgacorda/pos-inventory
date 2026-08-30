@@ -96,6 +96,67 @@ const DEFAULT_HIDDEN_PRODUCT_COLUMNS = ["markupPercentage", "markupFixed", "sku"
 
 const PRODUCT_TABLE_COLUMNS_STORAGE_KEY = "products-table-hidden-columns";
 
+function formatPeso(amount: number) {
+  return `₱${amount.toFixed(2)}`;
+}
+
+function TierPricingSummary({
+  label,
+  quantity,
+  unitCost,
+  sellPrice,
+  className,
+}: {
+  label: string;
+  quantity: number;
+  unitCost: number;
+  sellPrice: number;
+  className?: string;
+}) {
+  const cost = unitCost * quantity;
+  const profit = sellPrice - cost;
+  const perItemSell = quantity > 0 ? sellPrice / quantity : 0;
+  const marginPct = sellPrice > 0 ? (profit / sellPrice) * 100 : 0;
+
+  return (
+    <div className={cn("rounded-md border bg-muted/40 p-3", className)}>
+      <p className="text-xs font-medium text-muted-foreground mb-2">
+        {label} of {quantity} pcs
+      </p>
+      <div className="grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <p className="text-xs text-muted-foreground">Cost</p>
+          <p className="font-medium tabular-nums">{formatPeso(cost)}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {formatPeso(unitCost)} / item
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Sell price</p>
+          <p className="font-medium tabular-nums">{formatPeso(sellPrice)}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {formatPeso(perItemSell)} / item
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Potential profit</p>
+          <p
+            className={cn(
+              "font-semibold tabular-nums",
+              profit >= 0 ? "text-green-700" : "text-red-700"
+            )}
+          >
+            {formatPeso(profit)}
+          </p>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {marginPct.toFixed(1)}% margin
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -427,40 +488,40 @@ export default function ProductsPage() {
     setShowDeleteDialog(true);
   };
 
+  const buildProductPayload = () => ({
+    sku: formData.sku,
+    name: formData.name,
+    description: formData.description.trim() || null,
+    category: formData.category.trim() || null,
+    supplierId: formData.supplierId || null,
+    barcode: formData.barcode.trim() || null,
+    status: formData.status,
+    price: parseFloat(formData.price),
+    cost: parseFloat(formData.cost),
+    markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
+    markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+    packQuantity: formData.packQuantity ? parseInt(formData.packQuantity, 10) : null,
+    packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
+    packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
+    packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
+    halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity, 10) : null,
+    halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
+    halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
+    halfPackPrice: formData.halfPackPrice ? parseFloat(formData.halfPackPrice) : null,
+    addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
+    convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
+    convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
+    taxRate: parseFloat(formData.taxRate),
+    stockQuantity: formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10),
+    lowStockThreshold: formData.lowStockThreshold === "" ? null : parseInt(formData.lowStockThreshold, 10),
+  });
+
   const handleSubmitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
 
     try {
-      const productData = {
-        sku: formData.sku,
-        name: formData.name,
-        description: formData.description || undefined,
-        category: formData.category || undefined,
-        supplierId: formData.supplierId || null,
-        barcode: formData.barcode || undefined,
-        status: formData.status,
-        price: parseFloat(formData.price),
-        cost: parseFloat(formData.cost),
-        markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
-        markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
-        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
-        packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
-        packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
-        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
-        halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity) : null,
-        halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
-        halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
-        halfPackPrice: formData.halfPackPrice ? parseFloat(formData.halfPackPrice) : null,
-        addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
-        convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
-        convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
-        taxRate: parseFloat(formData.taxRate),
-        stockQuantity: parseInt(formData.stockQuantity),
-        lowStockThreshold: parseInt(formData.lowStockThreshold),
-      };
-
-      await apiClient.createProduct(productData);
+      await apiClient.createProduct(buildProductPayload());
       showSuccessToast(SUCCESS_MESSAGES.CREATED("Product"));
       setShowAddDialog(false);
       resetForm();
@@ -477,35 +538,7 @@ export default function ProductsPage() {
     setIsSaving(true);
 
     try {
-      const productData = {
-        sku: formData.sku,
-        name: formData.name,
-        description: formData.description || undefined,
-        category: formData.category || undefined,
-        supplierId: formData.supplierId || null,
-        barcode: formData.barcode || undefined,
-        status: formData.status,
-        price: parseFloat(formData.price),
-        cost: parseFloat(formData.cost),
-        markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
-        markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
-        packQuantity: formData.packQuantity ? parseInt(formData.packQuantity) : null,
-        packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
-        packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
-        packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
-        halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity) : null,
-        halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
-        halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
-        halfPackPrice: formData.halfPackPrice ? parseFloat(formData.halfPackPrice) : null,
-        addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
-        convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
-        convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
-        taxRate: parseFloat(formData.taxRate),
-        stockQuantity: parseInt(formData.stockQuantity),
-        lowStockThreshold: parseInt(formData.lowStockThreshold),
-      };
-
-      await apiClient.updateProduct(selectedProduct.id, productData);
+      await apiClient.updateProduct(selectedProduct.id, buildProductPayload());
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Product"));
       setShowEditDialog(false);
       setSelectedProduct(null);
@@ -1342,26 +1375,24 @@ export default function ProductsPage() {
                   <Label>Supplier</Label>
                   <div className="flex gap-2">
                     <Select
-                      value={formData.supplierId}
+                      value={formData.supplierId || "NONE"}
                       onValueChange={(value) =>
-                        setFormData({ ...formData, supplierId: value })
+                        setFormData({
+                          ...formData,
+                          supplierId: value === "NONE" ? "" : value,
+                        })
                       }
                     >
                       <SelectTrigger className="flex-1">
                         <SelectValue placeholder="Select a supplier (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        {suppliers.length === 0 ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No suppliers yet
-                          </div>
-                        ) : (
-                          suppliers.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))
-                        )}
+                        <SelectItem value="NONE">No supplier</SelectItem>
+                        {suppliers.map((supplier) => (
+                          <SelectItem key={supplier.id} value={supplier.id}>
+                            {supplier.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Button
@@ -1565,27 +1596,15 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.packQuantity && formData.packPrice && (() => {
-                    const packCost = (parseFloat(formData.cost) || 0) * parseInt(formData.packQuantity);
-                    const packProfit = parseFloat(formData.packPrice) - packCost;
-                    return (
-                      <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
-                        <span className="text-blue-900">
-                          Pack sell price ({formData.packQuantity} pcs):&nbsp;
-                          <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
-                          &nbsp;·&nbsp;per item:&nbsp;
-                          <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
-                        </span>
-                        <div className="text-blue-900">
-                          Total cost of pack:&nbsp;<strong>₱{packCost.toFixed(2)}</strong>
-                          &nbsp;·&nbsp;Potential profit:&nbsp;
-                          <strong className={packProfit >= 0 ? "text-green-700" : "text-red-700"}>
-                            ₱{packProfit.toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {formData.packQuantity && formData.packPrice && (
+                    <TierPricingSummary
+                      className="mb-4"
+                      label="Pack"
+                      quantity={parseInt(formData.packQuantity, 10)}
+                      unitCost={parseFloat(formData.cost) || 0}
+                      sellPrice={parseFloat(formData.packPrice)}
+                    />
+                  )}
 
                   {/* Half-Pack */}
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
@@ -1636,27 +1655,14 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (() => {
-                    const halfPackCost = (parseFloat(formData.cost) || 0) * parseInt(formData.halfPackQuantity);
-                    const halfPackProfit = parseFloat(formData.halfPackPrice) - halfPackCost;
-                    return (
-                      <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm space-y-1">
-                        <span className="text-indigo-900">
-                          Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
-                          <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
-                          &nbsp;·&nbsp;per item:&nbsp;
-                          <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
-                        </span>
-                        <div className="text-indigo-900">
-                          Total cost of half-pack:&nbsp;<strong>₱{halfPackCost.toFixed(2)}</strong>
-                          &nbsp;·&nbsp;Potential profit:&nbsp;
-                          <strong className={halfPackProfit >= 0 ? "text-green-700" : "text-red-700"}>
-                            ₱{halfPackProfit.toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {formData.halfPackQuantity && formData.halfPackPrice && (
+                    <TierPricingSummary
+                      label="Half-pack"
+                      quantity={parseInt(formData.halfPackQuantity, 10)}
+                      unitCost={parseFloat(formData.cost) || 0}
+                      sellPrice={parseFloat(formData.halfPackPrice)}
+                    />
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1886,26 +1892,24 @@ export default function ProductsPage() {
                   <Label>Supplier</Label>
                   <div className="flex gap-2">
                     <Select
-                      value={formData.supplierId}
+                      value={formData.supplierId || "NONE"}
                       onValueChange={(value) =>
-                        setFormData({ ...formData, supplierId: value })
+                        setFormData({
+                          ...formData,
+                          supplierId: value === "NONE" ? "" : value,
+                        })
                       }
                     >
                       <SelectTrigger className="flex-1">
                         <SelectValue placeholder="Select a supplier (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        {suppliers.length === 0 ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No suppliers yet
-                          </div>
-                        ) : (
-                          suppliers.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))
-                        )}
+                        <SelectItem value="NONE">No supplier</SelectItem>
+                        {suppliers.map((supplier) => (
+                          <SelectItem key={supplier.id} value={supplier.id}>
+                            {supplier.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Button
@@ -2105,27 +2109,15 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.packQuantity && formData.packPrice && (() => {
-                    const packCost = (parseFloat(formData.cost) || 0) * parseInt(formData.packQuantity);
-                    const packProfit = parseFloat(formData.packPrice) - packCost;
-                    return (
-                      <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
-                        <span className="text-blue-900">
-                          Pack sell price ({formData.packQuantity} pcs):&nbsp;
-                          <strong>₱{parseFloat(formData.packPrice).toFixed(2)}</strong>
-                          &nbsp;·&nbsp;per item:&nbsp;
-                          <strong>₱{(parseFloat(formData.packPrice) / parseInt(formData.packQuantity)).toFixed(2)}</strong>
-                        </span>
-                        <div className="text-blue-900">
-                          Total cost of pack:&nbsp;<strong>₱{packCost.toFixed(2)}</strong>
-                          &nbsp;·&nbsp;Potential profit:&nbsp;
-                          <strong className={packProfit >= 0 ? "text-green-700" : "text-red-700"}>
-                            ₱{packProfit.toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {formData.packQuantity && formData.packPrice && (
+                    <TierPricingSummary
+                      className="mb-4"
+                      label="Pack"
+                      quantity={parseInt(formData.packQuantity, 10)}
+                      unitCost={parseFloat(formData.cost) || 0}
+                      sellPrice={parseFloat(formData.packPrice)}
+                    />
+                  )}
 
                   {/* Half-Pack */}
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
@@ -2176,27 +2168,14 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
                     </div>
                   </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (() => {
-                    const halfPackCost = (parseFloat(formData.cost) || 0) * parseInt(formData.halfPackQuantity);
-                    const halfPackProfit = parseFloat(formData.halfPackPrice) - halfPackCost;
-                    return (
-                      <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-sm space-y-1">
-                        <span className="text-indigo-900">
-                          Half-pack sell price ({formData.halfPackQuantity} pcs):&nbsp;
-                          <strong>₱{parseFloat(formData.halfPackPrice).toFixed(2)}</strong>
-                          &nbsp;·&nbsp;per item:&nbsp;
-                          <strong>₱{(parseFloat(formData.halfPackPrice) / parseInt(formData.halfPackQuantity)).toFixed(2)}</strong>
-                        </span>
-                        <div className="text-indigo-900">
-                          Total cost of half-pack:&nbsp;<strong>₱{halfPackCost.toFixed(2)}</strong>
-                          &nbsp;·&nbsp;Potential profit:&nbsp;
-                          <strong className={halfPackProfit >= 0 ? "text-green-700" : "text-red-700"}>
-                            ₱{halfPackProfit.toFixed(2)}
-                          </strong>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {formData.halfPackQuantity && formData.halfPackPrice && (
+                    <TierPricingSummary
+                      label="Half-pack"
+                      quantity={parseInt(formData.halfPackQuantity, 10)}
+                      unitCost={parseFloat(formData.cost) || 0}
+                      sellPrice={parseFloat(formData.halfPackPrice)}
+                    />
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

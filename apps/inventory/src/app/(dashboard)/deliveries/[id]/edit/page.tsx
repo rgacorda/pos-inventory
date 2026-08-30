@@ -138,7 +138,7 @@ export default function EditDeliveryPage() {
   const [isProductSearchDialogOpen, setIsProductSearchDialogOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [productSearchQuery, setProductSearchQuery] = useState("");
-  const [showAllSuppliers, setShowAllSuppliers] = useState(false);
+  const [showAllOtherProducts, setShowAllOtherProducts] = useState(false);
   const [openCategoryCombobox, setOpenCategoryCombobox] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -192,11 +192,10 @@ export default function EditDeliveryPage() {
 
   const currentSupplierName = suppliers.find((s) => s.id === formData.supplierId)?.name;
 
-  // Products matching the delivery's selected supplier are shown first (and,
-  // unless "show all suppliers" is enabled, are the only ones shown) so it's
-  // easy to restock from the current supplier while still allowing a product
-  // to be picked from another supplier (which reassigns it once received).
-  const searchDialogProducts = useMemo(() => {
+  // Products matching the delivery's selected supplier are shown first.
+  // Products with no supplier (and from other suppliers) stay hidden unless
+  // "show all other products" is toggled — picking one reassigns it once received.
+  const searchDialogGroups = useMemo(() => {
     const searchTerms = productSearchQuery
       .toLowerCase()
       .trim()
@@ -213,21 +212,50 @@ export default function EditDeliveryPage() {
           product.category?.toLowerCase().includes(term)
       );
 
-    return products
-      .filter(matchesSearch)
-      .filter((product) => {
-        if (showAllSuppliers || !formData.supplierId) return true;
-        // Unassigned products (never delivered yet) are always visible so
-        // brand-new products aren't hidden just for lacking a supplier tag.
-        return !product.supplierId || product.supplierId === formData.supplierId;
-      })
-      .sort((a, b) => {
-        if (!formData.supplierId) return 0;
-        const aMatches = !a.supplierId || a.supplierId === formData.supplierId ? 0 : 1;
-        const bMatches = !b.supplierId || b.supplierId === formData.supplierId ? 0 : 1;
-        return aMatches - bMatches;
-      });
-  }, [products, productSearchQuery, showAllSuppliers, formData.supplierId]);
+    const matching = products.filter(matchesSearch);
+
+    if (!formData.supplierId) {
+      return [{ key: "all", label: null as string | null, products: matching }];
+    }
+
+    const supplierProducts = matching.filter(
+      (product) => product.supplierId === formData.supplierId
+    );
+    const noSupplierProducts = matching.filter((product) => !product.supplierId);
+    const otherSupplierProducts = matching.filter(
+      (product) => !!product.supplierId && product.supplierId !== formData.supplierId
+    );
+
+    const groups: { key: string; label: string | null; products: Product[] }[] = [
+      {
+        key: "supplier",
+        label: currentSupplierName
+          ? `From ${currentSupplierName}`
+          : "This supplier",
+        products: supplierProducts,
+      },
+    ];
+
+    if (showAllOtherProducts) {
+      groups.push(
+        { key: "no-supplier", label: "No supplier", products: noSupplierProducts },
+        { key: "other", label: "Other suppliers", products: otherSupplierProducts }
+      );
+    }
+
+    return groups.filter((group) => group.products.length > 0);
+  }, [
+    products,
+    productSearchQuery,
+    showAllOtherProducts,
+    formData.supplierId,
+    currentSupplierName,
+  ]);
+
+  const searchDialogProductCount = searchDialogGroups.reduce(
+    (count, group) => count + group.products.length,
+    0
+  );
 
   useEffect(() => {
     fetchProducts();
@@ -1024,82 +1052,107 @@ export default function EditDeliveryPage() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                {formData.supplierId ? (
-                  showAllSuppliers ? (
-                    <>Showing products from all suppliers • <span className="font-medium">{currentSupplierName || "current supplier"}</span> shown first</>
-                  ) : (
-                    <>Showing products from <span className="font-medium">{currentSupplierName || "current supplier"}</span> only</>
-                  )
-                ) : (
-                  "Select a supplier above to filter this list by supplier"
-                )}
-              </p>
-              {formData.supplierId && (
-                <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap">
+            {formData.supplierId ? (
+              <div className="rounded-md border bg-muted/50 px-3 py-2 space-y-2">
+                <p className="text-sm font-medium">
+                  {currentSupplierName || "This supplier"}&apos;s products are prioritized
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {showAllOtherProducts
+                    ? "This supplier's products are listed first, followed by products with no supplier and from other suppliers."
+                    : "Only this supplier's products are shown. Products with no supplier or from other suppliers are hidden."}
+                </p>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <Checkbox
-                    checked={showAllSuppliers}
-                    onCheckedChange={(checked) => setShowAllSuppliers(checked === true)}
+                    checked={showAllOtherProducts}
+                    onCheckedChange={(checked) =>
+                      setShowAllOtherProducts(checked === true)
+                    }
+                    className="mt-0.5"
                   />
-                  Show all suppliers
+                  <span>Show all other products from suppliers and no supplier</span>
                 </label>
-              )}
-            </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Select a supplier above to filter this list by supplier
+              </p>
+            )}
 
             <ScrollArea className="h-[400px] border rounded-md">
               <div className="p-2">
-                {searchDialogProducts.map((product) => {
-                  const isOtherSupplier =
-                    !!formData.supplierId && !!product.supplierId && product.supplierId !== formData.supplierId;
-                  return (
-                    <button
-                      key={product.id}
-                      onClick={() => {
-                        setSelectedProductId(product.id);
-                        setIsProductSearchDialogOpen(false);
-                        setProductSearchQuery("");
-                      }}
-                      className={`w-full text-left p-3 rounded-lg hover:bg-accent transition-colors ${
-                        selectedProductId === product.id ? 'bg-accent' : ''
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{product.name}</p>
-                            {isOtherSupplier && (
-                              <Badge variant="outline" className="text-xs">
-                                {product.supplier?.name || "Other supplier"}
-                              </Badge>
-                            )}
+                {searchDialogGroups.map((group) => (
+                  <div key={group.key}>
+                    {group.label && (
+                      <p className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide sticky top-0 bg-background z-10">
+                        {group.label}
+                      </p>
+                    )}
+                    {group.products.map((product) => {
+                      const isOtherSupplier =
+                        !!formData.supplierId &&
+                        !!product.supplierId &&
+                        product.supplierId !== formData.supplierId;
+                      const isNoSupplier =
+                        !!formData.supplierId && !product.supplierId;
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => {
+                            setSelectedProductId(product.id);
+                            setIsProductSearchDialogOpen(false);
+                            setProductSearchQuery("");
+                          }}
+                          className={`w-full text-left p-3 rounded-lg hover:bg-accent transition-colors ${
+                            selectedProductId === product.id ? "bg-accent" : ""
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{product.name}</p>
+                                {isOtherSupplier && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {product.supplier?.name || "Other supplier"}
+                                  </Badge>
+                                )}
+                                {isNoSupplier && (
+                                  <Badge variant="outline" className="text-xs">
+                                    No supplier
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                SKU: {product.sku}
+                                {product.category && ` • ${product.category}`}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium">
+                                ₱{Number(product.cost || 0).toFixed(2)}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Stock: {product.stockQuantity}
+                              </p>
+                            </div>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            SKU: {product.sku}
-                            {product.category && ` • ${product.category}`}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">₱{Number(product.cost || 0).toFixed(2)}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Stock: {product.stockQuantity}
-                          </p>
-                        </div>
-                      </div>
-                      {isOtherSupplier && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          Selecting this will reassign it to {currentSupplierName || "this delivery's supplier"} once received
-                        </p>
-                      )}
-                    </button>
-                  );
-                })}
-                {searchDialogProducts.length === 0 && (
+                          {(isOtherSupplier || isNoSupplier) && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Selecting this will {isNoSupplier ? "assign" : "reassign"} it to{" "}
+                              {currentSupplierName || "this delivery's supplier"} once received
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+                {searchDialogProductCount === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>No products found</p>
                     <p className="text-sm mt-1">
-                      {!showAllSuppliers && formData.supplierId
-                        ? "Try showing all suppliers or a different search term"
+                      {!showAllOtherProducts && formData.supplierId
+                        ? "Try showing all other products or a different search term"
                         : "Try a different search term"}
                     </p>
                   </div>
@@ -1124,7 +1177,7 @@ export default function EditDeliveryPage() {
 
       {/* Add Item to Delivery Dialog */}
       <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="!max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Item to Delivery</DialogTitle>
             <DialogDescription>
@@ -1268,118 +1321,169 @@ export default function EditDeliveryPage() {
                 <div>
                   <h4 className="text-sm font-semibold">Selling Price &amp; Potential Profit</h4>
                   <p className="text-xs text-muted-foreground">
-                    Adjust the selling price(s) here if needed — applied together with the cost update above when the delivery is saved (won&apos;t take effect if the delivery stays PENDING). Pack/Half Pack quantity here only updates the product&apos;s own pack size for future sales; it&apos;s independent of the Quantity Type selected above for this delivery.
+                    Read left to right: cost, sell price, then profit. Sell prices update with cost when the delivery is saved (not while it stays PENDING). Pack size here is for future sales — not the quantity received above.
                   </p>
                 </div>
 
                 {/* Unit */}
-                <div className="grid grid-cols-3 gap-3 items-end">
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Unit Cost</Label>
-                    <div className="h-9 flex items-center text-sm font-medium">₱{previewUnitCost.toFixed(2)}</div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Unit Selling Price</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={itemFormData.sellingPrice}
-                      onChange={(e) => setItemFormData({ ...itemFormData, sellingPrice: e.target.value })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Profit / Unit</Label>
-                    <div className={`h-9 flex items-center text-sm font-semibold ${previewUnitProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      ₱{previewUnitProfit.toFixed(2)}
-                      {previewSellingPrice > 0 && (
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">
-                          ({((previewUnitProfit / previewSellingPrice) * 100).toFixed(1)}%)
-                        </span>
-                      )}
+                <div className="rounded-md border p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per unit</p>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Cost</Label>
+                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
+                        ₱{previewUnitCost.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sell price</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={itemFormData.sellingPrice}
+                        onChange={(e) => setItemFormData({ ...itemFormData, sellingPrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
+                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewUnitProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        ₱{previewUnitProfit.toFixed(2)}
+                        {previewSellingPrice > 0 && (
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            ({((previewUnitProfit / previewSellingPrice) * 100).toFixed(1)}%)
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Pack */}
-                <div className="grid grid-cols-4 gap-3 items-end">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Pack Qty</Label>
-                    <Input
-                      type="number"
-                      value={itemFormData.packQuantity}
-                      onChange={(e) => setItemFormData({ ...itemFormData, packQuantity: e.target.value })}
-                      placeholder="12"
-                    />
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pack</p>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs whitespace-nowrap">Items in pack</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={itemFormData.packQuantity}
+                        onChange={(e) => setItemFormData({ ...itemFormData, packQuantity: e.target.value })}
+                        placeholder="12"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Pack Cost</Label>
-                    <div className="h-9 flex items-center text-sm font-medium">₱{previewPackCost.toFixed(2)}</div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Pack Selling Price</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={itemFormData.packPrice}
-                      onChange={(e) => setItemFormData({ ...itemFormData, packPrice: e.target.value })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Profit / Pack</Label>
-                    <div className={`h-9 flex items-center text-sm font-semibold ${previewPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {previewPackQuantity > 0 && previewPackPrice > 0 ? (
-                        <>
-                          ₱{previewPackProfit.toFixed(2)}
-                          <span className="ml-1 text-xs font-normal text-muted-foreground">
-                            ({((previewPackProfit / previewPackPrice) * 100).toFixed(1)}%)
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Cost</Label>
+                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
+                        ₱{previewPackCost.toFixed(2)}
+                      </div>
+                      {previewPackQuantity > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{previewUnitCost.toFixed(2)} / item
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sell price</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={itemFormData.packPrice}
+                        onChange={(e) => setItemFormData({ ...itemFormData, packPrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      {previewPackQuantity > 0 && previewPackPrice > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{(previewPackPrice / previewPackQuantity).toFixed(2)} / item
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
+                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {previewPackQuantity > 0 && previewPackPrice > 0 ? (
+                          <>
+                            ₱{previewPackProfit.toFixed(2)}
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              ({((previewPackProfit / previewPackPrice) * 100).toFixed(1)}%)
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                        )}
+                      </div>
+                      {previewPackQuantity > 0 && previewPackPrice > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{(previewPackProfit / previewPackQuantity).toFixed(2)} / item
+                        </p>
                       )}
                     </div>
                   </div>
                 </div>
 
                 {/* Half Pack */}
-                <div className="grid grid-cols-4 gap-3 items-end">
-                  <div className="space-y-2">
-                    <Label className="text-xs">Half Pack Qty</Label>
-                    <Input
-                      type="number"
-                      value={itemFormData.halfPackQuantity}
-                      onChange={(e) => setItemFormData({ ...itemFormData, halfPackQuantity: e.target.value })}
-                      placeholder="6"
-                    />
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Half pack</p>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs whitespace-nowrap">Items in half pack</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={itemFormData.halfPackQuantity}
+                        onChange={(e) => setItemFormData({ ...itemFormData, halfPackQuantity: e.target.value })}
+                        placeholder="6"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Half Pack Cost</Label>
-                    <div className="h-9 flex items-center text-sm font-medium">₱{previewHalfPackCost.toFixed(2)}</div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Half Pack Selling Price</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={itemFormData.halfPackPrice}
-                      onChange={(e) => setItemFormData({ ...itemFormData, halfPackPrice: e.target.value })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Profit / Half Pack</Label>
-                    <div className={`h-9 flex items-center text-sm font-semibold ${previewHalfPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 ? (
-                        <>
-                          ₱{previewHalfPackProfit.toFixed(2)}
-                          <span className="ml-1 text-xs font-normal text-muted-foreground">
-                            ({((previewHalfPackProfit / previewHalfPackPrice) * 100).toFixed(1)}%)
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Cost</Label>
+                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
+                        ₱{previewHalfPackCost.toFixed(2)}
+                      </div>
+                      {previewHalfPackQuantity > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{previewUnitCost.toFixed(2)} / item
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sell price</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={itemFormData.halfPackPrice}
+                        onChange={(e) => setItemFormData({ ...itemFormData, halfPackPrice: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{(previewHalfPackPrice / previewHalfPackQuantity).toFixed(2)} / item
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
+                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewHalfPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 ? (
+                          <>
+                            ₱{previewHalfPackProfit.toFixed(2)}
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              ({((previewHalfPackProfit / previewHalfPackPrice) * 100).toFixed(1)}%)
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
+                        )}
+                      </div>
+                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 && (
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          ₱{(previewHalfPackProfit / previewHalfPackQuantity).toFixed(2)} / item
+                        </p>
                       )}
                     </div>
                   </div>

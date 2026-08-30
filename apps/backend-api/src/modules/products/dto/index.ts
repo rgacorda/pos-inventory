@@ -6,7 +6,9 @@ import {
   IsInt,
   Min,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ProductStatus } from '@pos/shared-types';
 
 export class CreateProductDto {
@@ -129,9 +131,11 @@ export class CreateProductDto {
   @IsOptional()
   organizationId?: string;
 
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value != null && value !== '')
   @IsUUID()
   @IsOptional()
-  supplierId?: string;
+  supplierId?: string | null;
 }
 
 export class UpdateProductDto {
@@ -253,7 +257,9 @@ export class UpdateProductDto {
   @IsOptional()
   status?: ProductStatus;
 
+  @Transform(({ value }) => (value === '' ? null : value))
+  @ValidateIf((_, value) => value != null && value !== '')
   @IsUUID()
   @IsOptional()
-  supplierId?: string;
+  supplierId?: string | null;
 }

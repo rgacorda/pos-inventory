@@ -22,7 +22,8 @@ export class ProductsService {
     const cost = Number(dto.cost) || 0;
 
     if (!dto.packQuantity) {
-      dto.packPrice = undefined;
+      // Use null (not undefined) so an update actually clears the column.
+      dto.packPrice = null as any;
     } else if (dto.packPrice != null && Number(dto.packPrice) > 0) {
       // Keep manually entered pack price (legacy or user override)
       dto.packPrice = Number(dto.packPrice);
@@ -31,11 +32,11 @@ export class ProductsService {
       const pct = Number(dto.packMarkupPercentage) || 0;
       const fixed = Number(dto.packMarkupFixed) || 0;
       const computed = base + (base * pct) / 100 + fixed;
-      dto.packPrice = computed > 0 ? computed : undefined;
+      dto.packPrice = computed > 0 ? computed : (null as any);
     }
 
     if (!dto.halfPackQuantity) {
-      dto.halfPackPrice = undefined;
+      dto.halfPackPrice = null as any;
     } else if (dto.halfPackPrice != null && Number(dto.halfPackPrice) > 0) {
       // Keep manually entered half-pack price
       dto.halfPackPrice = Number(dto.halfPackPrice);
@@ -44,7 +45,7 @@ export class ProductsService {
       const pct = Number(dto.halfPackMarkupPercentage) || 0;
       const fixed = Number(dto.halfPackMarkupFixed) || 0;
       const computed = base + (base * pct) / 100 + fixed;
-      dto.halfPackPrice = computed > 0 ? computed : undefined;
+      dto.halfPackPrice = computed > 0 ? computed : (null as any);
     }
   }
 
@@ -142,9 +143,22 @@ export class ProductsService {
       }
     }
 
+    // Drop the joined supplier relation before assign/save. TypeORM's save()
+    // prefers a loaded ManyToOne over the FK column, so changing supplierId
+    // while `supplier` is still populated would stamp the old supplier back
+    // and the request would still return 200 ("Product updated").
+    delete (product as any).supplier;
+
     Object.assign(product, updateProductDto);
+
+    if (Object.prototype.hasOwnProperty.call(updateProductDto, 'supplierId')) {
+      product.supplierId = updateProductDto.supplierId || null;
+    }
+
     this.computePackPrices(product);
-    return this.productsRepository.save(product);
+    await this.productsRepository.save(product);
+    // Reload with the supplier join so the response matches what was saved.
+    return this.findOne(id, requestingUser);
   }
 
   async remove(id: string, requestingUser: any) {
