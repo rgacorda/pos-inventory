@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +43,11 @@ import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
 import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, PriceBreakdown } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
+import { ProductSearchDialog } from "@/components/product-search-dialog";
+import {
+  buildSearchIndex,
+  searchIndexedProducts,
+} from "@/lib/product-search";
 
 // Formats a price breakdown into a readable label, e.g. "1 pack + 1 pc" or "2 packs + 3 pcs"
 function formatPriceBreakdownLabel(breakdown: PriceBreakdown): string | null {
@@ -83,9 +87,6 @@ export default function Page() {
     clearExchange,
   } = useCart();
 
-  const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [categories, setCategories] = useState<string[]>(["All"]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showCashDialog, setShowCashDialog] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -110,6 +111,7 @@ export default function Page() {
   const [manualItemRefProduct, setManualItemRefProduct] = useState<LocalProduct | null>(null);
   const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
+  const [debouncedManualSearch, setDebouncedManualSearch] = useState("");
   const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
   const [manualItemBarcodeError, setManualItemBarcodeError] = useState<string>("");
   const [showItemCounts, setShowItemCounts] = useState(false);
@@ -146,23 +148,29 @@ export default function Page() {
   const manualItemBarcodeRef = useRef<HTMLInputElement>(null);
   const barcodeBufferRef = useRef<string>("");
   const barcodeTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Extract categories from products
-  useEffect(() => {
-    if (products && products.length > 0) {
-      const uniqueCategories = [
-        "All",
-        ...Array.from(
-          new Set(
-            products
-              .map((p) => p.category)
-              .filter((category): category is string => Boolean(category)),
-          ),
-        ),
-      ];
-      setCategories(uniqueCategories);
+  const searchIndex = useMemo(
+    () => (products ? buildSearchIndex(products) : []),
+    [products],
+  );
+  const productsByBarcode = useMemo(() => {
+    const map = new Map<string, LocalProduct[]>();
+    if (!products) return map;
+    for (const product of products) {
+      if (!product.barcode) continue;
+      const existing = map.get(product.barcode);
+      if (existing) existing.push(product);
+      else map.set(product.barcode, [product]);
     }
+    return map;
   }, [products]);
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedManualSearch(manualItemSearch),
+      120,
+    );
+    return () => clearTimeout(timer);
+  }, [manualItemSearch]);
 
   // Global barcode scanner listener
   useEffect(() => {
@@ -528,7 +536,7 @@ export default function Page() {
     const trimmed = barcode.trim();
     if (!trimmed || !products) return;
 
-    const matched = products.filter((p) => p.barcode === trimmed);
+    const matched = [...(productsByBarcode.get(trimmed) ?? [])];
 
     if (matched.length === 0) {
       // Persist the unmatched barcode so managers can register it later
@@ -565,26 +573,21 @@ export default function Page() {
     setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
   };
 
-  // Filter products for manual item search
-  const manualItemSearchResults = manualItemSearch.trim() && products
-    ? products.filter((p) => {
-        const query = manualItemSearch.toLowerCase();
-        return (
-          p.name.toLowerCase().includes(query) ||
-          p.sku?.toLowerCase().includes(query) ||
-          p.barcode?.toLowerCase().includes(query)
-        );
-      }).slice(0, 5)
-    : [];
+  const manualItemSearchResults = useMemo(() => {
+    if (!debouncedManualSearch.trim()) return [];
+    return searchIndexedProducts(
+      searchIndex,
+      debouncedManualSearch,
+      "All",
+      5,
+    ).results;
+  }, [debouncedManualSearch, searchIndex]);
 
   // Handle barcode scan
   const handleBarcodeScan = (barcode: string) => {
     if (!barcode.trim() || !products) return;
 
-    // Search for all products with this barcode
-    const matchedProducts = products.filter(
-      (p) => p.barcode === barcode.trim()
-    );
+    const matchedProducts = [...(productsByBarcode.get(barcode.trim()) ?? [])];
 
     if (matchedProducts.length === 0) {
       showErrorToast(ERROR_MESSAGES.NOT_FOUND("Product"), {
@@ -730,24 +733,6 @@ export default function Page() {
     ? Math.floor(amountDue / 500)
     : 0;
 
-  // Filter products by category and search
-  const filteredProducts =
-    products?.filter((p) => {
-      const matchesCategory =
-        selectedCategory === "All" || p.category === selectedCategory;
-      
-      // Split search query into individual terms for multi-word search
-      const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/).filter(term => term.length > 0);
-      const matchesSearch =
-        searchQuery === "" ||
-        searchTerms.every(term => 
-          p.name.toLowerCase().includes(term) ||
-          p.sku.toLowerCase().includes(term) ||
-          (p.description && p.description.toLowerCase().includes(term)) ||
-          (p.barcode && p.barcode.toLowerCase().includes(term))
-        );
-      return matchesCategory && matchesSearch;
-    }) || [];
   // Loyalty: search customers by name (debounced, API + local cache fallback)
   const handleLoyaltyNameInput = (value: string) => {
     setLoyaltyNameSearch(value);
@@ -1573,154 +1558,28 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Product Search Modal */}
-      <Dialog open={showProductSearch} onOpenChange={setShowProductSearch}>
-        <DialogContent className="!max-w-7xl h-[85vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle>Search Products</DialogTitle>
-            <DialogDescription>
-              Browse and select products to add to the order
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
-            {/* Search and Filter */}
-            <div className="flex gap-3 flex-shrink-0">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search products..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-lg focus:outline-none "
-                  autoFocus
-                />
-              </div>
-              <Select
-                value={selectedCategory}
-                onValueChange={setSelectedCategory}
-              >
-                <SelectTrigger className="w-[200px] h-10">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-10 px-3 flex items-center gap-2"
-                onClick={() => setShowItemCounts(!showItemCounts)}
-              >
-                {showItemCounts ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-                Stock
-              </Button>
-            </div>
-
-            {/* Products Table */}
-            <div className="flex-1 border rounded-lg overflow-hidden">
-              <ScrollArea className="h-full">
-                {!products ? (
-                  <div className="text-center text-gray-600 py-8">
-                    Loading products...
-                  </div>
-                ) : filteredProducts.length === 0 ? (
-                  <div className="text-center text-gray-600 py-8">
-                    No products found
-                  </div>
-                ) : (
-                  <Table>
-                  <TableHeader className="sticky top-0 bg-white z-10">
-                    <TableRow>
-                      <TableHead>Product Name</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
-                      {showItemCounts && (
-                        <TableHead className="text-right">Stock</TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredProducts.map((product) => (
-                      <TableRow
-                        key={product.id}
-                        onClick={() => addToOrder(product)}
-                        className="hover:bg-blue-50 cursor-pointer transition-colors"
-                      >
-                        <TableCell className="font-medium">
-                          {product.name}
-                        </TableCell>
-                        <TableCell>{product.sku}</TableCell>
-                        <TableCell>{product.category}</TableCell>
-                        <TableCell className="text-right">
-                          <div>
-                            <div className="font-semibold">
-                              ₱{product.price.toFixed(2)}
-                            </div>
-                            {product.packPrice && product.packQuantity && (
-                              <div className="text-xs text-green-600">
-                                ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pc
-                              </div>
-                            )}
-                            {product.halfPackPrice && product.halfPackQuantity && (
-                              <div className="text-xs text-indigo-500">
-                                ₱{product.halfPackPrice.toFixed(2)}/{product.halfPackQuantity}pc
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        {showItemCounts && (
-                          <TableCell className="text-right">
-                            {product.stockQuantity}
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-              </ScrollArea>
-            </div>
-          </div>
-          <DialogFooter className="flex-shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowProductSearch(false);
-                setSearchQuery("");
-                setSelectedCategory("All");
-              }}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProductSearchDialog
+        open={showProductSearch}
+        onOpenChange={setShowProductSearch}
+        searchIndex={searchIndex}
+        loading={!products}
+        onSelectProduct={addToOrder}
+      />
 
       {/* Quantity Selection Dialog */}
       <Dialog open={showQuantityDialog} onOpenChange={setShowQuantityDialog}>
         <DialogContent
-          className="sm:max-w-md"
+          className="sm:max-w-md max-h-[min(90dvh,90vh)] flex flex-col overflow-hidden gap-3 p-4"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DialogHeader>
+          <DialogHeader className="flex-shrink-0 pr-6">
             <DialogTitle>Add Product</DialogTitle>
             <DialogDescription>
               Use the arrow keys to adjust, or scan the next item to add this one and continue.
             </DialogDescription>
           </DialogHeader>
           {productToAdd && (
-            <div className="space-y-4 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-3 pr-1">
               <div className="bg-gray-50 border rounded-lg p-3">
                 <div className="font-semibold text-gray-900">
                   {productToAdd.name}
@@ -1964,7 +1823,7 @@ export default function Page() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button
               variant="outline"
               onClick={() => {
@@ -1991,8 +1850,8 @@ export default function Page() {
 
       {/* Product Selection Dialog (Multiple Barcode Matches) */}
       <Dialog open={showProductSelectionDialog} onOpenChange={setShowProductSelectionDialog}>
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-3xl max-h-[min(90dvh,90vh)] flex flex-col overflow-hidden gap-3 p-4">
+          <DialogHeader className="flex-shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle>Select Product</DialogTitle>
@@ -2015,7 +1874,7 @@ export default function Page() {
               </Button>
             </div>
           </DialogHeader>
-          <div className="max-h-[500px] overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -2092,7 +1951,7 @@ export default function Page() {
               </TableBody>
             </Table>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button
               variant="outline"
               onClick={() => {

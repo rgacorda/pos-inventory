@@ -663,13 +663,8 @@ export class SyncService {
     }));
 
     await db.transaction("rw", db.products, async () => {
-      // Clear all existing products to avoid showing stale data
       await db.products.clear();
-
-      // Add all products from the catalog
-      for (const product of products) {
-        await db.products.put(product);
-      }
+      await db.products.bulkPut(products);
     });
 
     console.log(`Updated ${products.length} products in catalog`);

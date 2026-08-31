@@ -383,17 +383,38 @@ export const dbHelpers = {
     return db.products.where("status").equals("ACTIVE").toArray();
   },
 
-  // Search products
-  async searchProducts(query: string) {
-    const lowerQuery = query.toLowerCase();
-    return db.products
-      .filter((p) => {
-        const nameMatch = p.name?.toLowerCase().includes(lowerQuery) ?? false;
-        const skuMatch = p.sku?.toLowerCase().includes(lowerQuery) ?? false;
-        const barcodeMatch = p.barcode?.includes(query) ?? false;
-        return nameMatch || skuMatch || barcodeMatch;
-      })
-      .toArray();
+  async findProductsByBarcode(barcode: string) {
+    return db.products.where("barcode").equals(barcode).toArray();
+  },
+
+  // Search products (barcode uses the index; name/SKU scans active products with a cap)
+  async searchProducts(query: string, limit = 50) {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    if (/^\d{6,}$/.test(trimmed)) {
+      const hits = await db.products.where("barcode").equals(trimmed).toArray();
+      return hits.filter((p) => p.status === "ACTIVE").slice(0, limit);
+    }
+
+    const terms = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+    const results: LocalProduct[] = [];
+    await db.products.where("status").equals("ACTIVE").each((product) => {
+      if (results.length >= limit) return;
+      const name = product.name?.toLowerCase() ?? "";
+      const sku = product.sku?.toLowerCase() ?? "";
+      const barcode = product.barcode?.toLowerCase() ?? "";
+      const description = product.description?.toLowerCase() ?? "";
+      const matches = terms.every(
+        (term) =>
+          name.includes(term) ||
+          sku.includes(term) ||
+          barcode.includes(term) ||
+          description.includes(term),
+      );
+      if (matches) results.push(product);
+    });
+    return results;
   },
 
   // Get orders by status

@@ -18,7 +18,7 @@ export function useProducts() {
 
 export function useProductSearch(query: string) {
   return useLiveQuery(
-    () => (query ? dbHelpers.searchProducts(query) : dbHelpers.getActiveProducts()),
+    () => (query ? dbHelpers.searchProducts(query) : Promise.resolve([])),
     [query]
   );
 }
