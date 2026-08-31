@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryRunner, FindOptionsWhere } from 'typeorm';
 import {
   SyncRequestDto,
   SyncResponseDto,
@@ -62,16 +62,24 @@ export class SyncService {
     const orderResults: SyncResultDto[] = [];
     const paymentResults: SyncResultDto[] = [];
 
-    // Process orders in parallel batches of 5 to avoid overwhelming the DB
-    // while still being much faster than fully sequential processing.
-    const ORDER_PARALLEL = 5;
-    for (let i = 0; i < syncRequest.orders.length; i += ORDER_PARALLEL) {
-      const batch = syncRequest.orders.slice(i, i + ORDER_PARALLEL);
-      const results = await Promise.all(
-        batch.map((dto) => this.processOrder(dto, user)),
-      );
-      orderResults.push(...results);
-    }
+    // Process regular sales before exchange orders so the original order
+    // exists on the server when we look it up to restore returned stock.
+    const regularOrders = syncRequest.orders.filter((o) => !o.exchangeRef);
+    const exchangeOrders = syncRequest.orders.filter((o) => !!o.exchangeRef);
+
+    const processOrderBatches = async (orders: CreateOrderDto[]) => {
+      const ORDER_PARALLEL = 5;
+      for (let i = 0; i < orders.length; i += ORDER_PARALLEL) {
+        const batch = orders.slice(i, i + ORDER_PARALLEL);
+        const results = await Promise.all(
+          batch.map((dto) => this.processOrder(dto, user)),
+        );
+        orderResults.push(...results);
+      }
+    };
+
+    await processOrderBatches(regularOrders);
+    await processOrderBatches(exchangeOrders);
 
     // Process payments in parallel batches of 5
     const PAYMENT_PARALLEL = 5;
@@ -194,6 +202,23 @@ export class SyncService {
           'order',
         );
 
+        // Resolve the original sale before inserting the exchange order so we
+        // can store the server-side orderNumber as exchangeRef (Inventory
+        // links original ↔ exchange by that number). POS-local order numbers
+        // are never persisted on the server.
+        const originalOrder = isExchangeOrder
+          ? await this.findOriginalExchangeOrder(
+              queryRunner,
+              orderDto.exchangeRef,
+              orderDto.originalPosLocalId,
+              user?.organizationId,
+            )
+          : null;
+
+        const returnedItems = isExchangeOrder
+          ? (orderDto.returnedItems ?? [])
+          : [];
+
         // Create order entity
         const order = this.orderRepository.create({
           orderNumber,
@@ -213,7 +238,12 @@ export class SyncService {
           customerId: resolvedCustomerId,
           pointsEarned: isExchangeOrder ? undefined : pointsEarned,
           pointsRedeemed: isExchangeOrder ? undefined : orderDto.pointsRedeemed,
-          exchangeRef: isExchangeOrder ? orderDto.exchangeRef : undefined,
+          exchangeRef: isExchangeOrder
+            ? (originalOrder?.orderNumber ?? orderDto.exchangeRef)
+            : undefined,
+          returnedItems: isExchangeOrder && returnedItems.length > 0
+            ? returnedItems
+            : undefined,
         });
 
         const savedOrder = await queryRunner.manager.save(order);
@@ -224,46 +254,24 @@ export class SyncService {
         // directly (e.g. offline, or the original order wasn't synced yet).
         // The `!originalOrder.exchangedAt` guard prevents double-restoring stock
         // if the direct exchange call already handled it.
-        if (isExchangeOrder && orderDto.exchangeRef) {
-          const originalOrder = await queryRunner.manager.findOne(OrderEntity, {
-            where: { orderNumber: orderDto.exchangeRef },
-          });
+        if (isExchangeOrder) {
           if (originalOrder && !originalOrder.exchangedAt) {
-            originalOrder.exchangedAt = orderDto.completedAt
-              ? new Date(orderDto.completedAt)
-              : new Date();
+            originalOrder.exchangedAt = completedAt;
+            originalOrder.returnedItems =
+              returnedItems.length > 0
+                ? returnedItems
+                : originalOrder.returnedItems;
             await queryRunner.manager.save(OrderEntity, originalOrder);
 
-            const returnedItems = orderDto.returnedItems ?? [];
-            for (const returnedItem of returnedItems) {
-              if (
-                !returnedItem.productId ||
-                returnedItem.productId.startsWith('manual-')
-              ) {
-                continue;
-              }
-
-              const returnedProduct = await queryRunner.manager.findOne(
-                ProductEntity,
-                { where: { id: returnedItem.productId } },
-              );
-
-              if (returnedProduct) {
-                await queryRunner.manager.increment(
-                  ProductEntity,
-                  { id: returnedItem.productId },
-                  'stockQuantity',
-                  returnedItem.quantity,
-                );
-                this.logger.log(
-                  `Restored ${returnedItem.quantity} units of product ${returnedItem.productId} from exchange of order ${originalOrder.orderNumber} (via sync fallback)`,
-                );
-              } else {
-                this.logger.warn(
-                  `Product not found for exchange stock restoration: ${returnedItem.productId}`,
-                );
-              }
-            }
+            await this.restoreReturnedStock(
+              queryRunner,
+              returnedItems,
+              `from exchange of order ${originalOrder.orderNumber} (via sync fallback)`,
+            );
+          } else if (!originalOrder) {
+            this.logger.warn(
+              `Original order not found for exchange ${orderDto.posLocalId} (exchangeRef=${orderDto.exchangeRef}, originalPosLocalId=${orderDto.originalPosLocalId}). Returned stock was not restored.`,
+            );
           }
         }
 
@@ -597,5 +605,91 @@ export class SyncService {
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return uuidRegex.test(value);
+  }
+
+  /**
+   * Locate the original sale for an exchange. The POS historically stored
+   * its local display orderNumber as exchangeRef, but the server generates a
+   * new orderNumber on sync — so lookup by orderNumber alone misses. Prefer
+   * the stable posLocalId (and server UUID) instead.
+   */
+  private async findOriginalExchangeOrder(
+    queryRunner: QueryRunner,
+    exchangeRef?: string,
+    originalPosLocalId?: string,
+    organizationId?: string,
+  ): Promise<OrderEntity | null> {
+    const conditions: FindOptionsWhere<OrderEntity>[] = [];
+
+    if (originalPosLocalId) {
+      conditions.push({ posLocalId: originalPosLocalId });
+    }
+
+    if (exchangeRef) {
+      conditions.push({ posLocalId: exchangeRef });
+      conditions.push({ orderNumber: exchangeRef });
+      if (this.isUUID(exchangeRef)) {
+        conditions.push({ id: exchangeRef });
+      }
+    }
+
+    if (conditions.length === 0) {
+      return null;
+    }
+
+    const where = organizationId
+      ? conditions.map((c) => ({ ...c, organizationId }))
+      : conditions;
+
+    return queryRunner.manager.findOne(OrderEntity, { where });
+  }
+
+  private async restoreReturnedStock(
+    queryRunner: QueryRunner,
+    returnedItems: {
+      productId: string;
+      quantity: number;
+      name?: string;
+    }[],
+    contextLabel: string,
+  ): Promise<number> {
+    let restoredCount = 0;
+
+    for (const returnedItem of returnedItems) {
+      if (
+        !returnedItem.productId ||
+        returnedItem.productId.startsWith('manual-')
+      ) {
+        continue;
+      }
+
+      const quantity = Number(returnedItem.quantity);
+      if (!quantity || quantity <= 0) {
+        continue;
+      }
+
+      const returnedProduct = await queryRunner.manager.findOne(ProductEntity, {
+        where: { id: returnedItem.productId },
+      });
+
+      if (returnedProduct) {
+        await queryRunner.manager.increment(
+          ProductEntity,
+          { id: returnedItem.productId },
+          'stockQuantity',
+          quantity,
+        );
+        this.logger.log(
+          `Restored ${quantity} units of ${returnedItem.name || returnedProduct.name} (${returnedItem.productId}) ${contextLabel}`,
+        );
+        restoredCount++;
+      } else {
+        this.logger.warn(
+          `Product not found for exchange stock restoration: ${returnedItem.productId}`,
+        );
+      }
+    }
+
+    return restoredCount;
   }
 }

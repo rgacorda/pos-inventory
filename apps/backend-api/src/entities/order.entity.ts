@@ -108,6 +108,16 @@ export class OrderEntity {
   @Column({ type: 'timestamp', nullable: true })
   exchangedAt: Date;
 
+  @Column({ type: 'jsonb', nullable: true })
+  returnedItems: {
+    productId: string;
+    name?: string;
+    sku?: string;
+    quantity: number;
+    unitPrice?: number;
+    total?: number;
+  }[] | null;
+
   @OneToMany(() => OrderItemEntity, (item) => item.order, { cascade: true })
   items: OrderItemEntity[];
 

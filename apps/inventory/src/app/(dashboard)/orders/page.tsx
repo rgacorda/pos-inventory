@@ -154,15 +154,27 @@ export default function OrdersPage() {
     }
   };
 
-  // Find the exchange order for a given original order (order with exchangeRef = original orderNumber)
+  // Find the exchange order for a given original order
   const findExchangeOrder = (original: any) => {
-    return orders.find((o) => o.exchangeRef === original.orderNumber) ?? null;
+    return (
+      orders.find(
+        (o) =>
+          o.exchangeRef === original.orderNumber ||
+          o.exchangeRef === original.posLocalId,
+      ) ?? null
+    );
   };
 
-  // Find the original order for a given exchange order (order with orderNumber = exchange's exchangeRef)
+  // Find the original order for a given exchange order
   const findOriginalOrder = (exchange: any) => {
     if (!exchange.exchangeRef) return null;
-    return orders.find((o) => o.orderNumber === exchange.exchangeRef) ?? null;
+    return (
+      orders.find(
+        (o) =>
+          o.orderNumber === exchange.exchangeRef ||
+          o.posLocalId === exchange.exchangeRef,
+      ) ?? null
+    );
   };
 
   const canVoidOrder = (order: any) => {
@@ -621,7 +633,65 @@ export default function OrdersPage() {
               )}
 
               <div>
-                <h4 className="font-semibold mb-3">Order Items</h4>
+                {(() => {
+                  const returnedItems =
+                    selectedOrder.returnedItems?.length
+                      ? selectedOrder.returnedItems
+                      : findExchangeOrder(selectedOrder)?.returnedItems ?? [];
+                  if (!returnedItems.length) return null;
+                  return (
+                    <div className="mb-6">
+                      <h4 className="font-semibold mb-3 text-orange-800">
+                        Returned Items
+                      </h4>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Product</TableHead>
+                            <TableHead className="text-right">Quantity</TableHead>
+                            <TableHead className="text-right">Unit Price</TableHead>
+                            <TableHead className="text-right">Subtotal</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {returnedItems.map((item: any, index: number) => (
+                            <TableRow key={`returned-${item.productId}-${index}`}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">
+                                    {item.name || "Returned item"}
+                                  </p>
+                                  {item.sku && (
+                                    <p className="text-xs text-muted-foreground">
+                                      SKU: {item.sku}
+                                    </p>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {item.quantity}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                ₱{Number(item.unitPrice || 0).toFixed(2)}
+                              </TableCell>
+                              <TableCell className="text-right font-medium">
+                                ₱
+                                {Number(
+                                  item.total ??
+                                    Number(item.quantity || 0) *
+                                      Number(item.unitPrice || 0),
+                                ).toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  );
+                })()}
+                <h4 className="font-semibold mb-3">
+                  {selectedOrder.exchangeRef ? "Replacement Items" : "Order Items"}
+                </h4>
                 <Table>
                   <TableHeader>
                     <TableRow>

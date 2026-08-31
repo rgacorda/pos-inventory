@@ -31,12 +31,19 @@ export interface CreateOrderDto {
   totalAmount: number;
   completedAt: Date;
   exchangeRef?: string;
+  // POS-local UUID of the original order. Stable across devices/sync, unlike
+  // the POS-generated display orderNumber which the server replaces on sync.
+  originalPosLocalId?: string;
   // Items being returned as part of an exchange (used to restore inventory
   // when the exchange notification wasn't already sent via /orders/{id}/exchange,
   // e.g. because the original order wasn't synced yet or the device was offline).
   returnedItems?: {
     productId: string;
+    name?: string;
+    sku?: string;
     quantity: number;
+    unitPrice?: number;
+    total?: number;
   }[];
 }
 
@@ -50,6 +57,7 @@ export interface ExchangeOrderDto {
   returnedItems: {
     productId: string;
     name: string;
+    sku?: string;
     quantity: number;
     unitPrice: number;
     total: number;

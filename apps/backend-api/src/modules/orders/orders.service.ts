@@ -681,6 +681,14 @@ export class OrdersService {
       }
 
       order.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
+      order.returnedItems = returnedItems.map((item) => ({
+        productId: item.productId,
+        name: item.name,
+        sku: item.sku,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total,
+      }));
       await queryRunner.manager.save(OrderEntity, order);
       await queryRunner.commitTransaction();
 

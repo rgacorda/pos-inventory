@@ -83,6 +83,7 @@ export default function Page() {
     exchangeCredit,
     exchangeRef,
     originalOrderServerId,
+    originalPosLocalId,
     exchangedItems,
     clearExchange,
   } = useCart();
@@ -937,10 +938,15 @@ export default function Page() {
         // Exchange-specific fields
         ...(isExchange && {
           exchangeRef: exchangeRef!,
-          originalOrderServerId: originalOrderServerId ?? undefined,
+          originalServerId: originalOrderServerId ?? undefined,
+          originalPosLocalId: originalPosLocalId ?? undefined,
           returnedItems: exchangedItems.map((item) => ({
             productId: item.productId,
+            name: item.name,
+            sku: item.sku,
             quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            total: item.total,
           })),
         }),
         // Loyalty points fields
@@ -985,6 +991,11 @@ export default function Page() {
           // Non-blocking — the new exchange transaction will still sync normally
           console.warn("Could not notify server of exchange (will retry via sync):", err);
         }
+      }
+
+      // Push the exchange order (and pull updated stock) without blocking the receipt
+      if (isExchange) {
+        void syncService.performSync();
       }
 
       // Get terminal and user info
@@ -1247,6 +1258,15 @@ export default function Page() {
               <div className="text-xs text-orange-600">
                 Ref: <strong>{exchangeRef}</strong>
               </div>
+              {exchangedItems.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs text-orange-700">
+                  {exchangedItems.map((item, idx) => (
+                    <li key={`${item.productId}-${idx}`}>
+                      Returning {item.quantity}× {item.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="flex justify-between text-sm mt-1">
                 <span className="text-orange-700">Return Credit</span>
                 <span className="font-bold text-orange-700">-₱{exchangeCredit.toFixed(2)}</span>

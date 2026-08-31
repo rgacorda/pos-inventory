@@ -535,6 +535,12 @@ export class SyncService {
     if (lastSyncedAt) {
       await dbHelpers.updateLastSyncTime(lastSyncedAt);
     }
+
+    // Exchange restocks on the server; catalog is skipped while uploading
+    // orders, so pull it now so POS counts reflect returned quantities.
+    if (allOrders.some((order) => order.exchangeRef)) {
+      await this.syncProductCatalog(terminalId);
+    }
   }
 
   private async syncProductCatalog(terminalId: string) {
@@ -694,6 +700,7 @@ export class SyncService {
       totalAmount: order.totalAmount,
       completedAt: order.completedAt,
       exchangeRef: order.exchangeRef,
+      originalPosLocalId: order.originalPosLocalId,
       returnedItems: order.returnedItems,
     };
   }

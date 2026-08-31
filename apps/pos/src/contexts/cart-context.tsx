@@ -14,6 +14,7 @@ export interface OrderItem {
 export interface ExchangedItem {
   productId: string;
   name: string;
+  sku?: string;
   quantity: number;
   unitPrice: number;
   total: number;
@@ -28,6 +29,7 @@ interface PersistedCartState {
   exchangeCredit: number;
   exchangeRef: string | null;
   originalOrderServerId: string | null;
+  originalPosLocalId: string | null;
   exchangedItems: ExchangedItem[];
 }
 
@@ -67,11 +69,13 @@ interface CartContextValue {
   exchangeCredit: number;
   exchangeRef: string | null;           // original order number (display + stored on new order)
   originalOrderServerId: string | null; // server UUID → used to call POST /orders/{id}/exchange
+  originalPosLocalId: string | null;    // original order's POS-local UUID (stable server lookup key)
   exchangedItems: ExchangedItem[];      // items being returned (for receipt/audit)
   startExchange: (data: {
     credit: number;
     orderRef: string;
     serverId: string | null;
+    posLocalId: string | null;
     items: ExchangedItem[];
   }) => void;
   clearExchange: () => void;
@@ -93,6 +97,7 @@ function getInitialState(): PersistedCartState {
     exchangeCredit: saved?.exchangeCredit ?? 0,
     exchangeRef: saved?.exchangeRef ?? null,
     originalOrderServerId: saved?.originalOrderServerId ?? null,
+    originalPosLocalId: saved?.originalPosLocalId ?? null,
     exchangedItems: saved?.exchangedItems ?? [],
   };
   return _cachedInitialState;
@@ -108,6 +113,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [exchangeCredit, setExchangeCredit] = useState(() => getInitialState().exchangeCredit);
   const [exchangeRef, setExchangeRef] = useState<string | null>(() => getInitialState().exchangeRef);
   const [originalOrderServerId, setOriginalOrderServerId] = useState<string | null>(() => getInitialState().originalOrderServerId);
+  const [originalPosLocalId, setOriginalPosLocalId] = useState<string | null>(() => getInitialState().originalPosLocalId);
   const [exchangedItems, setExchangedItems] = useState<ExchangedItem[]>(() => getInitialState().exchangedItems);
 
   // Persist cart state to localStorage whenever it changes
@@ -121,6 +127,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       exchangeCredit,
       exchangeRef,
       originalOrderServerId,
+      originalPosLocalId,
       exchangedItems,
     });
   }, [
@@ -132,6 +139,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     exchangeCredit,
     exchangeRef,
     originalOrderServerId,
+    originalPosLocalId,
     exchangedItems,
   ]);
 
@@ -145,6 +153,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setExchangeCredit(0);
     setExchangeRef(null);
     setOriginalOrderServerId(null);
+    setOriginalPosLocalId(null);
     setExchangedItems([]);
   };
 
@@ -152,6 +161,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     credit: number;
     orderRef: string;
     serverId: string | null;
+    posLocalId: string | null;
     items: ExchangedItem[];
   }) => {
     // Clear the cart first so the cashier starts fresh
@@ -164,6 +174,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setExchangeCredit(data.credit);
     setExchangeRef(data.orderRef);
     setOriginalOrderServerId(data.serverId);
+    setOriginalPosLocalId(data.posLocalId);
     setExchangedItems(data.items);
   };
 
@@ -171,6 +182,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setExchangeCredit(0);
     setExchangeRef(null);
     setOriginalOrderServerId(null);
+    setOriginalPosLocalId(null);
     setExchangedItems([]);
   };
 
@@ -191,6 +203,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         exchangeCredit,
         exchangeRef,
         originalOrderServerId,
+        originalPosLocalId,
         exchangedItems,
         startExchange,
         clearExchange,

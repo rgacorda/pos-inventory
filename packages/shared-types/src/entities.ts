@@ -71,6 +71,14 @@ export interface Order extends BaseEntity {
   voidedAt?: Date;
   exchangeRef?: string;        // order number of the original transaction being exchanged
   exchangedAt?: Date;
+  returnedItems?: {            // products returned as part of an exchange
+    productId: string;
+    name?: string;
+    sku?: string;
+    quantity: number;
+    unitPrice?: number;
+    total?: number;
+  }[];
   items: OrderItem[];
 }
 

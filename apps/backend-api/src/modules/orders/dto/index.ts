@@ -6,6 +6,7 @@ import {
   IsOptional,
   ValidateNested,
   IsUUID,
+  IsISO8601,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -109,22 +110,44 @@ export class SyncOrderDto {
   syncedAt?: string;
 }
 
+export class ExchangeReturnedItemDto {
+  @IsString()
+  productId: string;
+
+  @IsString()
+  name: string;
+
+  @IsString()
+  @IsOptional()
+  sku?: string;
+
+  @IsNumber()
+  @Min(1)
+  quantity: number;
+
+  @IsNumber()
+  @Min(0)
+  unitPrice: number;
+
+  @IsNumber()
+  @Min(0)
+  total: number;
+}
+
 export class ExchangeOrderDto {
   @IsString()
   newOrderPosLocalId: string;
 
   @IsArray()
-  returnedItems: {
-    productId: string;
-    name: string;
-    quantity: number;
-    unitPrice: number;
-    total: number;
-  }[];
+  @ValidateNested({ each: true })
+  @Type(() => ExchangeReturnedItemDto)
+  returnedItems: ExchangeReturnedItemDto[];
 
   @IsNumber()
   @Min(0)
   creditAmount: number;
 
-  exchangedAt: Date;
+  @IsOptional()
+  @IsISO8601()
+  exchangedAt?: string;
 }

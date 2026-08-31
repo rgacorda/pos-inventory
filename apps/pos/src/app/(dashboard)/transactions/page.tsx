@@ -273,6 +273,7 @@ export default function OrdersPage() {
     const exchangedItems: ExchangedItem[] = items.map((item) => ({
       productId: item.productId,
       name: item.name,
+      sku: item.sku,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       total: item.total,
@@ -282,6 +283,7 @@ export default function OrdersPage() {
       credit: returnCredit,
       orderRef: selectedOrder.orderNumber,
       serverId: selectedOrder.serverId ?? null,
+      posLocalId: selectedOrder.posLocalId ?? null,
       items: exchangedItems,
     });
 
@@ -660,8 +662,66 @@ export default function OrdersPage() {
               )}
 
               <div className="border-t pt-4">
+                {(() => {
+                  const returnedItems =
+                    selectedOrder.returnedItems?.length
+                      ? selectedOrder.returnedItems
+                      : exchangeChildOrder?.returnedItems;
+                  if (!returnedItems?.length) return null;
+                  return (
+                    <div className="mb-4">
+                      <h4 className="font-semibold mb-3 text-orange-800">
+                        Returned Items ({returnedItems.length}{" "}
+                        {returnedItems.length === 1 ? "line" : "lines"})
+                      </h4>
+                      <div className="rounded-lg border overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Product</TableHead>
+                              <TableHead className="text-right">Quantity</TableHead>
+                              <TableHead className="text-right">Unit Price</TableHead>
+                              <TableHead className="text-right">Subtotal</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {returnedItems.map((item, index) => (
+                              <TableRow key={`returned-${item.productId}-${index}`}>
+                                <TableCell>
+                                  <div>
+                                    <p className="font-medium">
+                                      {item.name || "Returned item"}
+                                    </p>
+                                    {item.sku && item.sku !== "MANUAL" && (
+                                      <p className="text-xs text-muted-foreground">
+                                        SKU: {item.sku}
+                                      </p>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {item.quantity}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {formatCurrency(item.unitPrice ?? 0)}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {formatCurrency(
+                                    item.total ??
+                                      (item.quantity ?? 0) * (item.unitPrice ?? 0),
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <h4 className="font-semibold mb-3">
-                  Items Bought ({selectedOrder.items?.length || 0} lines,{" "}
+                  {selectedOrder.exchangeRef ? "Replacement Items" : "Items Bought"}{" "}
+                  ({selectedOrder.items?.length || 0} lines,{" "}
                   {getItemsBought(selectedOrder)} qty)
                 </h4>
                 <div className="rounded-lg border overflow-hidden">
