@@ -39,6 +39,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   showSuccessToast,
   showErrorFromException,
@@ -55,6 +63,7 @@ import {
   IconEyeOff,
   IconPackage,
   IconCash,
+  IconTruck,
 } from "@tabler/icons-react";
 
 interface Supplier {
@@ -85,11 +94,15 @@ interface SupplierProduct {
   name: string;
   sku: string;
   price: number;
+  cost?: number;
   stockQuantity: number;
   lowStockThreshold?: number;
   status: string;
   packQuantity?: number;
+  halfPackQuantity?: number;
 }
+
+type QuantityType = "UNIT" | "PACK" | "HALF_PACK";
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -105,6 +118,11 @@ export default function SuppliersPage() {
   const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [loadingSupplierProducts, setLoadingSupplierProducts] = useState(false);
+  const [isSelectingForDelivery, setIsSelectingForDelivery] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productQuantities, setProductQuantities] = useState<Record<string, string>>({});
+  const [productQuantityTypes, setProductQuantityTypes] = useState<Record<string, QuantityType>>({});
+  const [submittingPendingDelivery, setSubmittingPendingDelivery] = useState(false);
 
   const [isIncentiveDialogOpen, setIsIncentiveDialogOpen] = useState(false);
   const [incentiveSupplier, setIncentiveSupplier] = useState<Supplier | null>(null);
@@ -225,9 +243,35 @@ export default function SuppliersPage() {
     }
   };
 
+  const resetDeliverySelection = () => {
+    setIsSelectingForDelivery(false);
+    setSelectedProductIds([]);
+    setProductQuantities({});
+    setProductQuantityTypes({});
+  };
+
+  const getDefaultQuantityType = (product: SupplierProduct): QuantityType =>
+    product.packQuantity ? "PACK" : "UNIT";
+
+  const getUnitMultiplier = (type: QuantityType, product: SupplierProduct) => {
+    if (type === "PACK") return product.packQuantity || 1;
+    if (type === "HALF_PACK") return product.halfPackQuantity || 1;
+    return 1;
+  };
+
+  const ensureQuantityDefaults = (product: SupplierProduct) => {
+    setProductQuantities((prev) =>
+      prev[product.id] ? prev : { ...prev, [product.id]: "1" },
+    );
+    setProductQuantityTypes((prev) =>
+      prev[product.id] ? prev : { ...prev, [product.id]: getDefaultQuantityType(product) },
+    );
+  };
+
   const handleViewSupplierProducts = async (supplier: Supplier) => {
     setProductsSupplier(supplier);
     setIsProductsDialogOpen(true);
+    resetDeliverySelection();
     setLoadingSupplierProducts(true);
     try {
       const data = await apiClient.getProducts({ supplierId: supplier.id });
@@ -240,6 +284,143 @@ export default function SuppliersPage() {
       setSupplierProducts([]);
     } finally {
       setLoadingSupplierProducts(false);
+    }
+  };
+
+  const toggleProductSelection = (productId: string, checked?: boolean) => {
+    const product = supplierProducts.find((item) => item.id === productId);
+    setSelectedProductIds((prev) => {
+      const isSelected = prev.includes(productId);
+      const shouldSelect = checked ?? !isSelected;
+      if (shouldSelect && !isSelected) {
+        return [...prev, productId];
+      }
+      if (!shouldSelect && isSelected) {
+        return prev.filter((id) => id !== productId);
+      }
+      return prev;
+    });
+    if (product) {
+      ensureQuantityDefaults(product);
+    }
+  };
+
+  const toggleSelectAllProducts = (checked: boolean) => {
+    if (checked) {
+      setSelectedProductIds(supplierProducts.map((product) => product.id));
+      setProductQuantities((prev) => {
+        const next = { ...prev };
+        for (const product of supplierProducts) {
+          if (!next[product.id]) next[product.id] = "1";
+        }
+        return next;
+      });
+      setProductQuantityTypes((prev) => {
+        const next = { ...prev };
+        for (const product of supplierProducts) {
+          if (!next[product.id]) next[product.id] = getDefaultQuantityType(product);
+        }
+        return next;
+      });
+    } else {
+      setSelectedProductIds([]);
+    }
+  };
+
+  const handleCreatePendingDelivery = async () => {
+    if (!productsSupplier) return;
+
+    const selected = supplierProducts.filter((product) =>
+      selectedProductIds.includes(product.id),
+    );
+    if (selected.length === 0) {
+      showErrorFromException(
+        new Error("Select at least one product"),
+        "Validation Error",
+      );
+      return;
+    }
+
+    const items: Array<{
+      productId: string;
+      productName: string;
+      quantity: number;
+      unitCost: number;
+      totalCost: number;
+      packInfo?: {
+        type: "PACK" | "HALF_PACK";
+        packs: number;
+        unitsPerPack: number;
+      };
+    }> = [];
+
+    for (const product of selected) {
+      const enteredQuantity = parseFloat(productQuantities[product.id] || "0");
+      if (!enteredQuantity || enteredQuantity <= 0) {
+        showErrorFromException(
+          new Error(`Enter a quantity greater than zero for ${product.name}`),
+          "Validation Error",
+        );
+        return;
+      }
+
+      const quantityType = productQuantityTypes[product.id] || getDefaultQuantityType(product);
+      if (quantityType === "PACK" && !product.packQuantity) {
+        showErrorFromException(
+          new Error(`${product.name} has no pack size configured`),
+          "Validation Error",
+        );
+        return;
+      }
+      if (quantityType === "HALF_PACK" && !product.halfPackQuantity) {
+        showErrorFromException(
+          new Error(`${product.name} has no half-pack size configured`),
+          "Validation Error",
+        );
+        return;
+      }
+
+      const multiplier = getUnitMultiplier(quantityType, product);
+      const totalUnits = enteredQuantity * multiplier;
+      const unitCost = Number(product.cost) || 0;
+      items.push({
+        productId: product.id,
+        productName: product.name,
+        quantity: totalUnits,
+        unitCost,
+        totalCost: totalUnits * unitCost,
+        ...(quantityType !== "UNIT" && {
+          packInfo: {
+            type: quantityType,
+            packs: enteredQuantity,
+            unitsPerPack: multiplier,
+          },
+        }),
+      });
+    }
+
+    const totalCost = items.reduce((sum, item) => sum + item.totalCost, 0);
+
+    try {
+      setSubmittingPendingDelivery(true);
+      await apiClient.createInventoryDelivery({
+        supplierId: productsSupplier.id,
+        deliveryDate: new Date().toISOString(),
+        totalCost,
+        discountAmount: 0,
+        items,
+        status: "PENDING",
+        notes: `Queued from ${productsSupplier.name} product list`,
+      });
+      showSuccessToast(SUCCESS_MESSAGES.CREATED("Pending delivery"), {
+        description: "Open Deliveries and use the check mark to receive it when it arrives.",
+      });
+      resetDeliverySelection();
+      setIsProductsDialogOpen(false);
+    } catch (error) {
+      showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("delivery"));
+    } finally {
+      setSubmittingPendingDelivery(false);
     }
   };
 
@@ -716,21 +897,29 @@ export default function SuppliersPage() {
       </Dialog>
 
       {/* Supplier Products Dialog */}
-      <Dialog open={isProductsDialogOpen} onOpenChange={setIsProductsDialogOpen}>
-        <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+      <Dialog
+        open={isProductsDialogOpen}
+        onOpenChange={(open) => {
+          setIsProductsDialogOpen(open);
+          if (!open) resetDeliverySelection();
+        }}
+      >
+        <DialogContent className="!max-w-5xl max-h-[90vh] !overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="text-xl">Products from {productsSupplier?.name}</DialogTitle>
             <DialogDescription>
-              Sorted by stock quantity, lowest first
+              {isSelectingForDelivery
+                ? "Tick products and enter quantities in units or packs. Stock is not updated until the delivery is received."
+                : "Sorted by stock quantity, lowest first"}
             </DialogDescription>
           </DialogHeader>
 
           {loadingSupplierProducts ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex min-h-0 flex-1 items-center justify-center py-12">
               <div className="text-muted-foreground">Loading products...</div>
             </div>
           ) : supplierProducts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-12">
               <IconPackage className="h-12 w-12 text-muted-foreground mb-4" />
               <div className="text-muted-foreground">
                 No products linked to this supplier yet
@@ -740,19 +929,52 @@ export default function SuppliersPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                {supplierProducts.length} product{supplierProducts.length === 1 ? "" : "s"}
-              </p>
-              <div className="border rounded-md max-h-[60vh] overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+              <div className="flex shrink-0 items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {supplierProducts.length} product{supplierProducts.length === 1 ? "" : "s"}
+                  {isSelectingForDelivery && selectedProductIds.length > 0
+                    ? ` · ${selectedProductIds.length} selected`
+                    : ""}
+                </p>
+                {!isSelectingForDelivery && (
+                  <Button size="sm" onClick={() => setIsSelectingForDelivery(true)}>
+                    <IconTruck className="mr-2 h-4 w-4" />
+                    Add to Pending Delivery
+                  </Button>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
                     <TableRow>
+                      {isSelectingForDelivery && (
+                        <TableHead className="w-10 py-3">
+                          <Checkbox
+                            checked={
+                              selectedProductIds.length === supplierProducts.length
+                                ? true
+                                : selectedProductIds.length > 0
+                                  ? "indeterminate"
+                                  : false
+                            }
+                            onCheckedChange={(checked) =>
+                              toggleSelectAllProducts(checked === true)
+                            }
+                            aria-label="Select all products"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead className="text-base py-3">Product</TableHead>
                       <TableHead className="text-base py-3">SKU</TableHead>
                       <TableHead className="text-right text-base py-3">Price</TableHead>
                       <TableHead className="text-right text-base py-3">Stock Quantity</TableHead>
                       <TableHead className="text-right text-base py-3">Packs Sellable</TableHead>
+                      {isSelectingForDelivery && (
+                        <TableHead className="text-right text-base py-3 w-56">
+                          Quantity
+                        </TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -762,8 +984,37 @@ export default function SuppliersPage() {
                       const packsSellable = product.packQuantity
                         ? Math.floor((Number(product.stockQuantity) || 0) / Number(product.packQuantity))
                         : null;
+                      const isSelected = selectedProductIds.includes(product.id);
+                      const quantityType =
+                        productQuantityTypes[product.id] || getDefaultQuantityType(product);
+                      const enteredQuantity = parseFloat(productQuantities[product.id] || "0") || 0;
+                      const unitMultiplier = getUnitMultiplier(quantityType, product);
+                      const totalUnits = enteredQuantity * unitMultiplier;
                       return (
-                        <TableRow key={product.id}>
+                        <TableRow
+                          key={product.id}
+                          className={
+                            isSelectingForDelivery
+                              ? `cursor-pointer ${isSelected ? "bg-muted/50" : ""}`
+                              : undefined
+                          }
+                          onClick={() => {
+                            if (isSelectingForDelivery) {
+                              toggleProductSelection(product.id);
+                            }
+                          }}
+                        >
+                          {isSelectingForDelivery && (
+                            <TableCell className="py-3" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) =>
+                                  toggleProductSelection(product.id, checked === true)
+                                }
+                                aria-label={`Select ${product.name}`}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="font-medium py-3">{product.name}</TableCell>
                           <TableCell className="font-mono text-sm text-muted-foreground py-3">
                             {product.sku}
@@ -791,6 +1042,75 @@ export default function SuppliersPage() {
                               <span className="text-gray-400">-</span>
                             )}
                           </TableCell>
+                          {isSelectingForDelivery && (
+                            <TableCell
+                              className="text-right py-3"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={productQuantities[product.id] ?? ""}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setProductQuantities((prev) => ({
+                                      ...prev,
+                                      [product.id]: value,
+                                    }));
+                                    if (!isSelected && Number(value) > 0) {
+                                      toggleProductSelection(product.id, true);
+                                    }
+                                  }}
+                                  placeholder="0"
+                                  className="h-8 w-20 text-right"
+                                />
+                                <Select
+                                  value={quantityType}
+                                  onValueChange={(value) => {
+                                    setProductQuantityTypes((prev) => ({
+                                      ...prev,
+                                      [product.id]: value as QuantityType,
+                                    }));
+                                    if (!isSelected) {
+                                      toggleProductSelection(product.id, true);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger size="sm" className="h-8 w-[118px]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="UNIT">Units</SelectItem>
+                                    <SelectItem
+                                      value="PACK"
+                                      disabled={!product.packQuantity}
+                                    >
+                                      Packs
+                                      {product.packQuantity
+                                        ? ` (${product.packQuantity})`
+                                        : ""}
+                                    </SelectItem>
+                                    <SelectItem
+                                      value="HALF_PACK"
+                                      disabled={!product.halfPackQuantity}
+                                    >
+                                      Half packs
+                                      {product.halfPackQuantity
+                                        ? ` (${product.halfPackQuantity})`
+                                        : ""}
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {quantityType !== "UNIT" && enteredQuantity > 0 && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  = {totalUnits} unit{totalUnits === 1 ? "" : "s"}
+                                </p>
+                              )}
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}
@@ -800,10 +1120,26 @@ export default function SuppliersPage() {
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsProductsDialogOpen(false)}>
-              Close
-            </Button>
+          <DialogFooter className="shrink-0">
+            {isSelectingForDelivery ? (
+              <>
+                <Button variant="outline" onClick={resetDeliverySelection}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreatePendingDelivery}
+                  disabled={submittingPendingDelivery || selectedProductIds.length === 0}
+                >
+                  {submittingPendingDelivery
+                    ? "Adding..."
+                    : `Add ${selectedProductIds.length} item${selectedProductIds.length === 1 ? "" : "s"} as Pending`}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={() => setIsProductsDialogOpen(false)}>
+                Close
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
