@@ -28,6 +28,20 @@ export class OrdersService {
     private dataSource: DataSource,
   ) {}
 
+  /**
+   * Order timestamps are `timestamp without time zone`, written in the Node
+   * process timezone (TypeORM default `timezone: 'local'`). Local machines
+   * typically persist Asia/Manila wall-clock hours; a UTC production server
+   * persists UTC hours. Reports must convert from that source zone to the
+   * business timezone before grouping by hour or calendar date.
+   */
+  private getReportTimezones(): { storedAsTz: string; displayTz: string } {
+    return {
+      storedAsTz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      displayTz: process.env.APP_TIMEZONE || 'Asia/Manila',
+    };
+  }
+
   async create(createOrderDto: CreateOrderDto, requestingUser: any) {
     const { orderNumber, posLocalId, organizationId, items } = createOrderDto;
 
@@ -199,6 +213,8 @@ export class OrdersService {
     const isSuperAdmin = requestingUser.role === UserRole.SUPER_ADMIN;
     const isCashier = requestingUser.role === UserRole.CASHIER;
     const orgId = requestingUser.organizationId;
+    const { storedAsTz, displayTz } = this.getReportTimezones();
+    const orderLocalTs = `(COALESCE(order.completedAt, order.createdAt) AT TIME ZONE :storedAsTz) AT TIME ZONE :displayTz`;
 
     const applyFilters = (qb: any) => {
       qb.andWhere('order.status != :voidStatus', {
@@ -240,25 +256,20 @@ export class OrdersService {
           .where('1=1'),
       ).getRawOne(),
 
-      // 2. Daily sales trend — GROUP BY date in SQL
+      // 2. Daily sales trend — GROUP BY date in the business timezone
       applyFilters(
         this.ordersRepository
           .createQueryBuilder('order')
-          .select(
-            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
-            'date',
-          )
+          .select(`TO_CHAR(${orderLocalTs}, 'YYYY-MM-DD')`, 'date')
           .addSelect('SUM(order.totalAmount)', 'revenue')
           .addSelect('COUNT(order.id)', 'orders')
           .where('1=1')
-          .groupBy(
-            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
-          )
-          .orderBy(
-            "TO_CHAR(COALESCE(order.completedAt, order.createdAt), 'YYYY-MM-DD')",
-            'ASC',
-          ),
-      ).getRawMany(),
+          .groupBy(`TO_CHAR(${orderLocalTs}, 'YYYY-MM-DD')`)
+          .orderBy(`TO_CHAR(${orderLocalTs}, 'YYYY-MM-DD')`, 'ASC'),
+      )
+        .setParameter('storedAsTz', storedAsTz)
+        .setParameter('displayTz', displayTz)
+        .getRawMany(),
 
       // 3. Top products — GROUP BY (productId, name, sku) in order_items
       (() => {
@@ -326,25 +337,20 @@ export class OrdersService {
           .orderBy('SUM(order.totalAmount)', 'DESC'),
       ).getRawMany(),
 
-      // 6. Hourly pattern — GROUP BY hour
+      // 6. Hourly pattern — GROUP BY hour in the business timezone
       applyFilters(
         this.ordersRepository
           .createQueryBuilder('order')
-          .select(
-            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
-            'hour',
-          )
+          .select(`EXTRACT(HOUR FROM ${orderLocalTs})`, 'hour')
           .addSelect('SUM(order.totalAmount)', 'revenue')
           .addSelect('COUNT(order.id)', 'orders')
           .where('1=1')
-          .groupBy(
-            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
-          )
-          .orderBy(
-            'EXTRACT(HOUR FROM COALESCE(order.completedAt, order.createdAt))',
-            'ASC',
-          ),
-      ).getRawMany(),
+          .groupBy(`EXTRACT(HOUR FROM ${orderLocalTs})`)
+          .orderBy(`EXTRACT(HOUR FROM ${orderLocalTs})`, 'ASC'),
+      )
+        .setParameter('storedAsTz', storedAsTz)
+        .setParameter('displayTz', displayTz)
+        .getRawMany(),
 
       // 7. Recent orders (lightweight — for CSV export)
       applyFilters(
