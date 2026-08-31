@@ -84,6 +84,62 @@ function getOrderTimestamp(order: LocalOrder) {
   return new Date(order.localCreatedAt).getTime();
 }
 
+function OrderStatusBadge({ status }: { status: string }) {
+  const className =
+    status === OrderStatus.COMPLETED
+      ? "bg-green-600 hover:bg-green-700"
+      : status === OrderStatus.EXCHANGE
+        ? "bg-orange-500 hover:bg-orange-600"
+        : status === OrderStatus.PENDING
+          ? "bg-yellow-600 hover:bg-yellow-700"
+          : status === OrderStatus.VOID
+            ? "bg-red-600 hover:bg-red-700"
+            : "bg-gray-600 hover:bg-gray-700";
+
+  const label =
+    status === OrderStatus.VOID
+      ? "Voided"
+      : status === OrderStatus.EXCHANGE
+        ? "Exchanged"
+        : status === OrderStatus.COMPLETED
+          ? "Completed"
+          : status === OrderStatus.PENDING
+            ? "Pending"
+            : status;
+
+  return <Badge className={className}>{label}</Badge>;
+}
+
+function SyncStatusBadge({
+  syncStatus,
+}: {
+  syncStatus: LocalOrder["syncStatus"];
+}) {
+  const className =
+    syncStatus === "synced"
+      ? "border-green-200 text-green-700 bg-green-50"
+      : syncStatus === "pending"
+        ? "border-yellow-200 text-yellow-700 bg-yellow-50"
+        : syncStatus === "error"
+          ? "border-red-200 text-red-700 bg-red-50"
+          : "border-blue-200 text-blue-700 bg-blue-50";
+
+  const label =
+    syncStatus === "synced"
+      ? "Synced"
+      : syncStatus === "pending"
+        ? "Pending"
+        : syncStatus === "error"
+          ? "Error"
+          : "Syncing";
+
+  return (
+    <Badge variant="outline" className={className}>
+      {label}
+    </Badge>
+  );
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const orders = useTodaysOrders();
@@ -305,7 +361,7 @@ export default function OrdersPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           <Card>
             <CardHeader>
               <div>
@@ -378,6 +434,8 @@ export default function OrdersPage() {
                         <TableHead>Mode of Payment</TableHead>
                         <TableHead>Items Bought</TableHead>
                         <TableHead>Total Cost</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Sync</TableHead>
                         <TableHead>
                           <Button
                             variant="ghost"
@@ -425,6 +483,12 @@ export default function OrdersPage() {
                               }`}
                             >
                               {formatCurrency(order.totalAmount)}
+                            </TableCell>
+                            <TableCell>
+                              <OrderStatusBadge status={order.status} />
+                            </TableCell>
+                            <TableCell>
+                              <SyncStatusBadge syncStatus={order.syncStatus} />
                             </TableCell>
                             <TableCell>
                               {format(new Date(order.localCreatedAt), "h:mm a")}
@@ -522,45 +586,8 @@ export default function OrdersPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    <Badge
-                      className={
-                        selectedOrder.status === "COMPLETED"
-                          ? "bg-green-600 hover:bg-green-700"
-                          : selectedOrder.status === "EXCHANGE"
-                            ? "bg-orange-500 hover:bg-orange-600"
-                            : selectedOrder.status === "PENDING"
-                              ? "bg-yellow-600 hover:bg-yellow-700"
-                              : selectedOrder.status === "VOID"
-                                ? "bg-red-600 hover:bg-red-700"
-                                : "bg-gray-600 hover:bg-gray-700"
-                      }
-                    >
-                      {selectedOrder.status === "VOID"
-                        ? "✗ VOIDED"
-                        : selectedOrder.status === "EXCHANGE"
-                          ? "⇄ EXCHANGE"
-                          : selectedOrder.status}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={
-                        selectedOrder.syncStatus === "synced"
-                          ? "border-green-200 text-green-700"
-                          : selectedOrder.syncStatus === "pending"
-                            ? "border-yellow-200 text-yellow-700"
-                            : selectedOrder.syncStatus === "error"
-                              ? "border-red-200 text-red-700"
-                              : "border-blue-200 text-blue-700"
-                      }
-                    >
-                      {selectedOrder.syncStatus === "synced"
-                        ? "✓ Synced"
-                        : selectedOrder.syncStatus === "pending"
-                          ? "⏳ Pending"
-                          : selectedOrder.syncStatus === "error"
-                            ? "✗ Error"
-                            : "⟳ Syncing"}
-                    </Badge>
+                    <OrderStatusBadge status={selectedOrder.status} />
+                    <SyncStatusBadge syncStatus={selectedOrder.syncStatus} />
                   </div>
                 </div>
                 <div>
