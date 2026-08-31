@@ -27,6 +27,21 @@ export function useTodaysOrders() {
   return useLiveQuery(() => dbHelpers.getTodaysOrders(), []);
 }
 
+export function useLocalOrders() {
+  return useLiveQuery(
+    () => db.orders.orderBy("localCreatedAt").reverse().toArray(),
+    [],
+  );
+}
+
+export function useTodaysPayments() {
+  return useLiveQuery(async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return db.payments.where("localCreatedAt").above(today).toArray();
+  }, []);
+}
+
 export function useOrdersByStatus(status: any) {
   return useLiveQuery(() => dbHelpers.getOrdersByStatus(status), [status]);
 }

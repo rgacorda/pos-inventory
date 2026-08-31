@@ -37,7 +37,7 @@ export function Navigation() {
   const navItems = [
     { href: "/", label: "POS", icon: "🛒" },
     { href: "/orders", label: "Orders", icon: "📋" },
-    { href: "/products", label: "Products", icon: "📦" },
+    { href: "/products", label: "Manual Items", icon: "📦" },
   ];
 
   return (

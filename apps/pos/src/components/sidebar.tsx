@@ -574,7 +574,7 @@ export function Sidebar() {
               }`}
             >
               <Package className="h-5 w-5" />
-              <span className="text-sm">Products</span>
+              <span className="text-sm">Manual Items</span>
             </div>
           </Link>
         </div>
