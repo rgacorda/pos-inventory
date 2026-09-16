@@ -6,9 +6,10 @@ import {
   useTodaysOrders,
   useTodaysPayments,
   usePaymentsByOrder,
+  useProducts,
 } from "@/hooks/useDatabase";
-import { formatCurrency, formatDateTime } from "@pos/shared-utils";
-import { LocalOrder, LocalPayment, dbHelpers } from "@/lib/db";
+import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
+import { LocalOrder, LocalPayment, LocalProduct, dbHelpers } from "@/lib/db";
 import {
   Dialog,
   DialogContent,
@@ -76,8 +77,29 @@ function getOrderPaymentMethods(
   return [...new Set(methods)].join(" + ");
 }
 
-function getItemsBought(order: LocalOrder) {
-  return (order.items ?? []).reduce((sum, item) => sum + (item.quantity || 0), 0);
+function packFieldsForItem(
+  item: LocalOrder["items"][number],
+  productsById?: Map<string, LocalProduct>,
+) {
+  const product = productsById?.get(item.productId);
+  return {
+    packPrice: item.packPrice ?? product?.packPrice,
+    packQuantity: item.packQuantity ?? product?.packQuantity,
+    halfPackPrice: item.halfPackPrice ?? product?.halfPackPrice,
+    halfPackQuantity: item.halfPackQuantity ?? product?.halfPackQuantity,
+  };
+}
+
+function getItemsBought(
+  order: LocalOrder,
+  productsById?: Map<string, LocalProduct>,
+) {
+  return calculateTotalSoldItemCount(
+    (order.items ?? []).map((item) => ({
+      quantity: item.quantity || 0,
+      ...packFieldsForItem(item, productsById),
+    })),
+  );
 }
 
 function getOrderTimestamp(order: LocalOrder) {
@@ -144,6 +166,7 @@ export default function OrdersPage() {
   const router = useRouter();
   const orders = useTodaysOrders();
   const todaysPayments = useTodaysPayments();
+  const products = useProducts();
   const { startExchange } = useCart();
 
   const [selectedOrder, setSelectedOrder] = useState<LocalOrder | null>(null);
@@ -169,6 +192,14 @@ export default function OrdersPage() {
     });
     return map;
   }, [todaysPayments]);
+
+  const productsById = useMemo(() => {
+    const map = new Map<string, LocalProduct>();
+    (products ?? []).forEach((product) => {
+      if (product.id) map.set(product.id, product);
+    });
+    return map;
+  }, [products]);
 
   // Find the exchange order created for the selected order (local lookup)
   const exchangeChildOrder = useMemo(() => {
@@ -472,7 +503,7 @@ export default function OrdersPage() {
                             <TableCell>
                               {getOrderPaymentMethods(order, paymentsByOrder)}
                             </TableCell>
-                            <TableCell>{getItemsBought(order)}</TableCell>
+                            <TableCell>{getItemsBought(order, productsById)}</TableCell>
                             <TableCell
                               className={`font-semibold ${
                                 isVoided
@@ -598,7 +629,7 @@ export default function OrdersPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Items Bought</p>
-                  <p className="font-medium">{getItemsBought(selectedOrder)}</p>
+                  <p className="font-medium">{getItemsBought(selectedOrder, productsById)}</p>
                 </div>
               </div>
 
@@ -749,7 +780,7 @@ export default function OrdersPage() {
                 <h4 className="font-semibold mb-3">
                   {selectedOrder.exchangeRef ? "Replacement Items" : "Items Bought"}{" "}
                   ({selectedOrder.items?.length || 0} lines,{" "}
-                  {getItemsBought(selectedOrder)} qty)
+                  {getItemsBought(selectedOrder, productsById)} qty)
                 </h4>
                 <div className="rounded-lg border overflow-hidden">
                   <div className="max-h-[420px] overflow-auto">
@@ -1047,7 +1078,13 @@ export default function OrdersPage() {
             {selectedOrder && payments && payments.length > 0 && (
               <Receipt
                 orderNumber={selectedOrder.orderNumber}
-                items={selectedOrder.items || []}
+                items={(selectedOrder.items || []).map((item) => ({
+                  name: item.name,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  total: item.total,
+                  ...packFieldsForItem(item, productsById),
+                }))}
                 subtotal={selectedOrder.subtotal}
                 taxAmount={selectedOrder.taxAmount}
                 discountAmount={selectedOrder.discountAmount}

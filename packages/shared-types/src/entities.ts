@@ -122,6 +122,11 @@ export interface OrderItem {
   discountAmount: number;
   subtotal: number;
   total: number;
+  /** Snapshot of pack pricing at sale time, used to count packs as 1 item. */
+  packPrice?: number;
+  packQuantity?: number;
+  halfPackPrice?: number;
+  halfPackQuantity?: number;
 }
 
 /**

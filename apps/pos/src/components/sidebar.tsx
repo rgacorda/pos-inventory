@@ -71,7 +71,7 @@ export function Sidebar() {
   const [newVoidPin, setNewVoidPin] = useState<string>("");
   const [voidPinSaved, setVoidPinSaved] = useState(false);
   const [voidPinError, setVoidPinError] = useState<string>("");
-  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("58mm");
+  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
 
   const todaysSales =
     todaysOrders

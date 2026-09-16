@@ -1,4 +1,4 @@
-import { formatCurrency, formatDateTime } from "@pos/shared-utils";
+import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
 
 export interface ReceiptItem {
@@ -6,6 +6,10 @@ export interface ReceiptItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  packPrice?: number;
+  packQuantity?: number;
+  halfPackPrice?: number;
+  halfPackQuantity?: number;
 }
 
 export interface ReceiptOrganization {
@@ -91,7 +95,7 @@ function row(label: string, value: string, extraClass = ""): string {
 function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): string {
   const isWide = paperSize === "80mm";
   const org = data.organization;
-  const totalItemCount = data.items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalItemCount = calculateTotalSoldItemCount(data.items);
 
   const header = `
     <div class="center mb-2">

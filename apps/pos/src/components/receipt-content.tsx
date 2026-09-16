@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCurrency, formatDateTime } from "@pos/shared-utils";
+import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
 import type { ReceiptData } from "@/lib/receipt-template";
 
@@ -46,7 +46,7 @@ export function ReceiptContent({
 }: ReceiptContentProps) {
   const isWide = paperSize === "80mm";
   const hasCustomer = !!(customerName || customerAddress);
-  const totalItemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalItemCount = calculateTotalSoldItemCount(items);
 
   return (
     <div

@@ -14,7 +14,7 @@ interface ReceiptProps extends Omit<ReceiptData, "organization"> {
 export function Receipt(props: ReceiptProps) {
   const { onPrintComplete, ...receiptFields } = props;
   const [organization, setOrganization] = useState<ReceiptOrganization | null>(null);
-  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("58mm");
+  const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
 
   useEffect(() => {
     const loadOrganization = async () => {

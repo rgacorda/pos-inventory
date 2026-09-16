@@ -570,13 +570,13 @@ export const dbHelpers = {
     }
   },
 
-  // Get receipt paper size (defaults to "58mm" if never set)
+  // Get receipt paper size (defaults to "80mm" if never set)
   async getPaperSize(): Promise<ReceiptPaperSize> {
     const metadata = await db.syncMetadata
       .where("key")
       .equals("receiptPaperSize")
       .first();
-    return metadata?.value === "80mm" ? "80mm" : "58mm";
+    return metadata?.value === "58mm" ? "58mm" : "80mm";
   },
 
   // Set receipt paper size — persists until explicitly changed again

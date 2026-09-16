@@ -41,7 +41,7 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, PriceBreakdown } from "@pos/shared-utils";
+import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, calculateTotalSoldItemCount, PriceBreakdown } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
 import {
@@ -904,6 +904,10 @@ export default function Page() {
           discountAmount: 0,
           subtotal,
           total: subtotal + itemTax,
+          packPrice: item.product.packPrice,
+          packQuantity: item.product.packQuantity,
+          halfPackPrice: item.product.halfPackPrice,
+          halfPackQuantity: item.product.halfPackQuantity,
         };
       });
 
@@ -1024,6 +1028,10 @@ export default function Page() {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           total: item.total,
+          packPrice: item.packPrice,
+          packQuantity: item.packQuantity,
+          halfPackPrice: item.halfPackPrice,
+          halfPackQuantity: item.halfPackQuantity,
         })),
         subtotal,
         taxAmount: tax,
@@ -1345,7 +1353,15 @@ export default function Page() {
                   </span>
                   <span className="font-medium">
                     {showItemCounts
-                      ? orderItems.reduce((sum, item) => sum + item.quantity, 0)
+                      ? calculateTotalSoldItemCount(
+                          orderItems.map((item) => ({
+                            quantity: item.quantity,
+                            packPrice: item.product.packPrice,
+                            packQuantity: item.product.packQuantity,
+                            halfPackPrice: item.product.halfPackPrice,
+                            halfPackQuantity: item.product.halfPackQuantity,
+                          })),
+                        )
                       : "•••"}
                   </span>
                 </div>

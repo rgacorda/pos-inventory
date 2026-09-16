@@ -82,6 +82,53 @@ export function calculatePriceBreakdown(
 }
 
 /**
+ * Fields needed to count how many "sold items" a line represents.
+ * Packs and half-packs count as 1 each; leftover pieces count individually.
+ */
+export interface SoldItemCountInput {
+  quantity: number;
+  packPrice?: number;
+  packQuantity?: number;
+  halfPackPrice?: number;
+  halfPackQuantity?: number;
+}
+
+/**
+ * Count sold items using the same pack / half-pack / piece split as pricing.
+ *
+ * Examples (pack = 6, half-pack = 3):
+ * - 1 pack (6 pcs) → 1
+ * - 1 half-pack (3 pcs) → 1
+ * - 1 half-pack + 2 pcs → 3
+ * - 2 packs + 1 pc → 3
+ * - 5 individual pcs (no pack pricing) → 5
+ */
+export function calculateSoldItemCount({
+  quantity,
+  packPrice,
+  packQuantity,
+  halfPackPrice,
+  halfPackQuantity,
+}: SoldItemCountInput): number {
+  const breakdown = calculatePriceBreakdown(
+    quantity,
+    0,
+    packPrice,
+    packQuantity,
+    halfPackPrice,
+    halfPackQuantity,
+  );
+  return breakdown.packs + breakdown.halfPacks + breakdown.units;
+}
+
+/**
+ * Sum sold-item counts across a list of lines.
+ */
+export function calculateTotalSoldItemCount(items: SoldItemCountInput[]): number {
+  return items.reduce((sum, item) => sum + calculateSoldItemCount(item), 0);
+}
+
+/**
  * Calculate the effective (blended) unit price based on quantity and tiered
  * pricing, e.g. for a quantity made up of a full pack plus one extra piece,
  * this returns the average price per unit across the whole quantity so that
