@@ -35,13 +35,13 @@ import {
 } from "@/lib/toast-utils";
 import { Plus, Trash2, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight, Star, UserPlus, X } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
-import { LocalProduct, db, dbHelpers, ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, AmountDueRoundingSettings } from "@/lib/db";
+import { LocalProduct, db, dbHelpers, ROUND_UP_AMOUNT_DUE_CHANGE_EVENT } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
 import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { applyAmountDueRounding, calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, calculateTotalSoldItemCount, DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD, PriceBreakdown } from "@pos/shared-utils";
+import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, PriceBreakdown } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
 import {
@@ -142,20 +142,16 @@ export default function Page() {
   const [registerCustomerLoading, setRegisterCustomerLoading] = useState(false);
   const [registerCustomerError, setRegisterCustomerError] = useState("");
   const [roundUpAmountDue, setRoundUpAmountDue] = useState(true);
-  const [roundUpThreshold, setRoundUpThreshold] = useState(DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD);
 
   useEffect(() => {
     const loadRoundUpSetting = async () => {
       setRoundUpAmountDue(await dbHelpers.getRoundUpAmountDue());
-      setRoundUpThreshold(await dbHelpers.getRoundUpAmountDueThreshold());
     };
     loadRoundUpSetting();
 
     const handleRoundUpChange = (e: Event) => {
-      const detail = (e as CustomEvent<AmountDueRoundingSettings>).detail;
-      if (!detail || typeof detail !== "object") return;
-      if (typeof detail.enabled === "boolean") setRoundUpAmountDue(detail.enabled);
-      if (typeof detail.threshold === "number") setRoundUpThreshold(detail.threshold);
+      const enabled = (e as CustomEvent<boolean>).detail;
+      if (typeof enabled === "boolean") setRoundUpAmountDue(enabled);
     };
     window.addEventListener(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, handleRoundUpChange);
     return () =>
@@ -714,9 +710,8 @@ export default function Page() {
   // Kept for backward compat — used by the Void Order button
   const openVoidDialog = () => openPinDialog("void");
 
-  // Calculate totals with tiered pricing
-  const subtotal = orderItems.reduce((sum, item) => {
-    const itemSubtotal = calculateLineSubtotalWithTieredPrice(
+  const exactLineAmounts = (item: OrderItem) => {
+    const breakdown = calculatePriceBreakdown(
       item.quantity,
       item.product.price,
       item.product.packPrice,
@@ -724,11 +719,8 @@ export default function Page() {
       item.product.halfPackPrice,
       item.product.halfPackQuantity,
     );
-    return sum + itemSubtotal;
-  }, 0);
-
-  const tax = orderItems.reduce((sum, item) => {
-    const itemSubtotal = calculateLineSubtotalWithTieredPrice(
+    const subtotal = breakdown.total;
+    const unitPrice = calculateEffectivePrice(
       item.quantity,
       item.product.price,
       item.product.packPrice,
@@ -736,22 +728,37 @@ export default function Page() {
       item.product.halfPackPrice,
       item.product.halfPackQuantity,
     );
-    const itemTax = itemSubtotal * (item.product.taxRate || 0);
-    return sum + itemTax;
-  }, 0);
+    const tax = subtotal * (item.product.taxRate || 0);
+    return { subtotal, unitPrice, breakdown, tax };
+  };
 
-  const grossTotal = subtotal + tax;
-  // Points redemption: 1 point = ₱1, consume all points (capped at grossTotal)
+  // Exact line totals first. Extra cents from rounding the amount due are
+  // added to one product line so item totals still add up to what is charged.
+  const pricedLines = orderItems.map((item) => ({
+    item,
+    ...exactLineAmounts(item),
+  }));
+  const exactSubtotal = pricedLines.reduce((sum, line) => sum + line.subtotal, 0);
+  const tax = pricedLines.reduce((sum, line) => sum + line.tax, 0);
+  const exactGrossTotal = exactSubtotal + tax;
   const pointsRedemptionAmount = usePoints && loyaltyCustomer
-    ? Math.min(loyaltyCustomer.totalPoints, Math.floor(grossTotal))
+    ? Math.min(loyaltyCustomer.totalPoints, Math.floor(exactGrossTotal))
     : 0;
-  const rawAmountDue = Math.max(0, grossTotal - exchangeCredit - pointsRedemptionAmount);
-  const amountDue = applyAmountDueRounding(rawAmountDue, roundUpAmountDue, roundUpThreshold);
+  const rawAmountDue = Math.max(0, exactGrossTotal - exchangeCredit - pointsRedemptionAmount);
+  const amountDue = applyAmountDueRounding(rawAmountDue, roundUpAmountDue);
   const roundingAdjustment = Number((amountDue - rawAmountDue).toFixed(2));
-  // How much more the customer still needs to add to consume the full credit
-  const remainingCredit = Math.max(0, exchangeCredit - grossTotal);
+  if (roundingAdjustment !== 0 && pricedLines.length > 0) {
+    const target = pricedLines[pricedLines.length - 1];
+    target.subtotal = Number((target.subtotal + roundingAdjustment).toFixed(2));
+    target.unitPrice =
+      target.item.quantity > 0
+        ? Number((target.subtotal / target.item.quantity).toFixed(2))
+        : target.subtotal;
+  }
+  const subtotal = pricedLines.reduce((sum, line) => sum + line.subtotal, 0);
+  const grossTotal = exactGrossTotal;
+  const remainingCredit = Math.max(0, exchangeCredit - exactGrossTotal);
   const total = grossTotal;
-  // Points earned on the amount the customer actually pays
   const pointsToEarn = loyaltyCustomer
     ? Math.floor(amountDue / 500)
     : 0;
@@ -895,25 +902,9 @@ export default function Page() {
       const orderNumber = `ORD-${Date.now()}`;
       const now = new Date();
 
-      // Prepare order items with tiered pricing
-      const items = orderItems.map((item) => {
-        const effectivePrice = calculateEffectivePrice(
-          item.quantity,
-          item.product.price,
-          item.product.packPrice,
-          item.product.packQuantity,
-          item.product.halfPackPrice,
-          item.product.halfPackQuantity,
-        );
-        const subtotal = calculateLineSubtotalWithTieredPrice(
-          item.quantity,
-          item.product.price,
-          item.product.packPrice,
-          item.product.packQuantity,
-          item.product.halfPackPrice,
-          item.product.halfPackQuantity,
-        );
-        const itemTax = subtotal * (item.product.taxRate || 0);
+      // Prepare order items with tiered pricing. Extra cents from rounding
+      // the amount due are already included on one product line.
+      const items = pricedLines.map(({ item, unitPrice, subtotal, tax: itemTax }) => {
         return {
           id: uuidv4(),
           orderId: orderPosLocalId,
@@ -921,7 +912,7 @@ export default function Page() {
           sku: item.product.sku,
           name: item.product.name,
           quantity: item.quantity,
-          unitPrice: effectivePrice,
+          unitPrice,
           taxRate: item.product.taxRate || 0,
           discountAmount: 0,
           subtotal,
@@ -942,7 +933,6 @@ export default function Page() {
       const finalTotal = applyAmountDueRounding(
         Math.max(0, grossTotal - creditApplied - pointsRedeemedNow),
         roundUpAmountDue,
-        roundUpThreshold,
       );
       // Points earned on net amount paid
       const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 500) : 0;
@@ -1195,7 +1185,9 @@ export default function Page() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {orderItems.map((item, index) => (
+                    {pricedLines.map(({ item, unitPrice, subtotal: lineSubtotal, breakdown }, index) => {
+                      const breakdownLabel = formatPriceBreakdownLabel(breakdown);
+                      return (
                       <TableRow key={`${item.product.id}-${index}`}>
                         <TableCell>
                           <div>
@@ -1216,44 +1208,18 @@ export default function Page() {
                         <TableCell className="text-right">
                           <div>
                             <div className="font-semibold">
-                              ₱{calculateEffectivePrice(
-                                item.quantity,
-                                item.product.price,
-                                item.product.packPrice,
-                                item.product.packQuantity,
-                                item.product.halfPackPrice,
-                                item.product.halfPackQuantity,
-                              ).toFixed(2)}
+                              ₱{unitPrice.toFixed(2)}
                             </div>
-                            {(() => {
-                              const breakdown = calculatePriceBreakdown(
-                                item.quantity,
-                                item.product.price,
-                                item.product.packPrice,
-                                item.product.packQuantity,
-                                item.product.halfPackPrice,
-                                item.product.halfPackQuantity,
-                              );
-                              const label = formatPriceBreakdownLabel(breakdown);
-                              if (!label || (breakdown.packs === 0 && breakdown.halfPacks === 0)) return null;
-                              return (
-                                <div className="text-xs text-green-600 font-medium">
-                                  {label}
-                                </div>
-                              );
-                            })()}
+                            {breakdownLabel && (breakdown.packs > 0 || breakdown.halfPacks > 0) && (
+                              <div className="text-xs text-green-600 font-medium">
+                                {breakdownLabel}
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-bold text-lg">
-                            ₱{calculateLineSubtotalWithTieredPrice(
-                              item.quantity,
-                              item.product.price,
-                              item.product.packPrice,
-                              item.product.packQuantity,
-                              item.product.halfPackPrice,
-                              item.product.halfPackQuantity,
-                            ).toFixed(2)}
+                            ₱{lineSubtotal.toFixed(2)}
                           </span>
                         </TableCell>
                         <TableCell className="text-center">
@@ -1268,7 +1234,8 @@ export default function Page() {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 <div ref={cartEndRef} />
@@ -1336,15 +1303,6 @@ export default function Page() {
                   Points Discount
                 </span>
                 <span>-₱{pointsRedemptionAmount.toFixed(2)}</span>
-              </div>
-            )}
-            {roundingAdjustment !== 0 && (
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>Rounding</span>
-                <span>
-                  {roundingAdjustment > 0 ? "+" : "-"}₱
-                  {Math.abs(roundingAdjustment).toFixed(2)}
-                </span>
               </div>
             )}
             <Separator />
@@ -1721,7 +1679,7 @@ export default function Page() {
                   if (includeAddon && productToAdd.addonPrice) {
                     effectivePrice += productToAdd.addonPrice;
                   }
-                  const lineTotal = effectivePrice * qty;
+                  const lineTotal = Number((effectivePrice * qty).toFixed(2));
                   const breakdown = calculatePriceBreakdown(
                     qty,
                     productToAdd.price,

@@ -2,7 +2,7 @@
 
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
-import { getReceiptRoundingAmount, type ReceiptData } from "@/lib/receipt-template";
+import type { ReceiptData } from "@/lib/receipt-template";
 
 export type { ReceiptItem, ReceiptOrganization, ReceiptData } from "@/lib/receipt-template";
 
@@ -47,13 +47,6 @@ export function ReceiptContent({
   const isWide = paperSize === "80mm";
   const hasCustomer = !!(customerName || customerAddress);
   const totalItemCount = calculateTotalSoldItemCount(items);
-  const roundingAmount = getReceiptRoundingAmount({
-    subtotal,
-    taxAmount,
-    discountAmount,
-    totalAmount,
-    pointsRedeemed,
-  });
 
   return (
     <div
@@ -156,15 +149,6 @@ export function ReceiptContent({
             <span>-{formatCurrency(pointsRedeemed)}</span>
           </div>
         ) : null}
-        {roundingAmount !== 0 && (
-          <div className="flex justify-between mb-1">
-            <span>Rounding:</span>
-            <span>
-              {roundingAmount > 0 ? "+" : "-"}
-              {formatCurrency(Math.abs(roundingAmount))}
-            </span>
-          </div>
-        )}
         <div className="border-t border-dashed border-gray-300 pt-1.5 mt-1.5 [border-top-width:0.5px]">
           <div className="flex justify-between">
             <span>TOTAL:</span>

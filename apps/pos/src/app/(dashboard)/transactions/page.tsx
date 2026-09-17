@@ -10,7 +10,6 @@ import {
 } from "@/hooks/useDatabase";
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import { LocalOrder, LocalPayment, LocalProduct, dbHelpers } from "@/lib/db";
-import { getReceiptRoundingAmount } from "@/lib/receipt-template";
 import {
   Dialog,
   DialogContent,
@@ -848,24 +847,6 @@ export default function OrdersPage() {
                     <span>-{formatCurrency(selectedOrder.discountAmount)}</span>
                   </div>
                 )}
-                {(() => {
-                  const rounding = getReceiptRoundingAmount({
-                    subtotal: selectedOrder.subtotal,
-                    taxAmount: selectedOrder.taxAmount,
-                    discountAmount: selectedOrder.discountAmount,
-                    totalAmount: selectedOrder.totalAmount,
-                  });
-                  if (rounding === 0) return null;
-                  return (
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Rounding</span>
-                      <span>
-                        {rounding > 0 ? "+" : "-"}
-                        {formatCurrency(Math.abs(rounding))}
-                      </span>
-                    </div>
-                  );
-                })()}
                 <div className="flex justify-between text-lg font-semibold border-t pt-2">
                   <span>Total</span>
                   <span>{formatCurrency(selectedOrder.totalAmount)}</span>

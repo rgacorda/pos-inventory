@@ -6,7 +6,6 @@ import {
   OrderStatus,
   PaymentStatus,
 } from "@pos/shared-types";
-import { clampAmountDueRoundThreshold, DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD } from "@pos/shared-utils";
 
 export interface LocalOrder extends Omit<
   Order,
@@ -88,11 +87,6 @@ export const PAPER_SIZE_CHANGE_EVENT = "pos:paper-size-changed";
 // Dispatched on window whenever the round-up-amount-due setting is changed,
 // so the POS screen can update the displayed total immediately.
 export const ROUND_UP_AMOUNT_DUE_CHANGE_EVENT = "pos:round-up-amount-due-changed";
-
-export interface AmountDueRoundingSettings {
-  enabled: boolean;
-  threshold: number;
-}
 
 export interface UnknownBarcode {
   id?: number;
@@ -649,58 +643,7 @@ export const dbHelpers = {
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(
-        new CustomEvent(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, {
-          detail: {
-            enabled,
-            threshold: await dbHelpers.getRoundUpAmountDueThreshold(),
-          } satisfies AmountDueRoundingSettings,
-        }),
-      );
-    }
-  },
-
-  // Get cents threshold for amount-due rounding (defaults to 0.20)
-  async getRoundUpAmountDueThreshold(): Promise<number> {
-    const metadata = await db.syncMetadata
-      .where("key")
-      .equals("roundUpAmountDueThreshold")
-      .first();
-    if (!metadata) return DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD;
-    const parsed = Number.parseFloat(metadata.value);
-    return clampAmountDueRoundThreshold(
-      Number.isFinite(parsed) ? parsed : DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD,
-    );
-  },
-
-  // Set cents threshold — persists until explicitly changed again
-  async setRoundUpAmountDueThreshold(threshold: number) {
-    const value = String(clampAmountDueRoundThreshold(threshold));
-    const existing = await db.syncMetadata
-      .where("key")
-      .equals("roundUpAmountDueThreshold")
-      .first();
-
-    if (existing) {
-      await db.syncMetadata.update(existing.id!, {
-        value,
-        updatedAt: new Date(),
-      });
-    } else {
-      await db.syncMetadata.add({
-        key: "roundUpAmountDueThreshold",
-        value,
-        updatedAt: new Date(),
-      });
-    }
-
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, {
-          detail: {
-            enabled: await dbHelpers.getRoundUpAmountDue(),
-            threshold: Number(value),
-          } satisfies AmountDueRoundingSettings,
-        }),
+        new CustomEvent(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, { detail: enabled }),
       );
     }
   },

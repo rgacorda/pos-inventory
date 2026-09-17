@@ -297,6 +297,19 @@ export default function ProductsPage() {
     return c + (c * p / 100) + f;
   };
 
+  // Keep a delivery-overridden selling price when the edit dialog opens.
+  // Stays true across Strict Mode's double effect so we only recalc after
+  // the user actually changes cost or markup.
+  const preserveSellingPriceRef = useRef(false);
+
+  const handlePricingInputChange = (
+    field: "cost" | "markupPercentage" | "markupFixed",
+    value: string,
+  ) => {
+    preserveSellingPriceRef.current = false;
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
   // Pack/half-pack pricing keeps a "base" price (cost x quantity, or a
   // manually-typed price) separate from the displayed price so that markup
   // (percentage and/or fixed) is always layered ON TOP of that base instead
@@ -339,6 +352,9 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
+    if (preserveSellingPriceRef.current) {
+      return;
+    }
     if (formData.cost || formData.markupPercentage || formData.markupFixed) {
       const calculated = computePrice(formData.cost, formData.markupPercentage, formData.markupFixed);
       setFormData(prev => ({ ...prev, price: calculated > 0 ? calculated.toFixed(2) : "" }));
@@ -399,6 +415,7 @@ export default function ProductsPage() {
   }, [formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed]);
 
   const resetForm = () => {
+    preserveSellingPriceRef.current = false;
     setFormData({
       sku: "",
       name: "",
@@ -435,6 +452,7 @@ export default function ProductsPage() {
 
   const handleEditProduct = (product: any) => {
     setSelectedProduct(product);
+    preserveSellingPriceRef.current = true;
 
     // Seed the pack/half-pack base refs from the product's own saved values
     // (reverse-solving out any already-applied markup) so the cost/quantity
@@ -1415,12 +1433,7 @@ export default function ProductsPage() {
                       type="number"
                       step="0.01"
                       value={formData.cost}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          cost: e.target.value,
-                        })
-                      }
+                      onChange={(e) => handlePricingInputChange("cost", e.target.value)}
                       placeholder="10.00"
                       required
                     />
@@ -1433,10 +1446,7 @@ export default function ProductsPage() {
                       step="0.01"
                       value={formData.markupPercentage}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          markupPercentage: e.target.value,
-                        })
+                        handlePricingInputChange("markupPercentage", e.target.value)
                       }
                       placeholder="20"
                     />
@@ -1452,10 +1462,7 @@ export default function ProductsPage() {
                       step="0.01"
                       value={formData.markupFixed}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          markupFixed: e.target.value,
-                        })
+                        handlePricingInputChange("markupFixed", e.target.value)
                       }
                       placeholder="1.50"
                     />
@@ -1932,12 +1939,7 @@ export default function ProductsPage() {
                       type="number"
                       step="0.01"
                       value={formData.cost}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          cost: e.target.value,
-                        })
-                      }
+                      onChange={(e) => handlePricingInputChange("cost", e.target.value)}
                       required
                     />
                   </div>
@@ -1949,10 +1951,7 @@ export default function ProductsPage() {
                       step="0.01"
                       value={formData.markupPercentage}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          markupPercentage: e.target.value,
-                        })
+                        handlePricingInputChange("markupPercentage", e.target.value)
                       }
                     />
                   </div>
@@ -1967,10 +1966,7 @@ export default function ProductsPage() {
                       step="0.01"
                       value={formData.markupFixed}
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          markupFixed: e.target.value,
-                        })
+                        handlePricingInputChange("markupFixed", e.target.value)
                       }
                     />
                   </div>
@@ -1985,7 +1981,9 @@ export default function ProductsPage() {
                       className="bg-muted"
                       required
                     />
-                    <p className="text-xs text-muted-foreground">Auto-calculated from cost + markups</p>
+                    <p className="text-xs text-muted-foreground">
+                      Saved selling price is kept. Changing cost or markup recalculates it.
+                    </p>
                   </div>
                 </div>
 

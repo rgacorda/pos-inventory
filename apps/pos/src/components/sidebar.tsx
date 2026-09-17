@@ -40,7 +40,6 @@ import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useState, useEffect } from "react";
 import { dbHelpers, ReceiptPaperSize } from "@/lib/db";
-import { clampAmountDueRoundThreshold, DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD } from "@pos/shared-utils";
 import { syncService, apiClient } from "@/lib/api-client";
 import {
   showSuccessToast,
@@ -74,9 +73,6 @@ export function Sidebar() {
   const [voidPinError, setVoidPinError] = useState<string>("");
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [roundUpAmountDue, setRoundUpAmountDue] = useState(true);
-  const [roundThresholdInput, setRoundThresholdInput] = useState(
-    DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD.toFixed(2),
-  );
 
   const todaysSales =
     todaysOrders
@@ -123,9 +119,6 @@ export function Sidebar() {
     const loadDeviceSettings = async () => {
       setPaperSize(await dbHelpers.getPaperSize());
       setRoundUpAmountDue(await dbHelpers.getRoundUpAmountDue());
-      setRoundThresholdInput(
-        (await dbHelpers.getRoundUpAmountDueThreshold()).toFixed(2),
-      );
     };
     loadDeviceSettings();
   }, []);
@@ -235,39 +228,12 @@ export function Sidebar() {
       setRoundUpAmountDue(enabled);
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Amount due rounding"), {
         description: enabled
-          ? "Totals will round to a whole peso using the cents threshold."
+          ? "The amount due will round up to the next peso."
           : "Customers will be charged the exact amount due.",
       });
     } catch (error) {
       showErrorToast(ERROR_MESSAGES.UPDATE_FAILED("amount due rounding"), {
         description: "Unable to update round-up setting.",
-      });
-    }
-  };
-
-  const saveRoundThreshold = async (raw: string) => {
-    const parsed = Number.parseFloat(raw);
-    if (!Number.isFinite(parsed)) {
-      setRoundThresholdInput(
-        (await dbHelpers.getRoundUpAmountDueThreshold()).toFixed(2),
-      );
-      return;
-    }
-    const threshold = clampAmountDueRoundThreshold(parsed);
-    const current = await dbHelpers.getRoundUpAmountDueThreshold();
-    if (threshold === current) {
-      setRoundThresholdInput(threshold.toFixed(2));
-      return;
-    }
-    try {
-      await dbHelpers.setRoundUpAmountDueThreshold(threshold);
-      setRoundThresholdInput(threshold.toFixed(2));
-      showSuccessToast(SUCCESS_MESSAGES.UPDATED("Rounding threshold"), {
-        description: `Cents below ₱${threshold.toFixed(2)} round down; otherwise round up.`,
-      });
-    } catch {
-      showErrorToast(ERROR_MESSAGES.UPDATE_FAILED("rounding threshold"), {
-        description: "Unable to update rounding threshold.",
       });
     }
   };
@@ -488,18 +454,19 @@ export function Sidebar() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-700 mb-1">
-                      Round amount due
+                      Round up amount due
                     </p>
                     <p className="text-xs text-gray-500">
-                      Round the total to a whole peso. Cents below the
-                      threshold round down; otherwise round up.
+                      Round only the final amount due up to the next whole
+                      peso. Extra cents are added to one item so line totals
+                      still match. Default is on.
                     </p>
                   </div>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={roundUpAmountDue}
-                    aria-label="Round amount due"
+                    aria-label="Round up amount due"
                     onClick={() => handleToggleRoundUpAmountDue(!roundUpAmountDue)}
                     className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
                       roundUpAmountDue ? "bg-blue-600" : "bg-gray-300"
@@ -512,39 +479,6 @@ export function Sidebar() {
                     />
                   </button>
                 </div>
-                {roundUpAmountDue && (
-                  <div className="mt-3">
-                    <p className="text-xs font-medium text-gray-700 mb-1">
-                      Round-down threshold
-                    </p>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">
-                        ₱
-                      </span>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={0.99}
-                        step={0.01}
-                        value={roundThresholdInput}
-                        onChange={(e) => setRoundThresholdInput(e.target.value)}
-                        onBlur={() => saveRoundThreshold(roundThresholdInput)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="pl-7"
-                        aria-label="Round-down threshold in pesos"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Example with ₱0.20: ₱10.19 becomes ₱10.00, ₱10.20 becomes
-                      ₱11.00. Default is ₱0.20.
-                    </p>
-                  </div>
-                )}
               </div>
 
               <div className="pt-2">
