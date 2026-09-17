@@ -65,6 +65,10 @@ import { IconX, IconPlus, IconArrowLeft, IconSearch } from "@tabler/icons-react"
 import { Check, ChevronsUpDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import {
+  DeliveryReturnsSection,
+  ReturnResolutionSelection,
+} from "@/components/deliveries/delivery-returns-section";
 
 type QuantityType = "UNIT" | "PACK" | "HALF_PACK";
 
@@ -132,6 +136,11 @@ export default function EditDeliveryPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [items, setItems] = useState<DeliveryItem[]>([]);
+  const [returnResolutions, setReturnResolutions] = useState<
+    ReturnResolutionSelection[]
+  >([]);
+  const [returnCreditAmount, setReturnCreditAmount] = useState(0);
+  const [linkedReturnIds, setLinkedReturnIds] = useState<string[]>([]);
   const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false);
   const [isCreateProductDialogOpen, setIsCreateProductDialogOpen] = useState(false);
   const [isCreateSupplierDialogOpen, setIsCreateSupplierDialogOpen] = useState(false);
@@ -311,6 +320,9 @@ export default function EditDeliveryPage() {
       showSuccessToast(SUCCESS_MESSAGES.CREATED("Supplier"));
       await fetchSuppliers();
       setFormData({ ...formData, supplierId: savedSupplier.id });
+      setReturnResolutions([]);
+      setReturnCreditAmount(0);
+      updateTotalCost(items, undefined, 0);
       setIsCreateSupplierDialogOpen(false);
       resetSupplierForm();
     } catch (error) {
@@ -338,6 +350,16 @@ export default function EditDeliveryPage() {
       
       setDeliveryDate(new Date(delivery.deliveryDate));
       setItems(delivery.items || []);
+      const linked = (delivery.returnResolutions || []).map(
+        (resolution: ReturnResolutionSelection) => ({
+          returnId: resolution.returnId,
+          action: resolution.action,
+          replacementItems: resolution.replacementItems,
+        }),
+      );
+      setReturnResolutions(linked);
+      setLinkedReturnIds(linked.map((resolution: ReturnResolutionSelection) => resolution.returnId));
+      setReturnCreditAmount(Number(delivery.returnCreditAmount || 0));
       
       if (delivery.receiptImageUrl) {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
@@ -613,13 +635,23 @@ export default function EditDeliveryPage() {
   }
 
   // Recomputes the final totalCost as items subtotal minus any supplier
-  // discount. Pass discountOverride when updating from the discount input's
-  // onChange, since formData may not have re-rendered with the new value yet.
-  function updateTotalCost(itemsList: DeliveryItem[], discountOverride?: string) {
+  // discount and credited return amounts. Pass overrides when updating
+  // from an input's onChange, since formData/credit may not have
+  // re-rendered with the new value yet.
+  function updateTotalCost(
+    itemsList: DeliveryItem[],
+    discountOverride?: string,
+    creditOverride?: number,
+  ) {
     const subtotal = getItemsSubtotal(itemsList);
     const discount = parseFloat(discountOverride ?? formData.discountAmount) || 0;
-    const total = Math.max(subtotal - discount, 0);
-    setFormData((prev) => ({ ...prev, totalCost: total.toFixed(2) }));
+    const credit = creditOverride ?? returnCreditAmount;
+    const total = Math.max(subtotal - discount - credit, 0);
+    setFormData((prev) => {
+      const nextTotal = total.toFixed(2);
+      if (prev.totalCost === nextTotal) return prev;
+      return { ...prev, totalCost: nextTotal };
+    });
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -649,8 +681,8 @@ export default function EditDeliveryPage() {
       return;
     }
 
-    if (items.length === 0) {
-      showErrorToast("Please add at least one item");
+    if (items.length === 0 && returnResolutions.length === 0) {
+      showErrorToast("Please add at least one item or apply an outstanding return");
       return;
     }
 
@@ -672,6 +704,7 @@ export default function EditDeliveryPage() {
         deliveryDate: deliveryDate.toISOString(),
         items: items,
         receiptImageUrl,
+        returnResolutions,
       };
 
       // Only send supplierId when the admin actually picked a supplier from
@@ -728,9 +761,12 @@ export default function EditDeliveryPage() {
               <div className="flex gap-2">
                 <Select
                   value={formData.supplierId}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, supplierId: value })
-                  }
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, supplierId: value });
+                    setReturnResolutions([]);
+                    setReturnCreditAmount(0);
+                    updateTotalCost(items, undefined, 0);
+                  }}
                 >
                   <SelectTrigger className="flex-1">
                     <SelectValue
@@ -885,7 +921,7 @@ export default function EditDeliveryPage() {
               </div>
             </div>
 
-            {items.length > 0 && (
+            {(items.length > 0 || returnCreditAmount > 0) && (
               <div className="border rounded-md">
                 <Table>
                   <TableHeader>
@@ -959,6 +995,17 @@ export default function EditDeliveryPage() {
                         <TableCell></TableCell>
                       </TableRow>
                     )}
+                    {returnCreditAmount > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-right text-muted-foreground">
+                          Return credit:
+                        </TableCell>
+                        <TableCell className="text-right text-red-600">
+                          -₱{returnCreditAmount.toFixed(2)}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell colSpan={3} className="text-right font-semibold">
                         Total:
@@ -973,6 +1020,19 @@ export default function EditDeliveryPage() {
               </div>
             )}
           </div>
+
+          {formData.supplierId && (
+            <DeliveryReturnsSection
+              supplierId={formData.supplierId}
+              value={returnResolutions}
+              onChange={setReturnResolutions}
+              onCreditAmountChange={(amount) => {
+                setReturnCreditAmount(amount);
+                updateTotalCost(items, undefined, amount);
+              }}
+              includeReturnIds={linkedReturnIds}
+            />
+          )}
 
           {/* Notes */}
           <div className="space-y-2">

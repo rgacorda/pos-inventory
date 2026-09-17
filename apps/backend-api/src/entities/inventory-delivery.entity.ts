@@ -59,6 +59,39 @@ export class InventoryDelivery {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   discountAmount: number;
 
+  /**
+   * Sum of outstanding supplier returns credited against this invoice
+   * (no product replacement). Subtracted from `totalCost` alongside
+   * `discountAmount`. Fulfill-style resolutions do not contribute here
+   * because they are an even exchange, not a price deduction.
+   */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  returnCreditAmount: number;
+
+  /**
+   * Outstanding returns the user chose to close on this delivery.
+   * Applied to the return records only once the delivery is RECEIVED.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  returnResolutions: Array<{
+    returnId: string;
+    action: 'FULFILL' | 'CREDIT';
+    amount: number;
+    /**
+     * Products the supplier sent as replacements when `action` is
+     * FULFILL. May differ from the original returned items. Ignored
+     * for CREDIT.
+     */
+    replacementItems?: Array<{
+      productId: string;
+      productName: string;
+      productSku?: string;
+      quantity: number;
+      unitCost: number;
+      totalCost: number;
+    }>;
+  }> | null;
+
   @Column({ type: 'jsonb', nullable: true })
   items: Array<{
     productId: string;

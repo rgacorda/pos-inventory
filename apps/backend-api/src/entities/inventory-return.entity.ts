@@ -55,6 +55,24 @@ export class InventoryReturn {
   @Column({ type: 'varchar', length: 50, default: 'NOT_RESOLVED' })
   status: 'NOT_RESOLVED' | 'RESOLVED';
 
+  /**
+   * How the return was closed:
+   * - REPLACEMENT: supplier sent replacement items (from the Returns tab)
+   * - FULFILL: supplier replaced the items as part of a later delivery
+   * - CREDIT: supplier did not replace; the returned cost was written off
+   *   or deducted from a delivery invoice
+   */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  resolutionType: 'REPLACEMENT' | 'FULFILL' | 'CREDIT' | null;
+
+  /**
+   * The delivery that fulfilled or credited this return, when resolution
+   * happened from a delivery order rather than the Returns tab.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  resolvedDeliveryId: string | null;
+
   @Column({ type: 'jsonb', default: [] })
   returnedItems: InventoryReturnItem[];
 

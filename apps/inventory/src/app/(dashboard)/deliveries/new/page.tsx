@@ -65,6 +65,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import {
+  DeliveryReturnsSection,
+  ReturnResolutionSelection,
+} from "@/components/deliveries/delivery-returns-section";
 
 type QuantityType = "UNIT" | "PACK" | "HALF_PACK";
 
@@ -129,6 +133,10 @@ export default function NewDeliveryPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [items, setItems] = useState<DeliveryItem[]>([]);
+  const [returnResolutions, setReturnResolutions] = useState<
+    ReturnResolutionSelection[]
+  >([]);
+  const [returnCreditAmount, setReturnCreditAmount] = useState(0);
   const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false);
   const [isCreateProductDialogOpen, setIsCreateProductDialogOpen] = useState(false);
   const [isCreateSupplierDialogOpen, setIsCreateSupplierDialogOpen] = useState(false);
@@ -272,6 +280,9 @@ export default function NewDeliveryPage() {
       showSuccessToast(SUCCESS_MESSAGES.CREATED("Supplier"));
       await fetchSuppliers();
       setFormData({ ...formData, supplierId: savedSupplier.id });
+      setReturnResolutions([]);
+      setReturnCreditAmount(0);
+      updateTotalCost(items, undefined, 0);
       setIsCreateSupplierDialogOpen(false);
       resetSupplierForm();
     } catch (error) {
@@ -501,13 +512,23 @@ export default function NewDeliveryPage() {
   }
 
   // Recomputes the final totalCost as items subtotal minus any supplier
-  // discount. Pass discountOverride when updating from the discount input's
-  // onChange, since formData may not have re-rendered with the new value yet.
-  function updateTotalCost(itemsList: DeliveryItem[], discountOverride?: string) {
+  // discount and credited return amounts. Pass overrides when updating
+  // from an input's onChange, since formData/credit may not have
+  // re-rendered with the new value yet.
+  function updateTotalCost(
+    itemsList: DeliveryItem[],
+    discountOverride?: string,
+    creditOverride?: number,
+  ) {
     const subtotal = getItemsSubtotal(itemsList);
     const discount = parseFloat(discountOverride ?? formData.discountAmount) || 0;
-    const total = Math.max(subtotal - discount, 0);
-    setFormData((prev) => ({ ...prev, totalCost: total.toFixed(2) }));
+    const credit = creditOverride ?? returnCreditAmount;
+    const total = Math.max(subtotal - discount - credit, 0);
+    setFormData((prev) => {
+      const nextTotal = total.toFixed(2);
+      if (prev.totalCost === nextTotal) return prev;
+      return { ...prev, totalCost: nextTotal };
+    });
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -537,8 +558,8 @@ export default function NewDeliveryPage() {
       return;
     }
 
-    if (items.length === 0) {
-      showErrorToast("Please add at least one item");
+    if (items.length === 0 && returnResolutions.length === 0) {
+      showErrorToast("Please add at least one item or apply an outstanding return");
       return;
     }
 
@@ -558,6 +579,7 @@ export default function NewDeliveryPage() {
         discountAmount: parseFloat(formData.discountAmount) || 0,
         items: items,
         receiptImageUrl,
+        returnResolutions,
       });
 
       showSuccessToast(SUCCESS_MESSAGES.CREATED("Delivery"));
@@ -653,7 +675,9 @@ export default function NewDeliveryPage() {
         <CardHeader>
           <CardTitle>Create New Delivery</CardTitle>
           <CardDescription>
-            Record a new inventory delivery or purchase
+            Record a new inventory delivery. Outstanding supplier returns
+            appear after you select a supplier, so you can fulfill replacements
+            or deduct a credit from this invoice.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -664,9 +688,12 @@ export default function NewDeliveryPage() {
               <div className="flex gap-2">
                 <Select
                   value={formData.supplierId}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, supplierId: value })
-                  }
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, supplierId: value });
+                    setReturnResolutions([]);
+                    setReturnCreditAmount(0);
+                    updateTotalCost(items, undefined, 0);
+                  }}
                 >
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Select a supplier" />
@@ -808,7 +835,7 @@ export default function NewDeliveryPage() {
               </div>
             </div>
 
-            {items.length > 0 && (
+            {(items.length > 0 || returnCreditAmount > 0) && (
               <div className="border rounded-md">
                 <Table>
                   <TableHeader>
@@ -886,6 +913,17 @@ export default function NewDeliveryPage() {
                         <TableCell></TableCell>
                       </TableRow>
                     )}
+                    {returnCreditAmount > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-right text-muted-foreground">
+                          Return credit:
+                        </TableCell>
+                        <TableCell className="text-right text-red-600">
+                          -₱{returnCreditAmount.toFixed(2)}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell colSpan={4} className="text-right font-semibold">
                         Total:
@@ -900,6 +938,20 @@ export default function NewDeliveryPage() {
               </div>
             )}
           </div>
+
+          {formData.supplierId && (
+            <DeliveryReturnsSection
+              supplierId={formData.supplierId}
+              value={returnResolutions}
+              onChange={(next) => {
+                setReturnResolutions(next);
+              }}
+              onCreditAmountChange={(amount) => {
+                setReturnCreditAmount(amount);
+                updateTotalCost(items, undefined, amount);
+              }}
+            />
+          )}
 
           {/* Notes */}
           <div className="space-y-2">

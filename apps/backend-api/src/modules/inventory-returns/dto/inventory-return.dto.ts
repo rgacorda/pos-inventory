@@ -7,6 +7,8 @@ import {
   IsUUID,
   Min,
   ArrayMinSize,
+  IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -92,9 +94,23 @@ export class UpdateInventoryReturnDto {
 }
 
 export class ResolveInventoryReturnDto {
+  /**
+   * REPLACEMENT (default): supplier sent goods back; `replacementItems`
+   * is required and those quantities are added to stock.
+   * CREDIT: supplier did not replace the product; the return is closed
+   * with no stock restore. `replacementItems` may be omitted.
+   */
+  @IsIn(['REPLACEMENT', 'CREDIT'])
+  @IsOptional()
+  resolutionType?: 'REPLACEMENT' | 'CREDIT';
+
+  @ValidateIf(
+    (dto: ResolveInventoryReturnDto) =>
+      (dto.resolutionType || 'REPLACEMENT') === 'REPLACEMENT',
+  )
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => ReturnItemDto)
-  replacementItems: ReturnItemDto[];
+  replacementItems?: ReturnItemDto[];
 }

@@ -223,9 +223,9 @@ export default function NewInventoryReturnPage() {
         <CardHeader>
           <CardTitle>New Return</CardTitle>
           <CardDescription>
-            Record items being sent back to a supplier. Stock is deducted for
-            these items immediately and stays deducted until the return is
-            marked resolved.
+            Record items being sent back to a supplier. Stock is deducted
+            immediately. Resolve later by recording a replacement, fulfilling
+            the return on a new delivery, or applying a supplier credit.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

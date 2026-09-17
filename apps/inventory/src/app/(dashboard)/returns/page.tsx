@@ -61,6 +61,7 @@ import {
   IconTrash,
   IconCheck,
   IconArrowBackUp,
+  IconPackage,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
 import {
@@ -68,6 +69,10 @@ import {
   ReturnItemProduct,
   ReturnLineItem,
 } from "@/components/returns/return-items-editor";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
 
 interface InventoryReturnRecord {
   id: string;
@@ -77,6 +82,8 @@ interface InventoryReturnRecord {
   reason?: string | null;
   notes?: string | null;
   status: "NOT_RESOLVED" | "RESOLVED";
+  resolutionType?: "REPLACEMENT" | "FULFILL" | "CREDIT" | null;
+  resolvedDeliveryId?: string | null;
   returnedItems: ReturnLineItem[];
   replacementItems?: ReturnLineItem[] | null;
   returnedTotalCost: number;
@@ -168,6 +175,9 @@ export default function InventoryReturnsPage() {
   const [isResolveDialogOpen, setIsResolveDialogOpen] = useState(false);
   const [resolvingReturn, setResolvingReturn] =
     useState<InventoryReturnRecord | null>(null);
+  const [resolveMode, setResolveMode] = useState<"REPLACEMENT" | "CREDIT">(
+    "REPLACEMENT",
+  );
   const [replacementItems, setReplacementItems] = useState<ReturnLineItem[]>(
     [],
   );
@@ -211,12 +221,25 @@ export default function InventoryReturnsPage() {
     setCurrentPage(1);
   }, [searchQuery, statusFilter]);
 
-  function getStatusBadge(status: string) {
-    return status === "RESOLVED" ? (
-      <Badge variant="default">Resolved</Badge>
-    ) : (
-      <Badge variant="secondary">Not Resolved</Badge>
-    );
+  function getStatusBadge(inventoryReturn: InventoryReturnRecord | string) {
+    if (typeof inventoryReturn === "string") {
+      return inventoryReturn === "RESOLVED" ? (
+        <Badge variant="default">Resolved</Badge>
+      ) : (
+        <Badge variant="secondary">Not Resolved</Badge>
+      );
+    }
+
+    if (inventoryReturn.status !== "RESOLVED") {
+      return <Badge variant="secondary">Not Resolved</Badge>;
+    }
+    if (inventoryReturn.resolutionType === "CREDIT") {
+      return <Badge variant="outline">Credited</Badge>;
+    }
+    if (inventoryReturn.resolutionType === "FULFILL") {
+      return <Badge variant="default">Fulfilled</Badge>;
+    }
+    return <Badge variant="default">Resolved</Badge>;
   }
 
   function handleDelete(id: string) {
@@ -271,6 +294,7 @@ export default function InventoryReturnsPage() {
     setReplacementItems(
       inventoryReturn.returnedItems.map((item) => ({ ...item })),
     );
+    setResolveMode("REPLACEMENT");
     setIsResolveDialogOpen(true);
   }
 
@@ -278,11 +302,12 @@ export default function InventoryReturnsPage() {
     setIsResolveDialogOpen(false);
     setResolvingReturn(null);
     setReplacementItems([]);
+    setResolveMode("REPLACEMENT");
   }
 
   async function confirmResolve() {
     if (!resolvingReturn) return;
-    if (replacementItems.length === 0) {
+    if (resolveMode === "REPLACEMENT" && replacementItems.length === 0) {
       showWarningToast("Add at least one replacement item before resolving");
       return;
     }
@@ -290,7 +315,8 @@ export default function InventoryReturnsPage() {
     try {
       setResolving(true);
       await apiClient.resolveInventoryReturn(resolvingReturn.id, {
-        replacementItems,
+        resolutionType: resolveMode,
+        ...(resolveMode === "REPLACEMENT" ? { replacementItems } : {}),
       });
       showSuccessToast("Return marked as resolved");
       closeResolveDialog();
@@ -334,7 +360,9 @@ export default function InventoryReturnsPage() {
             <div>
               <CardTitle>Return Items</CardTitle>
               <CardDescription>
-                Track items returned to suppliers and their resolution status
+                Track items returned to suppliers. Resolve them with a
+                replacement, fulfill them on a new delivery, or close them as
+                a supplier credit.
               </CardDescription>
             </div>
             <Button onClick={() => router.push("/returns/new")}>
@@ -370,7 +398,7 @@ export default function InventoryReturnsPage() {
                   <TableHead>Reason</TableHead>
                   <TableHead>Returned Items</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Replacement Cost</TableHead>
+                  <TableHead>Replacement / Credit</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -403,10 +431,16 @@ export default function InventoryReturnsPage() {
                           ₱{Number(r.returnedTotalCost).toFixed(2)}
                         </div>
                       </TableCell>
-                      <TableCell>{getStatusBadge(r.status)}</TableCell>
+                      <TableCell>{getStatusBadge(r)}</TableCell>
                       <TableCell>
                         {r.status === "RESOLVED" ? (
-                          `₱${Number(r.replacementTotalCost || 0).toFixed(2)}`
+                          r.resolutionType === "CREDIT" ? (
+                            <span>
+                              Credit ₱{Number(r.returnedTotalCost || 0).toFixed(2)}
+                            </span>
+                          ) : (
+                            `₱${Number(r.replacementTotalCost || 0).toFixed(2)}`
+                          )
                         ) : (
                           "—"
                         )}
@@ -429,6 +463,14 @@ export default function InventoryReturnsPage() {
                               }
                             >
                               <IconEdit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Fulfill or credit on a new delivery"
+                              onClick={() => router.push("/deliveries/new")}
+                            >
+                              <IconPackage className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
@@ -530,7 +572,7 @@ export default function InventoryReturnsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Return Details
-              {viewingReturn && getStatusBadge(viewingReturn.status)}
+              {viewingReturn && getStatusBadge(viewingReturn)}
             </DialogTitle>
             <DialogDescription>
               {viewingReturn && (
@@ -591,19 +633,33 @@ export default function InventoryReturnsPage() {
 
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">
-                  What Was Replaced
+                  {viewingReturn.resolutionType === "CREDIT"
+                    ? "Resolution"
+                    : "What Was Replaced"}
                 </Label>
-                <ItemsSummaryTable
-                  items={viewingReturn.replacementItems || []}
-                  emptyMessage="Not yet resolved — no replacement items recorded."
-                />
+                {viewingReturn.resolutionType === "CREDIT" ? (
+                  <p className="text-sm border rounded-md p-3">
+                    Resolved as a supplier credit of ₱
+                    {viewingReturnedTotal.toFixed(2)}. No replacement
+                    products were received.
+                    {viewingReturn.resolvedDeliveryId
+                      ? " The credit was deducted from a delivery invoice."
+                      : ""}
+                  </p>
+                ) : (
+                  <ItemsSummaryTable
+                    items={viewingReturn.replacementItems || []}
+                    emptyMessage="Not yet resolved — no replacement items recorded."
+                  />
+                )}
               </div>
 
               <div
                 className={`p-3 rounded border text-sm space-y-1 ${
                   viewingReturn.status !== "RESOLVED"
                     ? "bg-muted/50"
-                    : viewingCostDiff === 0
+                    : viewingReturn.resolutionType === "CREDIT" ||
+                        viewingCostDiff === 0
                       ? "bg-emerald-50 border-emerald-200"
                       : "bg-amber-50 border-amber-200"
                 }`}
@@ -614,26 +670,35 @@ export default function InventoryReturnsPage() {
                     ₱{viewingReturnedTotal.toFixed(2)}
                   </span>
                 </p>
-                <p>
-                  Replacement Total:{" "}
-                  <span className="font-semibold">
-                    {viewingReturn.status === "RESOLVED"
-                      ? `₱${viewingReplacementTotal.toFixed(2)}`
-                      : "—"}
-                  </span>
-                </p>
-                {viewingReturn.status === "RESOLVED" &&
-                  (viewingCostDiff === 0 ? (
-                    <p className="text-emerald-700 font-medium">
-                      Replacement cost matches the returned items exactly.
+                {viewingReturn.resolutionType === "CREDIT" ? (
+                  <p className="text-emerald-700 font-medium">
+                    Closed with a ₱{viewingReturnedTotal.toFixed(2)} supplier
+                    credit. Returned stock stays deducted.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Replacement Total:{" "}
+                      <span className="font-semibold">
+                        {viewingReturn.status === "RESOLVED"
+                          ? `₱${viewingReplacementTotal.toFixed(2)}`
+                          : "—"}
+                      </span>
                     </p>
-                  ) : (
-                    <p className="text-amber-700 font-medium">
-                      {viewingCostDiff > 0
-                        ? `Replacement was ₱${viewingCostDiff.toFixed(2)} more than the returned items.`
-                        : `Replacement was ₱${Math.abs(viewingCostDiff).toFixed(2)} short of the returned items.`}
-                    </p>
-                  ))}
+                    {viewingReturn.status === "RESOLVED" &&
+                      (viewingCostDiff === 0 ? (
+                        <p className="text-emerald-700 font-medium">
+                          Replacement cost matches the returned items exactly.
+                        </p>
+                      ) : (
+                        <p className="text-amber-700 font-medium">
+                          {viewingCostDiff > 0
+                            ? `Replacement was ₱${viewingCostDiff.toFixed(2)} more than the returned items.`
+                            : `Replacement was ₱${Math.abs(viewingCostDiff).toFixed(2)} short of the returned items.`}
+                        </p>
+                      ))}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -666,55 +731,91 @@ export default function InventoryReturnsPage() {
           <DialogHeader>
             <DialogTitle>Resolve Return</DialogTitle>
             <DialogDescription>
-              Record the replacement items{" "}
-              {resolvingReturn?.supplier
-                ? `${resolvingReturn.supplier} sent back`
-                : "sent back"}
-              . Stock is added for these items once resolved. Defaults to the
-              same items that were returned, but you can change products or
-              quantities if the supplier sent something different.
+              Close this return when the supplier replaces the items, or when
+              they only deduct the returned cost and send nothing back.
             </DialogDescription>
           </DialogHeader>
 
           {resolvingReturn && (
             <div className="space-y-4">
-              <ReturnItemsEditor
-                products={products}
-                items={replacementItems}
-                onItemsChange={setReplacementItems}
-                supplierId={resolvingReturn.supplierId || undefined}
-                supplierName={resolvingReturn.supplier}
-                stockEffect="add"
-                itemNounSingular="replacement item"
-              />
-
-              <div
-                className={`p-3 rounded border text-sm space-y-1 ${
-                  costDiff === 0
-                    ? "bg-emerald-50 border-emerald-200"
-                    : "bg-amber-50 border-amber-200"
-                }`}
-              >
-                <p>
-                  Returned Total:{" "}
-                  <span className="font-semibold">
-                    ₱{returnedTotal.toFixed(2)}
-                  </span>
-                </p>
-                <p>
-                  Replacement Total:{" "}
-                  <span className="font-semibold">
-                    ₱{replacementTotal.toFixed(2)}
-                  </span>
-                </p>
-                {costDiff !== 0 && (
-                  <p className="text-amber-700 font-medium">
-                    {costDiff > 0
-                      ? `Replacement is ₱${costDiff.toFixed(2)} more than the returned items.`
-                      : `Replacement is ₱${Math.abs(costDiff).toFixed(2)} short of the returned items.`}
-                  </p>
-                )}
+              <div className="space-y-2">
+                <Label>How was this resolved?</Label>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  value={resolveMode}
+                  onValueChange={(next) => {
+                    if (next === "REPLACEMENT" || next === "CREDIT") {
+                      setResolveMode(next);
+                    }
+                  }}
+                  className="flex flex-wrap justify-start"
+                >
+                  <ToggleGroupItem value="REPLACEMENT">
+                    Supplier replaced items
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="CREDIT">
+                    Credit only — no replacement
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
+
+              {resolveMode === "REPLACEMENT" ? (
+                <>
+                  <ReturnItemsEditor
+                    products={products}
+                    items={replacementItems}
+                    onItemsChange={setReplacementItems}
+                    supplierId={resolvingReturn.supplierId || undefined}
+                    supplierName={resolvingReturn.supplier}
+                    stockEffect="add"
+                    itemNounSingular="replacement item"
+                  />
+
+                  <div
+                    className={`p-3 rounded border text-sm space-y-1 ${
+                      costDiff === 0
+                        ? "bg-emerald-50 border-emerald-200"
+                        : "bg-amber-50 border-amber-200"
+                    }`}
+                  >
+                    <p>
+                      Returned Total:{" "}
+                      <span className="font-semibold">
+                        ₱{returnedTotal.toFixed(2)}
+                      </span>
+                    </p>
+                    <p>
+                      Replacement Total:{" "}
+                      <span className="font-semibold">
+                        ₱{replacementTotal.toFixed(2)}
+                      </span>
+                    </p>
+                    {costDiff !== 0 && (
+                      <p className="text-amber-700 font-medium">
+                        {costDiff > 0
+                          ? `Replacement is ₱${costDiff.toFixed(2)} more than the returned items.`
+                          : `Replacement is ₱${Math.abs(costDiff).toFixed(2)} short of the returned items.`}
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="p-3 rounded border bg-amber-50 border-amber-200 text-sm space-y-1">
+                  <p>
+                    Returned Total:{" "}
+                    <span className="font-semibold">
+                      ₱{returnedTotal.toFixed(2)}
+                    </span>
+                  </p>
+                  <p className="text-amber-800">
+                    This closes the return without adding replacement stock.
+                    Use this when the supplier deducted ₱
+                    {returnedTotal.toFixed(2)} from an invoice instead of
+                    sending the product back.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -738,9 +839,9 @@ export default function InventoryReturnsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unresolve Return</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the replacement stock that was added and marks
-              this return as not yet resolved again, so you can edit and
-              re-resolve it.
+              This reopens the return so you can edit it again. If replacement
+              stock was added, that stock is removed. A credited return is
+              simply marked unresolved.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

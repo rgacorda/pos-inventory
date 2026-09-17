@@ -4,6 +4,7 @@ import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { Supplier } from '../../entities/supplier.entity';
+import { InventoryReturnsService } from '../inventory-returns/inventory-returns.service';
 
 @Injectable()
 export class InventoryDeliveriesService {
@@ -14,6 +15,7 @@ export class InventoryDeliveriesService {
     private readonly productRepository: Repository<ProductEntity>,
     @InjectRepository(Supplier)
     private readonly supplierRepository: Repository<Supplier>,
+    private readonly inventoryReturnsService: InventoryReturnsService,
   ) {}
 
   /**
@@ -92,12 +94,21 @@ export class InventoryDeliveriesService {
   async create(createDto: any): Promise<InventoryDelivery> {
     await this.resolveSupplierLink(createDto, createDto.organizationId);
 
+    const requestedResolutions = this.extractRequestedResolutions(createDto);
+    const preparedResolutions =
+      await this.inventoryReturnsService.prepareDeliveryResolutions(
+        createDto.organizationId,
+        createDto.supplierId || null,
+        requestedResolutions,
+      );
+
+    this.applyReturnTotals(createDto, preparedResolutions);
+
     const delivery = this.deliveryRepository.create(createDto);
     const savedDelivery = (await this.deliveryRepository.save(
       delivery,
     )) as unknown as InventoryDelivery;
 
-    // Update product stock if status is RECEIVED and items exist
     if (
       savedDelivery.status === 'RECEIVED' &&
       savedDelivery.items?.length > 0
@@ -108,6 +119,13 @@ export class InventoryDeliveriesService {
         savedDelivery.supplierId,
       );
     }
+
+    await this.inventoryReturnsService.syncDeliveryResolutions(
+      savedDelivery.organizationId,
+      savedDelivery.id,
+      preparedResolutions,
+      savedDelivery.status === 'RECEIVED',
+    );
 
     return savedDelivery;
   }
@@ -125,6 +143,41 @@ export class InventoryDeliveriesService {
     const oldItems = delivery.items || [];
 
     await this.resolveSupplierLink(updateDto, organizationId);
+
+    const requestedResolutions =
+      'returnResolutions' in updateDto
+        ? this.extractRequestedResolutions(updateDto)
+        : (delivery.returnResolutions || []).map((resolution) => ({
+            returnId: resolution.returnId,
+            action: resolution.action,
+            replacementItems: resolution.replacementItems,
+          }));
+
+    const supplierId =
+      'supplierId' in updateDto
+        ? updateDto.supplierId || null
+        : delivery.supplierId;
+
+    const preparedResolutions =
+      await this.inventoryReturnsService.prepareDeliveryResolutions(
+        organizationId,
+        supplierId,
+        requestedResolutions,
+        delivery.id,
+      );
+
+    const itemsForTotal =
+      updateDto.items !== undefined ? updateDto.items : delivery.items;
+    const discountForTotal =
+      updateDto.discountAmount !== undefined
+        ? updateDto.discountAmount
+        : delivery.discountAmount;
+    this.applyReturnTotals(
+      updateDto,
+      preparedResolutions,
+      itemsForTotal,
+      discountForTotal,
+    );
 
     Object.assign(delivery, updateDto);
     const updatedDelivery = (await this.deliveryRepository.save(
@@ -166,6 +219,13 @@ export class InventoryDeliveriesService {
     }
     // If it was never RECEIVED and still isn't, items may have changed but
     // stock was never touched for them, so there's nothing to reconcile.
+
+    await this.inventoryReturnsService.syncDeliveryResolutions(
+      organizationId,
+      updatedDelivery.id,
+      preparedResolutions,
+      isReceived,
+    );
 
     return updatedDelivery;
   }
@@ -360,8 +420,94 @@ export class InventoryDeliveriesService {
       await this.reverseProductStock(delivery.items, organizationId);
     }
 
+    await this.inventoryReturnsService.unlinkDeliveryResolutions(
+      organizationId,
+      delivery.id,
+    );
+
     await this.deliveryRepository.remove(delivery);
     return { message: 'Delivery deleted successfully' };
+  }
+
+  private extractRequestedResolutions(
+    dto: Record<string, any>,
+  ): Array<{
+    returnId: string;
+    action: string;
+    replacementItems?: Array<{
+      productId: string;
+      productName: string;
+      productSku?: string;
+      quantity: number;
+      unitCost: number;
+      totalCost?: number;
+    }>;
+  }> {
+    const raw = Array.isArray(dto.returnResolutions)
+      ? dto.returnResolutions
+      : [];
+    return raw.map(
+      (item: {
+        returnId?: string;
+        action?: string;
+        replacementItems?: Array<{
+          productId: string;
+          productName: string;
+          productSku?: string;
+          quantity: number;
+          unitCost: number;
+          totalCost?: number;
+        }>;
+      }) => ({
+        returnId: item?.returnId || '',
+        action: item?.action || '',
+        replacementItems: item?.replacementItems,
+      }),
+    );
+  }
+
+  /**
+   * Recomputes `returnCreditAmount` and `totalCost` from the items,
+   * discount, and credited returns so a client cannot under/overstate
+   * what was actually paid.
+   */
+  private applyReturnTotals(
+    dto: Record<string, any>,
+    resolutions: Array<{
+      returnId: string;
+      action: 'FULFILL' | 'CREDIT';
+      amount: number;
+      replacementItems?: Array<{
+        productId: string;
+        productName: string;
+        productSku?: string;
+        quantity: number;
+        unitCost: number;
+        totalCost: number;
+      }>;
+    }>,
+    itemsOverride?: Array<{ totalCost?: number }>,
+    discountOverride?: number,
+  ) {
+    const items = itemsOverride ?? dto.items ?? [];
+    const itemsSubtotal = (items || []).reduce(
+      (sum: number, item: { totalCost?: number }) =>
+        sum + Number(item?.totalCost || 0),
+      0,
+    );
+    const discount = Number(
+      discountOverride !== undefined ? discountOverride : dto.discountAmount || 0,
+    );
+    const returnCreditAmount = resolutions
+      .filter((resolution) => resolution.action === 'CREDIT')
+      .reduce((sum, resolution) => sum + Number(resolution.amount || 0), 0);
+
+    dto.returnResolutions = resolutions;
+    dto.returnCreditAmount = Math.round(returnCreditAmount * 100) / 100;
+    dto.totalCost =
+      Math.round(
+        Math.max(itemsSubtotal - discount - dto.returnCreditAmount, 0) * 100,
+      ) / 100;
   }
 
   async getStats(

@@ -83,6 +83,19 @@ interface InventoryDelivery {
   deliveryDate: string;
   totalCost: number;
   discountAmount?: number;
+  returnCreditAmount?: number;
+  returnResolutions?: Array<{
+    returnId: string;
+    action: "FULFILL" | "CREDIT";
+    amount: number;
+    replacementItems?: Array<{
+      productId: string;
+      productName: string;
+      quantity: number;
+      unitCost: number;
+      totalCost: number;
+    }>;
+  }> | null;
   items: DeliveryItem[];
   status: "PENDING" | "RECEIVED" | "CANCELLED";
   notes?: string;
@@ -172,8 +185,20 @@ function DeliveryMeta({ delivery }: { delivery: InventoryDelivery }) {
         <div>
           <p className="text-muted-foreground">Total Cost</p>
           <p className="font-medium">₱{Number(delivery.totalCost).toFixed(2)}</p>
+          {Number(delivery.returnCreditAmount) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              includes -₱{Number(delivery.returnCreditAmount).toFixed(2)} return credit
+            </p>
+          )}
         </div>
       </div>
+      {(delivery.returnResolutions || []).length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {(delivery.returnResolutions || []).length} supplier return
+          {(delivery.returnResolutions || []).length === 1 ? "" : "s"} applied
+          on this delivery
+        </p>
+      )}
       {delivery.notes && (
         <p className="text-sm text-muted-foreground">{delivery.notes}</p>
       )}
@@ -385,6 +410,11 @@ export default function InventoryDeliveriesPage() {
                             -₱{Number(delivery.discountAmount).toFixed(2)} discount
                           </div>
                         )}
+                        {Number(delivery.returnCreditAmount) > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            -₱{Number(delivery.returnCreditAmount).toFixed(2)} return credit
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>{getStatusBadge(delivery.status)}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -552,7 +582,11 @@ export default function InventoryDeliveriesPage() {
             <DialogTitle>Mark Delivery as Received</DialogTitle>
             <DialogDescription>
               Confirm the items below. Receiving this delivery will add these
-              quantities to product stock.
+              quantities to product stock
+              {(receivingDelivery?.returnResolutions || []).length > 0
+                ? ", and apply any fulfill/credit returns attached to it"
+                : ""}
+              .
             </DialogDescription>
           </DialogHeader>
 
