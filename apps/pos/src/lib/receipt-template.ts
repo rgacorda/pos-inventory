@@ -47,6 +47,32 @@ export interface ReceiptData {
 }
 
 /**
+ * Extra cents added or removed when amount due is rounded to a whole peso.
+ * Derived from stored totals so reprints of rounded orders also show it.
+ */
+export function getReceiptRoundingAmount(
+  data: Pick<
+    ReceiptData,
+    "subtotal" | "taxAmount" | "discountAmount" | "totalAmount" | "pointsRedeemed"
+  >,
+): number {
+  const expected = Number(
+    (
+      data.subtotal +
+      data.taxAmount -
+      (data.discountAmount || 0) -
+      (data.pointsRedeemed || 0)
+    ).toFixed(2),
+  );
+  return Number((data.totalAmount - expected).toFixed(2));
+}
+
+function formatSignedCurrency(amount: number): string {
+  const formatted = formatCurrency(Math.abs(amount));
+  return amount > 0 ? `+${formatted}` : `-${formatted}`;
+}
+
+/**
  * Roll width (matches the printer's physical paper) vs. usable content
  * width. Kept a few mm narrower than the printer's nominal printable area —
  * many thermal printers can't actually print all the way to the roll's
@@ -96,6 +122,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
   const isWide = paperSize === "80mm";
   const org = data.organization;
   const totalItemCount = calculateTotalSoldItemCount(data.items);
+  const roundingAmount = getReceiptRoundingAmount(data);
 
   const header = `
     <div class="center mb-2">
@@ -173,6 +200,11 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
             `-${esc(formatCurrency(data.pointsRedeemed))}`,
             "mb-1",
           )
+        : ""
+    }
+    ${
+      roundingAmount !== 0
+        ? row("Rounding:", esc(formatSignedCurrency(roundingAmount)), "mb-1")
         : ""
     }
     <div class="total-row">

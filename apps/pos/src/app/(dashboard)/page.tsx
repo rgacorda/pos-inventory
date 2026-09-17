@@ -35,13 +35,13 @@ import {
 } from "@/lib/toast-utils";
 import { Plus, Trash2, CreditCard, QrCode, Search, Eye, EyeOff, Ban, Delete, ArrowLeftRight, Star, UserPlus, X } from "lucide-react";
 import { useProducts, useTodaysOrders } from "@/hooks/useDatabase";
-import { LocalProduct, db, dbHelpers } from "@/lib/db";
+import { LocalProduct, db, dbHelpers, ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, AmountDueRoundingSettings } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
 import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, calculateTotalSoldItemCount, PriceBreakdown } from "@pos/shared-utils";
+import { applyAmountDueRounding, calculateEffectivePrice, calculateLineSubtotalWithTieredPrice, calculatePriceBreakdown, calculateTotalSoldItemCount, DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD, PriceBreakdown } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
 import {
@@ -141,6 +141,26 @@ export default function Page() {
   const [registerCustomerPhone, setRegisterCustomerPhone] = useState("");
   const [registerCustomerLoading, setRegisterCustomerLoading] = useState(false);
   const [registerCustomerError, setRegisterCustomerError] = useState("");
+  const [roundUpAmountDue, setRoundUpAmountDue] = useState(true);
+  const [roundUpThreshold, setRoundUpThreshold] = useState(DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD);
+
+  useEffect(() => {
+    const loadRoundUpSetting = async () => {
+      setRoundUpAmountDue(await dbHelpers.getRoundUpAmountDue());
+      setRoundUpThreshold(await dbHelpers.getRoundUpAmountDueThreshold());
+    };
+    loadRoundUpSetting();
+
+    const handleRoundUpChange = (e: Event) => {
+      const detail = (e as CustomEvent<AmountDueRoundingSettings>).detail;
+      if (!detail || typeof detail !== "object") return;
+      if (typeof detail.enabled === "boolean") setRoundUpAmountDue(detail.enabled);
+      if (typeof detail.threshold === "number") setRoundUpThreshold(detail.threshold);
+    };
+    window.addEventListener(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, handleRoundUpChange);
+    return () =>
+      window.removeEventListener(ROUND_UP_AMOUNT_DUE_CHANGE_EVENT, handleRoundUpChange);
+  }, []);
 
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -725,7 +745,9 @@ export default function Page() {
   const pointsRedemptionAmount = usePoints && loyaltyCustomer
     ? Math.min(loyaltyCustomer.totalPoints, Math.floor(grossTotal))
     : 0;
-  const amountDue = Math.max(0, grossTotal - exchangeCredit - pointsRedemptionAmount);
+  const rawAmountDue = Math.max(0, grossTotal - exchangeCredit - pointsRedemptionAmount);
+  const amountDue = applyAmountDueRounding(rawAmountDue, roundUpAmountDue, roundUpThreshold);
+  const roundingAdjustment = Number((amountDue - rawAmountDue).toFixed(2));
   // How much more the customer still needs to add to consume the full credit
   const remainingCredit = Math.max(0, exchangeCredit - grossTotal);
   const total = grossTotal;
@@ -917,7 +939,11 @@ export default function Page() {
       const pointsRedeemedNow = usePoints && loyaltyCustomer
         ? Math.min(loyaltyCustomer.totalPoints, Math.floor(Math.max(0, grossTotal - creditApplied)))
         : 0;
-      const finalTotal = Math.max(0, grossTotal - creditApplied - pointsRedeemedNow);
+      const finalTotal = applyAmountDueRounding(
+        Math.max(0, grossTotal - creditApplied - pointsRedeemedNow),
+        roundUpAmountDue,
+        roundUpThreshold,
+      );
       // Points earned on net amount paid
       const pointsEarnedNow = loyaltyCustomer ? Math.floor(finalTotal / 500) : 0;
 
@@ -1310,6 +1336,15 @@ export default function Page() {
                   Points Discount
                 </span>
                 <span>-₱{pointsRedemptionAmount.toFixed(2)}</span>
+              </div>
+            )}
+            {roundingAdjustment !== 0 && (
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Rounding</span>
+                <span>
+                  {roundingAdjustment > 0 ? "+" : "-"}₱
+                  {Math.abs(roundingAdjustment).toFixed(2)}
+                </span>
               </div>
             )}
             <Separator />
@@ -2012,6 +2047,12 @@ export default function Page() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="flex justify-between items-center rounded-lg border bg-gray-50 px-3 py-2">
+              <span className="text-sm font-medium text-gray-700">Amount Due</span>
+              <span className="text-xl font-bold text-gray-900">
+                ₱{amountDue.toFixed(2)}
+              </span>
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Amount Received</label>
               <div className="relative">

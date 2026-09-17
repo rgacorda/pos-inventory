@@ -281,3 +281,41 @@ export function roundCurrency(
 ): number {
   return Number((Math.round(amount / precision) * precision).toFixed(2));
 }
+
+/** Default cents threshold for amount-due rounding (₱0.20). */
+export const DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD = 0.2;
+
+export function clampAmountDueRoundThreshold(threshold: number): number {
+  if (!Number.isFinite(threshold)) return DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD;
+  return Math.min(0.99, Math.max(0, Number(threshold.toFixed(2))));
+}
+
+/**
+ * Round an amount due to a whole peso using a cents threshold.
+ * Cents below the threshold round down; cents at/above it round up.
+ * Whole amounts (e.g. 50.00) are unchanged. Zero/negative stay 0.
+ */
+export function roundAmountDueToWholePeso(
+  amount: number,
+  threshold: number = DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD,
+): number {
+  const totalCents = Math.round(Math.max(0, amount) * 100);
+  const pesoCents = totalCents % 100;
+  if (pesoCents === 0) return totalCents / 100;
+
+  const thresholdCents = Math.round(clampAmountDueRoundThreshold(threshold) * 100);
+  const wholePesos = Math.floor(totalCents / 100);
+  return pesoCents < thresholdCents ? wholePesos : wholePesos + 1;
+}
+
+/**
+ * Apply optional whole-peso rounding to the amount a customer needs to pay.
+ */
+export function applyAmountDueRounding(
+  amount: number,
+  enabled: boolean,
+  threshold: number = DEFAULT_AMOUNT_DUE_ROUND_THRESHOLD,
+): number {
+  if (!enabled) return Number(Math.max(0, amount).toFixed(2));
+  return roundAmountDueToWholePeso(amount, threshold);
+}
