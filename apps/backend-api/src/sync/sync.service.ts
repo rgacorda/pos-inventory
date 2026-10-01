@@ -150,13 +150,19 @@ export class SyncService {
 
         // Look up cashier UUID from cashierId (if it's not already a UUID)
         let cashierUuid: string | undefined = orderDto.cashierId;
+        let cashierRecord: UserEntity | null = null;
         if (orderDto.cashierId && !this.isUUID(orderDto.cashierId)) {
-          const cashier = await queryRunner.manager.findOne(UserEntity, {
+          cashierRecord = await queryRunner.manager.findOne(UserEntity, {
             where: { email: orderDto.cashierId },
           });
           // If the value isn't a UUID and can't be resolved by email, treat as unknown
-          cashierUuid = cashier ? cashier.id : undefined;
+          cashierUuid = cashierRecord ? cashierRecord.id : undefined;
+        } else if (cashierUuid) {
+          cashierRecord = await queryRunner.manager.findOne(UserEntity, {
+            where: { id: cashierUuid },
+          });
         }
+        const cashierName = cashierRecord?.name;
 
         // Generate order number
         const orderNumber = await this.generateOrderNumber();
@@ -225,6 +231,7 @@ export class SyncService {
           posLocalId: orderDto.posLocalId,
           terminalId: terminal.id,
           cashierId: cashierUuid,
+          cashierName,
           organizationId: user?.organizationId,
           subtotal: orderDto.subtotal,
           taxAmount: orderDto.taxAmount,

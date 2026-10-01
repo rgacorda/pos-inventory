@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError, DataSource } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
+import { UserEntity } from '../../entities/user.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
@@ -75,9 +76,20 @@ export class OrdersService {
       throw new BadRequestException('Order must have at least one item');
     }
 
+    // Keep the cashier name on the order so it remains after the account is deleted.
+    let cashierName: string | undefined;
+    if (createOrderDto.cashierId) {
+      const cashier = await this.dataSource.getRepository(UserEntity).findOne({
+        where: { id: createOrderDto.cashierId },
+        select: { id: true, name: true },
+      });
+      cashierName = cashier?.name;
+    }
+
     // Create order
     const order = this.ordersRepository.create({
       ...createOrderDto,
+      cashierName,
       items: undefined, // Remove items from spread, we'll add them separately
     });
 
@@ -313,12 +325,16 @@ export class OrdersService {
           .createQueryBuilder('order')
           .leftJoin('order.cashier', 'cashier')
           .select('order.cashierId', 'cashierId')
-          .addSelect('cashier.name', 'cashierName')
+          .addSelect(
+            `COALESCE(cashier.name, "order"."cashierName", 'Unknown')`,
+            'cashierName',
+          )
           .addSelect('COUNT(order.id)', 'orders')
           .addSelect('SUM(order.totalAmount)', 'revenue')
           .where('1=1')
           .groupBy('order.cashierId')
           .addGroupBy('cashier.name')
+          .addGroupBy('order.cashierName')
           .orderBy('SUM(order.totalAmount)', 'DESC'),
       ).getRawMany(),
 

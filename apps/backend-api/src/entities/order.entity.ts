@@ -36,7 +36,11 @@ export class OrderEntity {
   @Column({ nullable: true })
   cashierId: string;
 
-  @ManyToOne('UserEntity', 'orders')
+  /** Kept when the cashier account is deleted so sales history still shows who rang the order. */
+  @Column({ nullable: true })
+  cashierName: string;
+
+  @ManyToOne('UserEntity', 'orders', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'cashierId' })
   cashier: any;
 
@@ -94,7 +98,7 @@ export class OrderEntity {
   @Column({ nullable: true })
   voidedBy: string;
 
-  @ManyToOne('UserEntity', { nullable: true })
+  @ManyToOne('UserEntity', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'voidedBy' })
   voider: any;
 

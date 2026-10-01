@@ -648,7 +648,8 @@ export default function UsersPage() {
                                   <span className="font-semibold">
                                     {selectedUser?.name}
                                   </span>
-                                  . This action cannot be undone.
+                                  . Their name stays on past sales. This action
+                                  cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>

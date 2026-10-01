@@ -192,6 +192,7 @@ export default function OrdersPage() {
       order.orderNumber?.toLowerCase().includes(query) ||
       order.terminal?.name?.toLowerCase().includes(query) ||
       order.cashier?.name?.toLowerCase().includes(query) ||
+      order.cashierName?.toLowerCase().includes(query) ||
       order.customerName?.toLowerCase().includes(query);
 
     const matchesStatus =
@@ -359,7 +360,9 @@ export default function OrdersPage() {
                   {paginatedOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>{order.terminal?.name || "N/A"}</TableCell>
-                      <TableCell>{order.cashier?.name || "N/A"}</TableCell>
+                      <TableCell>
+                        {order.cashier?.name || order.cashierName || "N/A"}
+                      </TableCell>
                       <TableCell>{order.customerName || "N/A"}</TableCell>
                       <TableCell>{getOrderPaymentMethods(order)}</TableCell>
                       <TableCell>{order.items?.length || 0}</TableCell>
@@ -522,7 +525,9 @@ export default function OrdersPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Cashier</p>
                   <p className="font-medium">
-                    {selectedOrder.cashier?.name || "N/A"}
+                    {selectedOrder.cashier?.name ||
+                      selectedOrder.cashierName ||
+                      "N/A"}
                   </p>
                 </div>
                 <div>

@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, QueryFailedError } from 'typeorm';
+import { EntityManager, QueryFailedError, Repository } from 'typeorm';
 import { UserEntity } from '../../entities/user.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateUserDto, UpdateUserDto } from './dto';
@@ -166,10 +166,12 @@ export class UsersService {
     }
 
     try {
-      await this.usersRepository.remove(user);
+      await this.usersRepository.manager.transaction(async (manager) => {
+        await this.unlinkUserReferences(manager, user.id, user.name);
+        await manager.remove(user);
+      });
     } catch (error) {
       if (error instanceof QueryFailedError) {
-        // Handle foreign key constraint violations
         const errorMessage = error.message.toLowerCase();
         if (
           errorMessage.includes('foreign key constraint') ||
@@ -177,12 +179,81 @@ export class UsersService {
           errorMessage.includes('fk_')
         ) {
           throw new BadRequestException(
-            'Cannot delete user as they have associated records (orders, transactions, etc.). Please transfer or remove all related records first.',
+            'Cannot delete user because a related record still requires this account.',
           );
         }
       }
       throw error;
     }
+  }
+
+  /**
+   * Orders and other history stay. Columns that point at this user are cleared
+   * first so the account can be removed.
+   */
+  private async unlinkUserReferences(
+    manager: EntityManager,
+    userId: string,
+    userName: string,
+  ) {
+    const hasCashierName = await manager.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'orders'
+         AND column_name = 'cashierName'`,
+    );
+    if (hasCashierName.length > 0) {
+      await manager.query(
+        `UPDATE orders SET "cashierName" = $1 WHERE "cashierId" = $2`,
+        [userName, userId],
+      );
+    }
+
+    const references: {
+      table_name: string;
+      column_name: string;
+      is_nullable: string;
+    }[] = await manager.query(
+      `SELECT kcu.table_name, kcu.column_name, c.is_nullable
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+       JOIN information_schema.columns c
+         ON c.table_schema = kcu.table_schema
+        AND c.table_name = kcu.table_name
+        AND c.column_name = kcu.column_name
+       WHERE tc.constraint_type = 'FOREIGN KEY'
+         AND tc.table_schema = 'public'
+         AND ccu.table_name = 'users'`,
+    );
+
+    for (const reference of references) {
+      const table = this.assertSqlIdentifier(reference.table_name);
+      const column = this.assertSqlIdentifier(reference.column_name);
+      if (reference.is_nullable !== 'YES') {
+        await manager.query(
+          `ALTER TABLE "${table}" ALTER COLUMN "${column}" DROP NOT NULL`,
+        );
+      }
+      await manager.query(
+        `UPDATE "${table}" SET "${column}" = NULL WHERE "${column}" = $1`,
+        [userId],
+      );
+    }
+  }
+
+  private assertSqlIdentifier(value: string) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+      throw new BadRequestException(
+        'Cannot delete user because of an unexpected database reference.',
+      );
+    }
+    return value;
   }
 
   async findByEmail(email: string) {
