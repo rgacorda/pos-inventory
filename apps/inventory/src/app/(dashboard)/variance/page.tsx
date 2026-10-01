@@ -416,6 +416,55 @@ export default function VarianceInventoryPage() {
     }
   }
 
+  function quantityField(row: VarianceRow, prominent: boolean) {
+    const error = draftError(row);
+    return (
+      <div className={prominent ? "space-y-1" : undefined}>
+        <Input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          enterKeyHint="done"
+          value={drafts[row.productId] ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setDrafts((current) => ({
+              ...current,
+              [row.productId]: value,
+            }));
+            queueCountSave(row.productId, value, SAVE_DELAY_MS);
+          }}
+          onBlur={(e) => queueCountSave(row.productId, e.target.value, 0)}
+          className={
+            prominent
+              ? "h-14 text-center text-2xl font-semibold"
+              : "h-10 w-28 text-base md:text-sm"
+          }
+          aria-label={`Counted quantity for ${row.name}`}
+        />
+        {savingIds.has(row.productId) ? (
+          <p className="text-xs text-muted-foreground">Saving...</p>
+        ) : error ? (
+          <p className="text-xs text-red-600">{error}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function differenceLabel(delta: number | null) {
+    if (delta === null) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    if (delta === 0) {
+      return <Badge variant="secondary">Match</Badge>;
+    }
+    return (
+      <span className={delta < 0 ? "font-semibold text-red-600" : "font-semibold text-green-600"}>
+        {delta > 0 ? `+${delta}` : delta}
+      </span>
+    );
+  }
+
   const applyRow = applyTarget && applyTarget !== "all"
     ? rows.find((row) => row.productId === applyTarget) ?? null
     : null;
@@ -445,8 +494,8 @@ export default function VarianceInventoryPage() {
   return (
     <div className="px-4 lg:px-6 space-y-6">
       <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <CardHeader className="px-4 md:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
             <div>
               <CardTitle>Variance Inventory</CardTitle>
               <CardDescription>
@@ -456,15 +505,17 @@ export default function VarianceInventoryPage() {
               </CardDescription>
             </div>
             {isAdmin && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={handlePrintSummary}
                   disabled={summary.counted === 0}
                 >
                   Print PDF
                 </Button>
                 <Button
+                  className="w-full sm:w-auto"
                   onClick={() => requestApply("all")}
                   disabled={applying || summary.counted === 0}
                 >
@@ -474,20 +525,20 @@ export default function VarianceInventoryPage() {
             )}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-4 pt-4">
-            <div className="rounded-lg border p-4">
+          <div className="grid grid-cols-2 gap-2 pt-2 md:grid-cols-4 md:gap-4 md:pt-4">
+            <div className="rounded-lg border p-3 md:p-4">
               <h3 className="text-sm font-medium text-muted-foreground">Counted</h3>
               <p className="text-2xl font-bold mt-2">{summary.counted}</p>
             </div>
-            <div className="rounded-lg border p-4">
+            <div className="rounded-lg border p-3 md:p-4">
               <h3 className="text-sm font-medium text-muted-foreground">Short</h3>
               <p className="text-2xl font-bold mt-2 text-red-600">{summary.shortages}</p>
             </div>
-            <div className="rounded-lg border p-4">
+            <div className="rounded-lg border p-3 md:p-4">
               <h3 className="text-sm font-medium text-muted-foreground">Over</h3>
               <p className="text-2xl font-bold mt-2 text-green-600">{summary.overages}</p>
             </div>
-            <div className="rounded-lg border p-4">
+            <div className="rounded-lg border p-3 md:p-4">
               <h3 className="text-sm font-medium text-muted-foreground">Net difference</h3>
               <p className={`text-2xl font-bold mt-2 ${summary.netUnits < 0 ? "text-red-600" : summary.netUnits > 0 ? "text-green-600" : ""}`}>
                 {summary.netUnits > 0 ? `+${summary.netUnits}` : summary.netUnits}
@@ -505,15 +556,16 @@ export default function VarianceInventoryPage() {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-9"
+                className="h-11 pl-9 md:h-9"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
               {FILTERS.map((option) => (
                 <Button
                   key={option.id}
                   type="button"
                   size="sm"
+                  className="h-10 w-full sm:h-8 sm:w-auto"
                   variant={filter === option.id ? "default" : "outline"}
                   onClick={() => {
                     setFilter(option.id);
@@ -526,8 +578,65 @@ export default function VarianceInventoryPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-auto">
+        <CardContent className="px-4 md:px-6">
+          <div className="space-y-3 md:hidden">
+            {pageRows.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                No products match this view.
+              </p>
+            ) : (
+              pageRows.map((row) => {
+                const delta = difference(row);
+                return (
+                  <div key={row.productId} className="rounded-lg border p-3">
+                    <div className="mb-3">
+                      <div className="font-medium leading-snug">{row.name}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>{row.sku}</span>
+                        <span>Stock {row.stockQuantity}</span>
+                        {differenceLabel(delta)}
+                      </div>
+                    </div>
+                    <p className="mb-1 text-sm font-medium">Counted quantity</p>
+                    {quantityField(row, true)}
+                    {row.count?.countedByName && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Updated by {row.count.countedByName}
+                      </p>
+                    )}
+                    {(row.count || isAdmin) && (
+                      <div className="mt-3 flex gap-2">
+                        {row.count && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11 flex-1"
+                            onClick={() => handleClear(row)}
+                            disabled={applying}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11 flex-1"
+                            onClick={() => requestApply(row.productId)}
+                            disabled={applying || displayedCount(row) === null}
+                          >
+                            Update stock
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden overflow-auto md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -550,7 +659,6 @@ export default function VarianceInventoryPage() {
                 ) : (
                   pageRows.map((row) => {
                     const delta = difference(row);
-                    const error = draftError(row);
                     return (
                       <TableRow key={row.productId}>
                         <TableCell>
@@ -562,39 +670,10 @@ export default function VarianceInventoryPage() {
                         <TableCell className="text-muted-foreground">{row.sku}</TableCell>
                         <TableCell className="text-right font-medium">{row.stockQuantity}</TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={drafts[row.productId] ?? ""}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setDrafts((current) => ({
-                                ...current,
-                                [row.productId]: value,
-                              }));
-                              queueCountSave(row.productId, value, SAVE_DELAY_MS);
-                            }}
-                            onBlur={(e) => queueCountSave(row.productId, e.target.value, 0)}
-                            className="w-28"
-                            aria-label={`Counted quantity for ${row.name}`}
-                          />
-                          {savingIds.has(row.productId) ? (
-                            <p className="mt-1 text-xs text-muted-foreground">Saving...</p>
-                          ) : error ? (
-                            <p className="mt-1 text-xs text-red-600">{error}</p>
-                          ) : null}
+                          {quantityField(row, false)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {delta === null ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : delta === 0 ? (
-                            <Badge variant="secondary">Match</Badge>
-                          ) : (
-                            <span className={delta < 0 ? "font-semibold text-red-600" : "font-semibold text-green-600"}>
-                              {delta > 0 ? `+${delta}` : delta}
-                            </span>
-                          )}
+                          {differenceLabel(delta)}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {row.count?.countedByName || "—"}
@@ -634,7 +713,7 @@ export default function VarianceInventoryPage() {
           </div>
 
           {filteredRows.length > itemsPerPage && (
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-muted-foreground">
                 {filteredRows.length} products
               </p>
