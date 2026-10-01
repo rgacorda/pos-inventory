@@ -483,6 +483,28 @@ class APIClient {
     return response.data;
   }
 
+  // Variance inventory
+  async getVarianceWorksheet() {
+    const response = await this.client.get("/inventory-variances");
+    return response.data;
+  }
+
+  async saveVarianceCounts(data: {
+    items: { productId: string; countedQuantity: number }[];
+  }) {
+    const response = await this.client.post("/inventory-variances", data);
+    return response.data;
+  }
+
+  async applyVarianceCounts(data: { productIds?: string[] } = {}) {
+    const response = await this.client.post("/inventory-variances/apply", data);
+    return response.data;
+  }
+
+  async clearVarianceCount(id: string) {
+    await this.client.delete(`/inventory-variances/${id}`);
+  }
+
   // Upload API
   async uploadReceipt(file: File) {
     const formData = new FormData();

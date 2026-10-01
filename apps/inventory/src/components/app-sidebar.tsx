@@ -19,6 +19,7 @@ import {
   IconEdit,
   IconBuildingStore,
   IconStar,
+  IconClipboardList,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -59,6 +60,11 @@ const data = {
           title: "Products",
           url: "/products",
           icon: IconPackage,
+        },
+        {
+          title: "Variance Inventory",
+          url: "/variance",
+          icon: IconClipboardList,
         },
         {
           title: "Orders",
@@ -178,6 +184,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     .map((group: any) => ({
       ...group,
       items: group.items.filter((item: any) => {
+        if (currentUser?.role === "CASHIER") {
+          return item.url === "/variance";
+        }
         // If item has requiredRole, check if user has that exact role
         if (item.requiredRole) {
           return currentUser?.role === item.requiredRole;
@@ -200,7 +209,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <a href="/">
+              <a href={currentUser?.role === "CASHIER" ? "/variance" : "/"}>
                 <IconReport className="!size-5" />
                 <span className="text-base font-semibold">
                   {organizationName || "Inventory"}

@@ -19,6 +19,7 @@ import { FinancialsModule } from './modules/financials/financials.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { InventoryVariancesModule } from './modules/inventory-variances/inventory-variances.module';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 
@@ -54,6 +55,7 @@ import jwtConfig from './config/jwt.config';
     UploadModule,
     SuppliersModule,
     CustomersModule,
+    InventoryVariancesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

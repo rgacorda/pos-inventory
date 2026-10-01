@@ -14,10 +14,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const token = apiClient.getAccessToken();
     const userStr = localStorage.getItem("user");
+    let user: { role?: string; organizationId?: string } | null = null;
+    try {
+      user = userStr ? JSON.parse(userStr) : null;
+    } catch {
+      user = null;
+    }
 
     // If logged in and on login page, redirect to dashboard
     if (token && pathname === "/login") {
-      router.push("/");
+      router.push(user?.role === UserRole.CASHIER ? "/variance" : "/");
       return;
     }
 
@@ -30,13 +36,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     // If has token, validate user data
     if (token && pathname !== "/login") {
       try {
-        const user = userStr ? JSON.parse(userStr) : null;
+        if (!user) {
+          throw new Error("Invalid user data");
+        }
 
-        // Block SUPER_ADMIN and CASHIER from accessing inventory system
-        if (
-          user?.role === UserRole.SUPER_ADMIN ||
-          user?.role === UserRole.CASHIER
-        ) {
+        // Cashiers can count stock, and nothing else in this app.
+        if (user.role === UserRole.CASHIER && pathname !== "/variance") {
+          router.replace("/variance");
+          return;
+        }
+
+        if (user?.role === UserRole.SUPER_ADMIN) {
           console.error("Unauthorized role for inventory system");
           apiClient.logout();
           router.push("/login");

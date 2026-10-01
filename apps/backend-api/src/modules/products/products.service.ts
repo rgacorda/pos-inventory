@@ -143,6 +143,17 @@ export class ProductsService {
       }
     }
 
+    // Stock changes on the product form are admin-only. Managers submit a
+    // physical count on Variance Inventory, and an admin applies it.
+    if (requestingUser.role === UserRole.MANAGER && updateProductDto.stockQuantity !== undefined) {
+      const nextStock = Number(updateProductDto.stockQuantity);
+      const currentStock = Number(product.stockQuantity) || 0;
+      if (nextStock !== currentStock) {
+        throw new ForbiddenException('Only an admin can change stock quantity');
+      }
+      delete updateProductDto.stockQuantity;
+    }
+
     // Drop the joined supplier relation before assign/save. TypeORM's save()
     // prefers a loaded ManyToOne over the FK column, so changing supplierId
     // while `supplier` is still populated would stamp the old supplier back

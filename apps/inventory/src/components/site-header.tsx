@@ -8,6 +8,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 const routeTitles: { [key: string]: string } = {
   "/": "Dashboard",
   "/products": "Products",
+  "/variance": "Variance Inventory",
   "/users": "Users",
   "/orders": "Orders",
   "/reports": "Reports",

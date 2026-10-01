@@ -210,6 +210,17 @@ export default function ProductsPage() {
     email: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [canEditStock, setCanEditStock] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("user");
+      const user = raw ? JSON.parse(raw) : null;
+      setCanEditStock(user?.role === "ADMIN");
+    } catch {
+      setCanEditStock(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadProducts();
@@ -506,33 +517,39 @@ export default function ProductsPage() {
     setShowDeleteDialog(true);
   };
 
-  const buildProductPayload = () => ({
-    sku: formData.sku,
-    name: formData.name,
-    description: formData.description.trim() || null,
-    category: formData.category.trim() || null,
-    supplierId: formData.supplierId || null,
-    barcode: formData.barcode.trim() || null,
-    status: formData.status,
-    price: parseFloat(formData.price),
-    cost: parseFloat(formData.cost),
-    markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
-    markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
-    packQuantity: formData.packQuantity ? parseInt(formData.packQuantity, 10) : null,
-    packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
-    packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
-    packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
-    halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity, 10) : null,
-    halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
-    halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
-    halfPackPrice: formData.halfPackPrice ? parseFloat(formData.halfPackPrice) : null,
-    addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
-    convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
-    convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
-    taxRate: parseFloat(formData.taxRate),
-    stockQuantity: formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10),
-    lowStockThreshold: formData.lowStockThreshold === "" ? null : parseInt(formData.lowStockThreshold, 10),
-  });
+  const buildProductPayload = (includeStock = true) => {
+    const payload: Record<string, unknown> = {
+      sku: formData.sku,
+      name: formData.name,
+      description: formData.description.trim() || null,
+      category: formData.category.trim() || null,
+      supplierId: formData.supplierId || null,
+      barcode: formData.barcode.trim() || null,
+      status: formData.status,
+      price: parseFloat(formData.price),
+      cost: parseFloat(formData.cost),
+      markupPercentage: formData.markupPercentage ? parseFloat(formData.markupPercentage) : null,
+      markupFixed: formData.markupFixed ? parseFloat(formData.markupFixed) : null,
+      packQuantity: formData.packQuantity ? parseInt(formData.packQuantity, 10) : null,
+      packMarkupPercentage: formData.packMarkupPercentage ? parseFloat(formData.packMarkupPercentage) : null,
+      packMarkupFixed: formData.packMarkupFixed ? parseFloat(formData.packMarkupFixed) : null,
+      packPrice: formData.packPrice ? parseFloat(formData.packPrice) : null,
+      halfPackQuantity: formData.halfPackQuantity ? parseInt(formData.halfPackQuantity, 10) : null,
+      halfPackMarkupPercentage: formData.halfPackMarkupPercentage ? parseFloat(formData.halfPackMarkupPercentage) : null,
+      halfPackMarkupFixed: formData.halfPackMarkupFixed ? parseFloat(formData.halfPackMarkupFixed) : null,
+      halfPackPrice: formData.halfPackPrice ? parseFloat(formData.halfPackPrice) : null,
+      addonPrice: formData.addonPrice ? parseFloat(formData.addonPrice) : 0,
+      convenienceMarkupPercentage: formData.convenienceMarkupPercentage ? parseFloat(formData.convenienceMarkupPercentage) : null,
+      convenienceMarkup: formData.convenienceMarkup ? parseFloat(formData.convenienceMarkup) : 0,
+      taxRate: parseFloat(formData.taxRate),
+      lowStockThreshold: formData.lowStockThreshold === "" ? null : parseInt(formData.lowStockThreshold, 10),
+    };
+    if (includeStock) {
+      payload.stockQuantity =
+        formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10);
+    }
+    return payload;
+  };
 
   const handleSubmitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -556,7 +573,7 @@ export default function ProductsPage() {
     setIsSaving(true);
 
     try {
-      await apiClient.updateProduct(selectedProduct.id, buildProductPayload());
+      await apiClient.updateProduct(selectedProduct.id, buildProductPayload(canEditStock));
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Product"));
       setShowEditDialog(false);
       setSelectedProduct(null);
@@ -2179,7 +2196,7 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-stockQuantity">
-                      Stock Quantity *
+                      Stock Quantity{canEditStock ? " *" : ""}
                     </Label>
                     <Input
                       id="edit-stockQuantity"
@@ -2191,8 +2208,14 @@ export default function ProductsPage() {
                           stockQuantity: e.target.value,
                         })
                       }
-                      required
+                      required={canEditStock}
+                      disabled={!canEditStock}
                     />
+                    {!canEditStock && (
+                      <p className="text-xs text-muted-foreground">
+                        Only an admin can change stock. Enter a count on Variance Inventory.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-lowStockThreshold">

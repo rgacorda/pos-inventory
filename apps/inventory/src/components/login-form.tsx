@@ -28,18 +28,10 @@ export function LoginForm({
     try {
       const response = await apiClient.login({ email, password });
 
-      // Block SUPER_ADMIN and CASHIER from accessing inventory system
+      // Block SUPER_ADMIN from accessing inventory system
       if (response.user.role === UserRole.SUPER_ADMIN) {
         setError(
           "Super Admins cannot access the Inventory System. Please use the Admin Portal.",
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      if (response.user.role === UserRole.CASHIER) {
-        setError(
-          "Cashiers cannot access the Inventory System. Please use the POS app.",
         );
         setIsLoading(false);
         return;
@@ -66,8 +58,9 @@ export function LoginForm({
         }
       }
 
-      // Redirect to dashboard (use window.location for hard redirect to trigger middleware)
-      window.location.href = "/";
+      // Cashiers only count stock. Everyone else lands on the dashboard.
+      window.location.href =
+        response.user.role === UserRole.CASHIER ? "/variance" : "/";
     } catch (err: any) {
       console.error("Login failed:", err);
       setError(

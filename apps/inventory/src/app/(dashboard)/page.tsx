@@ -46,6 +46,10 @@ export default function Page() {
       const user = localStorage.getItem("user");
       if (user) {
         const userData = JSON.parse(user);
+        if (userData.role === "CASHIER") {
+          router.replace("/variance");
+          return;
+        }
         if (userData.role === "MANAGER") {
           router.push("/products");
           return;
@@ -55,6 +59,8 @@ export default function Page() {
   }, [router]);
 
   useEffect(() => {
+    const user = localStorage.getItem("user");
+    if (user && JSON.parse(user).role === "CASHIER") return;
     loadDashboardData();
   }, []);
 
