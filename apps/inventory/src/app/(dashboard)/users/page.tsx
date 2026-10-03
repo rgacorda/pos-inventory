@@ -153,6 +153,8 @@ export default function UsersPage() {
     }
   };
 
+  const isEditingSelf = selectedUser?.id === currentUser?.id;
+
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -172,6 +174,15 @@ export default function UsersPage() {
       }
 
       await apiClient.updateUser(selectedUser.id, userData);
+      if (isEditingSelf && currentUser) {
+        const nextUser = {
+          ...currentUser,
+          name: formData.name,
+          email: formData.email,
+        };
+        localStorage.setItem("user", JSON.stringify(nextUser));
+        setCurrentUser(nextUser);
+      }
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("User"));
       setShowEditDialog(false);
       setSelectedUser(null);
@@ -485,9 +496,13 @@ export default function UsersPage() {
                             {showEditDialog && (
                             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                               <DialogHeader>
-                                <DialogTitle>Edit User</DialogTitle>
+                                <DialogTitle>
+                                  {isEditingSelf ? "Edit Your Account" : "Edit User"}
+                                </DialogTitle>
                                 <DialogDescription>
-                                  Update user information
+                                  {isEditingSelf
+                                    ? "Update your name, email, or password"
+                                    : "Update user information"}
                                 </DialogDescription>
                               </DialogHeader>
                               <form onSubmit={handleSubmitEdit}>
@@ -554,6 +569,7 @@ export default function UsersPage() {
                                             role: value,
                                           })
                                         }
+                                        disabled={isEditingSelf}
                                       >
                                         <SelectTrigger>
                                           <SelectValue />
@@ -570,6 +586,11 @@ export default function UsersPage() {
                                           </SelectItem>
                                         </SelectContent>
                                       </Select>
+                                      {isEditingSelf && (
+                                        <p className="text-xs text-muted-foreground">
+                                          Your role stays Admin.
+                                        </p>
+                                      )}
                                     </div>
                                     <div className="space-y-2">
                                       <Label htmlFor="edit-phone">Phone</Label>
@@ -601,6 +622,7 @@ export default function UsersPage() {
                                           isActive: value === "active",
                                         })
                                       }
+                                      disabled={isEditingSelf}
                                     >
                                       <SelectTrigger>
                                         <SelectValue />

@@ -40,8 +40,8 @@ export class UsersService {
         );
       }
 
-      // Admins cannot create SUPER_ADMIN or ADMIN users
-      if (role === UserRole.SUPER_ADMIN || role === UserRole.ADMIN) {
+      // Organization admins can create other admins, but not platform owners
+      if (role === UserRole.SUPER_ADMIN) {
         throw new ForbiddenException(
           'Insufficient permissions to create this role',
         );
@@ -139,17 +139,22 @@ export class UsersService {
     // Hash password if provided
     if (updateUserDto.password) {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
+      user.mustChangePassword = false;
     }
 
-    // Admins cannot change role to SUPER_ADMIN or ADMIN
     if (requestingUser.role === UserRole.ADMIN) {
-      if (
-        updateUserDto.role === UserRole.SUPER_ADMIN ||
-        updateUserDto.role === UserRole.ADMIN
-      ) {
+      if (updateUserDto.role === UserRole.SUPER_ADMIN) {
         throw new ForbiddenException(
           'Insufficient permissions to set this role',
         );
+      }
+
+      const isSelf = user.id === requestingUser.id;
+      if (isSelf && updateUserDto.role && updateUserDto.role !== user.role) {
+        throw new ForbiddenException('You cannot change your own role');
+      }
+      if (isSelf && updateUserDto.isActive === false) {
+        throw new ForbiddenException('You cannot deactivate your own account');
       }
     }
 
