@@ -60,6 +60,10 @@ export class UserEntity {
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
 
+  /** Incremented to invalidate JWTs already issued to this user. */
+  @Column({ default: 0 })
+  tokenVersion: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

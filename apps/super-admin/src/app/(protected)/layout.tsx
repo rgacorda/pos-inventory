@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar";
+import { SessionWatch } from "@/components/session-watch";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
@@ -16,6 +17,7 @@ export default function DashboardLayout({
         } as React.CSSProperties
       }
     >
+      <SessionWatch />
       <AppSidebar variant="inset" />
       <SidebarInset>
         <SiteHeader />

@@ -42,7 +42,7 @@ export function NavUser({
   const handleLogout = () => {
     apiClient.logout();
     // Use window.location for hard redirect to trigger middleware and prevent back navigation
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   return (

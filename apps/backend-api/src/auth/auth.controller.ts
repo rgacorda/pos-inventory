@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
   HttpCode,
@@ -8,8 +9,12 @@ import {
   Req,
   BadRequestException,
 } from '@nestjs/common';
+import { UserRole } from '@pos/shared-types';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
 import type {
   LoginDto,
   AuthResponseDto,
@@ -26,6 +31,21 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(loginDto);
+  }
+
+  @Get('session')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  session() {
+    return { active: true };
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async logoutAll(@CurrentUser() user: any) {
+    return this.authService.logoutAll(user);
   }
 
   @Post('change-password')

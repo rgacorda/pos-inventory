@@ -68,5 +68,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!apiClient.getAccessToken() || pathname === "/login") return;
+
+    const check = () => {
+      apiClient.checkSession().catch(() => undefined);
+    };
+    check();
+    const intervalId = window.setInterval(check, 15000);
+    return () => window.clearInterval(intervalId);
+  }, [pathname]);
+
   return <>{children}</>;
 }

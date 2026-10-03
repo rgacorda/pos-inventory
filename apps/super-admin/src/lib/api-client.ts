@@ -29,14 +29,11 @@ class APIClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
+        if (error.response?.status === 401 && this.isCurrentSession(error)) {
           // Unauthorized - clear token and redirect to login
           this.logout();
-          if (
-            typeof window !== "undefined" &&
-            window.location.pathname !== "/login"
-          ) {
-            window.location.href = "/login";
+          if (typeof window !== "undefined" && window.location.pathname !== "/") {
+            window.location.href = "/";
           }
         }
         console.error("API Error:", {
@@ -73,6 +70,29 @@ class APIClient {
 
   getAccessToken() {
     return this.accessToken;
+  }
+
+  private isCurrentSession(error: { config?: { headers?: Record<string, unknown> } }) {
+    const headers = error.config?.headers;
+    const raw = headers?.Authorization ?? headers?.authorization;
+    const failedToken = typeof raw === "string" ? raw : "";
+    if (!failedToken || !this.accessToken) {
+      return true;
+    }
+    return failedToken === `Bearer ${this.accessToken}`;
+  }
+
+  async checkSession() {
+    await this.client.get("/auth/session");
+  }
+
+  async logoutAllUsers() {
+    const response = await this.client.post<{
+      message: string;
+      accessToken: string;
+    }>("/auth/logout-all");
+    this.setAccessToken(response.data.accessToken);
+    return response.data;
   }
 
   async login(credentials: LoginDto): Promise<AuthResponseDto> {

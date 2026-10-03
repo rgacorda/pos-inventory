@@ -20,7 +20,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    const user = await this.authService.validateToken(payload.sub);
+    const user = await this.authService.validateToken(
+      payload.sub,
+      payload.tokenVersion ?? 0,
+    );
 
     if (!user) {
       throw new UnauthorizedException();

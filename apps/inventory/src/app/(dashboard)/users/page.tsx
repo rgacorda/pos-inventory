@@ -46,7 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
-import { Plus, Edit, Trash2, Search, Users as UsersIcon } from "lucide-react";
+import { Plus, Edit, Trash2, Search, Users as UsersIcon, LogOut } from "lucide-react";
 import {
   showSuccessToast,
   showErrorFromException,
@@ -75,6 +75,8 @@ export default function UsersPage() {
     isActive: true,
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [showLogoutAllDialog, setShowLogoutAllDialog] = useState(false);
+  const [isLoggingOutAll, setIsLoggingOutAll] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -195,6 +197,19 @@ export default function UsersPage() {
     }
   };
 
+  const confirmLogoutAll = async () => {
+    setIsLoggingOutAll(true);
+    try {
+      const result = await apiClient.logoutAllUsers();
+      showSuccessToast(result.message);
+      setShowLogoutAllDialog(false);
+    } catch (error: any) {
+      showErrorFromException(error, "Could not sign everyone out");
+    } finally {
+      setIsLoggingOutAll(false);
+    }
+  };
+
   const confirmDelete = async () => {
     try {
       await apiClient.deleteUser(selectedUser.id);
@@ -236,10 +251,19 @@ export default function UsersPage() {
               </CardDescription>
             </div>
             {currentUser?.role === "ADMIN" && (
-              <Button onClick={handleAddUser}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add User
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowLogoutAllDialog(true)}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Log out all users
+                </Button>
+                <Button onClick={handleAddUser}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add User
+                </Button>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-4 pt-4">
@@ -749,6 +773,36 @@ export default function UsersPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={showLogoutAllDialog}
+        onOpenChange={setShowLogoutAllDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log out all users?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This signs every user in your organization out of Inventory and
+              POS, including other devices on your account. You stay signed in
+              on this browser.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoggingOutAll}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                confirmLogoutAll();
+              }}
+              disabled={isLoggingOutAll}
+            >
+              {isLoggingOutAll ? "Signing out..." : "Log out all users"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,11 +1,15 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserEntity } from '../entities/user.entity';
 import { OrganizationEntity } from '../entities/organization.entity';
-import type { AuthResponseDto, LoginDto } from '@pos/shared-types';
+import { UserRole, type AuthResponseDto, type LoginDto } from '@pos/shared-types';
 
 @Injectable()
 export class AuthService {
@@ -69,15 +73,10 @@ export class AuthService {
     user.lastLoginAt = new Date();
     await this.userRepository.save(user);
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      organizationId: user.organizationId,
-      terminalId: loginDto.terminalId || user.terminalId,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.signAccessToken(
+      user,
+      loginDto.terminalId || user.terminalId,
+    );
 
     return {
       accessToken,
@@ -100,7 +99,7 @@ export class AuthService {
     };
   }
 
-  async validateToken(userId: string): Promise<UserEntity> {
+  async validateToken(userId: string, tokenVersion = 0): Promise<UserEntity> {
     const user = await this.userRepository.findOne({
       where: { id: userId, isActive: true },
     });
@@ -109,7 +108,70 @@ export class AuthService {
       throw new UnauthorizedException('User not found or inactive');
     }
 
+    if ((user.tokenVersion ?? 0) !== tokenVersion) {
+      throw new UnauthorizedException('Session ended');
+    }
+
     return user;
+  }
+
+  /**
+   * Ends every active session in scope. The caller receives a new token so
+   * this browser stays signed in; POS, Inventory, and Super Admin reject the
+   * older tokens.
+   */
+  async logoutAll(requestingUser: {
+    id: string;
+    role: string;
+    organizationId?: string | null;
+  }): Promise<{ message: string; accessToken: string }> {
+    const update = this.userRepository
+      .createQueryBuilder()
+      .update(UserEntity)
+      .set({ tokenVersion: () => '"tokenVersion" + 1' });
+
+    if (requestingUser.role === UserRole.SUPER_ADMIN) {
+      await update.where('1 = 1').execute();
+    } else {
+      if (!requestingUser.organizationId) {
+        throw new ForbiddenException('Organization required');
+      }
+      await update
+        .where('"organizationId" = :organizationId', {
+          organizationId: requestingUser.organizationId,
+        })
+        .execute();
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: requestingUser.id, isActive: true },
+      relations: ['organization'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    const message =
+      requestingUser.role === UserRole.SUPER_ADMIN
+        ? 'Signed out every user on all apps'
+        : 'Signed out every user in your organization';
+
+    return {
+      message,
+      accessToken: this.signAccessToken(user, user.terminalId),
+    };
+  }
+
+  private signAccessToken(user: UserEntity, terminalId?: string) {
+    return this.jwtService.sign({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+      terminalId,
+      tokenVersion: user.tokenVersion ?? 0,
+    });
   }
 
   async hashPassword(password: string): Promise<string> {
