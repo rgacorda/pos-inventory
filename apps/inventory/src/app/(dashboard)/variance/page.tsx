@@ -35,7 +35,15 @@ import {
   showErrorFromException,
   showErrorToast,
 } from "@/lib/toast-utils";
-import { Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { printVarianceSummary } from "@/lib/variance-print";
 
 interface VarianceCount {
@@ -60,6 +68,15 @@ interface VarianceRow {
 }
 
 type VarianceFilter = "all" | "counted" | "differences" | "uncounted";
+type SortColumn = "name" | "sku" | "stock" | "counted" | "difference" | "countedBy";
+
+interface VarianceIssue {
+  productId: string;
+  countId: string;
+  name: string;
+  sku: string;
+  reason: string;
+}
 
 const FILTERS: { id: VarianceFilter; label: string }[] = [
   { id: "all", label: "All products" },
@@ -92,6 +109,12 @@ export default function VarianceInventoryPage() {
   const [filter, setFilter] = useState<VarianceFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [applyTarget, setApplyTarget] = useState<"all" | string | null>(null);
+  const [applyIssues, setApplyIssues] = useState<VarianceIssue[]>([]);
+  const [readyToUpdate, setReadyToUpdate] = useState(0);
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [showIssuesOnly, setShowIssuesOnly] = useState(false);
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const itemsPerPage = 20;
 
   useEffect(() => {
@@ -213,7 +236,9 @@ export default function VarianceInventoryPage() {
 
   const filteredRows = useMemo(() => {
     const terms = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const issueIds = showIssuesOnly ? new Set(applyIssues.map((issue) => issue.productId)) : null;
     return rows.filter((row) => {
+      if (issueIds && !issueIds.has(row.productId)) return false;
       const delta = difference(row);
       if (filter === "counted" && displayedCount(row) === null) return false;
       if (filter === "uncounted" && displayedCount(row) !== null) return false;
@@ -227,11 +252,34 @@ export default function VarianceInventoryPage() {
           row.category?.toLowerCase().includes(term),
       );
     });
-  }, [rows, drafts, searchQuery, filter]);
+  }, [rows, drafts, searchQuery, filter, showIssuesOnly, applyIssues]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+  const sortedRows = useMemo(() => {
+    if (!sortColumn) return filteredRows;
+    const direction = sortDirection === "asc" ? 1 : -1;
+    const valueOf = (row: VarianceRow) => {
+      if (sortColumn === "name") return row.name.toLowerCase();
+      if (sortColumn === "sku") return row.sku.toLowerCase();
+      if (sortColumn === "stock") return stockAtCount(row);
+      if (sortColumn === "counted") return displayedCount(row);
+      if (sortColumn === "difference") return difference(row);
+      return (row.count?.countedByName || "").toLowerCase();
+    };
+    return [...filteredRows].sort((a, b) => {
+      const aValue = valueOf(a);
+      const bValue = valueOf(b);
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return 1;
+      if (bValue == null) return -1;
+      if (aValue < bValue) return -1 * direction;
+      if (aValue > bValue) return 1 * direction;
+      return 0;
+    });
+  }, [filteredRows, sortColumn, sortDirection, drafts, rows]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / itemsPerPage));
   const page = Math.min(currentPage, totalPages);
-  const pageRows = filteredRows.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const pageRows = sortedRows.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   function collectDirty(productIds?: string[]) {
     const allowed = productIds ? new Set(productIds) : null;
@@ -378,19 +426,41 @@ export default function VarianceInventoryPage() {
     });
   }
 
-  function requestApply(target: "all" | string) {
+  async function requestApply(target: "all" | string) {
     try {
       collectDirty(target === "all" ? undefined : [target]);
-      setApplyTarget(target);
     } catch (error) {
       showErrorToast(error instanceof Error ? error.message : "Enter a valid count");
+      return;
     }
+
+    if (target === "all") {
+      try {
+        const items = collectDirty();
+        if (items.length > 0) {
+          await apiClient.saveVarianceCounts({ items });
+        }
+        const check = await apiClient.checkVarianceCounts();
+        if (check.errors?.length) {
+          setApplyIssues(check.errors);
+          setReadyToUpdate(check.readyCount ?? 0);
+          setIssueDialogOpen(true);
+          return;
+        }
+      } catch (error) {
+        showErrorFromException(error, "Failed to check counts");
+        return;
+      }
+    }
+
+    setApplyTarget(target);
   }
 
-  async function confirmApply() {
-    if (!applyTarget) return;
-    const target = applyTarget;
+  async function confirmApply(targetOverride?: "all" | string, skipProductIds: string[] = []) {
+    const target = targetOverride ?? applyTarget;
+    if (!target) return;
     setApplyTarget(null);
+    setIssueDialogOpen(false);
     try {
       setApplying(true);
       const items = collectDirty(target === "all" ? undefined : [target]);
@@ -398,11 +468,12 @@ export default function VarianceInventoryPage() {
         await apiClient.saveVarianceCounts({ items });
       }
       const result = await apiClient.applyVarianceCounts(
-        target === "all" ? {} : { productIds: [target] },
+        target === "all" ? { skipProductIds } : { productIds: [target] },
       );
       if (target !== "all") {
         setDrafts((current) => ({ ...current, [target]: "" }));
       }
+      if (skipProductIds.length > 0) setShowIssuesOnly(false);
       await loadWorksheet({ quiet: true, keepDrafts: target !== "all" });
       showSuccessToast(
         result.updated === 1
@@ -452,6 +523,35 @@ export default function VarianceInventoryPage() {
           <p className="text-xs text-red-600">{error}</p>
         ) : null}
       </div>
+    );
+  }
+
+  function toggleSort(column: SortColumn) {
+    if (sortColumn === column) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortColumn(column);
+    setSortDirection("asc");
+  }
+
+  function sortHeader(label: string, column: SortColumn, align: "left" | "right" = "left") {
+    const active = sortColumn === column;
+    return (
+      <TableHead className={align === "right" ? "text-right" : undefined}>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 ${align === "right" ? "ml-auto" : ""}`}
+          onClick={() => toggleSort(column)}
+        >
+          {label}
+          {active ? (
+            sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+          ) : (
+            <ArrowUpDown className="h-3 w-3 opacity-50" />
+          )}
+        </button>
+      </TableHead>
     );
   }
 
@@ -583,6 +683,40 @@ export default function VarianceInventoryPage() {
           </div>
         </CardHeader>
         <CardContent className="px-4 md:px-6">
+          {showIssuesOnly && (
+            <div className="mb-4 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+              <p>Showing products that could not be updated.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowIssuesOnly(false)}
+              >
+                Show all products
+              </Button>
+            </div>
+          )}
+          <div className="mb-3 flex gap-2 overflow-x-auto md:hidden">
+            {(
+              [
+                ["name", "Name"],
+                ["stock", "Stock"],
+                ["counted", "Count"],
+                ["difference", "Difference"],
+              ] as [SortColumn, string][]
+            ).map(([column, label]) => (
+              <Button
+                key={column}
+                type="button"
+                size="sm"
+                variant={sortColumn === column ? "default" : "outline"}
+                className="h-9 shrink-0"
+                onClick={() => toggleSort(column)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <div className="space-y-3 md:hidden">
             {pageRows.length === 0 ? (
               <p className="py-10 text-center text-sm text-muted-foreground">
@@ -647,12 +781,12 @@ export default function VarianceInventoryPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Stock at count</TableHead>
-                  <TableHead>Counted quantity</TableHead>
-                  <TableHead className="text-right">Difference</TableHead>
-                  <TableHead>Counted by</TableHead>
+                  {sortHeader("Product", "name")}
+                  {sortHeader("SKU", "sku")}
+                  {sortHeader("Stock at count", "stock", "right")}
+                  {sortHeader("Counted quantity", "counted", "right")}
+                  {sortHeader("Difference", "difference", "right")}
+                  {sortHeader("Counted by", "countedBy")}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -726,10 +860,10 @@ export default function VarianceInventoryPage() {
             </Table>
           </div>
 
-          {filteredRows.length > itemsPerPage && (
+          {sortedRows.length > itemsPerPage && (
             <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-muted-foreground">
-                {filteredRows.length} products
+                {sortedRows.length} products
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -773,10 +907,50 @@ export default function VarianceInventoryPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmApply}>Update stock</AlertDialogAction>
+            <AlertDialogAction onClick={() => confirmApply()}>Update stock</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={issueDialogOpen} onOpenChange={setIssueDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Some products cannot be updated</DialogTitle>
+            <DialogDescription>
+              {applyIssues.length} product{applyIssues.length === 1 ? "" : "s"} will be left unchanged. Fix them, or skip them and update the rest.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {applyIssues.map((issue) => (
+              <div key={issue.productId} className="rounded-md border p-3">
+                <div className="font-medium">{issue.name}</div>
+                {issue.sku && <div className="text-xs text-muted-foreground">{issue.sku}</div>}
+                <p className="mt-1 text-sm text-red-600">{issue.reason}</p>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowIssuesOnly(true);
+                setIssueDialogOpen(false);
+                setCurrentPage(1);
+              }}
+            >
+              Fix
+            </Button>
+            <Button
+              type="button"
+              onClick={() => confirmApply("all", applyIssues.map((issue) => issue.productId))}
+              disabled={applying || readyToUpdate === 0}
+            >
+              Skip and update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

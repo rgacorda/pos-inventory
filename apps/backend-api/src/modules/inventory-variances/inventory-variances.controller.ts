@@ -37,10 +37,16 @@ export class InventoryVariancesController {
     return this.inventoryVariancesService.saveCounts(user, dto.items);
   }
 
+  @Post('check')
+  @Roles(UserRole.ADMIN)
+  check(@CurrentUser() user: any, @Body() dto: ApplyInventoryVarianceDto) {
+    return this.inventoryVariancesService.check(user, dto.productIds);
+  }
+
   @Post('apply')
   @Roles(UserRole.ADMIN)
   apply(@CurrentUser() user: any, @Body() dto: ApplyInventoryVarianceDto) {
-    return this.inventoryVariancesService.apply(user, dto.productIds);
+    return this.inventoryVariancesService.apply(user, dto.productIds, dto.skipProductIds);
   }
 
   @Delete(':id')

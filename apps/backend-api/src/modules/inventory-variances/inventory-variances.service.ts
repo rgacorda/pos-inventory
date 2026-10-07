@@ -123,9 +123,44 @@ export class InventoryVariancesService {
     return this.getWorksheet(user);
   }
 
+  async check(user: { organizationId?: string }, productIds?: string[]) {
+    const organizationId = this.requireOrganization(user);
+    const counts = await this.countsRepository.find({
+      where: {
+        organizationId,
+        status: 'PENDING',
+        ...(productIds?.length ? { productId: In(productIds) } : {}),
+      },
+    });
+    if (counts.length === 0) {
+      return { errors: [], readyCount: 0 };
+    }
+
+    const products = await this.productsRepository.find({
+      where: { organizationId, id: In(counts.map((count) => count.productId)) },
+      select: { id: true, name: true, sku: true },
+    });
+    const productsById = new Map(products.map((product) => [product.id, product]));
+    const errors = counts.flatMap((count) => {
+      if (productsById.has(count.productId)) return [];
+      return [
+        {
+          productId: count.productId,
+          countId: count.id,
+          name: 'Deleted product',
+          sku: '',
+          reason: 'This product no longer exists, so its stock cannot be updated.',
+        },
+      ];
+    });
+
+    return { errors, readyCount: counts.length - errors.length };
+  }
+
   async apply(
     user: { organizationId?: string; id: string },
     productIds?: string[],
+    skipProductIds?: string[],
   ) {
     const organizationId = this.requireOrganization(user);
     const queryRunner = this.dataSource.createQueryRunner();
@@ -133,14 +168,17 @@ export class InventoryVariancesService {
     await queryRunner.startTransaction();
 
     try {
-      const counts = await queryRunner.manager.find(InventoryVarianceCount, {
-        where: {
-          organizationId,
-          status: 'PENDING',
-          ...(productIds?.length ? { productId: In(productIds) } : {}),
-        },
-        order: { productId: 'ASC' },
-      });
+      const skip = new Set(skipProductIds ?? []);
+      const counts = (
+        await queryRunner.manager.find(InventoryVarianceCount, {
+          where: {
+            organizationId,
+            status: 'PENDING',
+            ...(productIds?.length ? { productId: In(productIds) } : {}),
+          },
+          order: { productId: 'ASC' },
+        })
+      ).filter((count) => !skip.has(count.productId));
 
       if (productIds?.length) {
         const found = new Set(counts.map((count) => count.productId));
@@ -162,11 +200,31 @@ export class InventoryVariancesService {
         nextQuantity: number;
       }[] = [];
 
+      const existingProducts = await queryRunner.manager
+        .createQueryBuilder(ProductEntity, 'product')
+        .select('product.id')
+        .where('product.organizationId = :organizationId', { organizationId })
+        .andWhere('product.id IN (:...ids)', {
+          ids: counts.map((count) => count.productId),
+        })
+        .getMany();
+      const existingIds = new Set(existingProducts.map((product) => product.id));
+      const missing = counts.filter((count) => !existingIds.has(count.productId));
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          missing.length === 1
+            ? 'Product not found'
+            : `${missing.length} products were not found`,
+        );
+      }
+
       for (const count of counts) {
-        const product = await queryRunner.manager.findOne(ProductEntity, {
-          where: { id: count.productId, organizationId },
-          lock: { mode: 'pessimistic_write' },
-        });
+        const product = await queryRunner.manager
+          .createQueryBuilder(ProductEntity, 'product')
+          .setLock('pessimistic_write')
+          .where('product.id = :id', { id: count.productId })
+          .andWhere('product.organizationId = :organizationId', { organizationId })
+          .getOne();
         if (!product) {
           throw new NotFoundException('Product not found');
         }

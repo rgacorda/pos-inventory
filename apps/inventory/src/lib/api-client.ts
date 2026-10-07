@@ -519,7 +519,14 @@ class APIClient {
     return response.data;
   }
 
-  async applyVarianceCounts(data: { productIds?: string[] } = {}) {
+  async checkVarianceCounts(data: { productIds?: string[] } = {}) {
+    const response = await this.client.post("/inventory-variances/check", data);
+    return response.data;
+  }
+
+  async applyVarianceCounts(
+    data: { productIds?: string[]; skipProductIds?: string[] } = {},
+  ) {
     const response = await this.client.post("/inventory-variances/apply", data);
     return response.data;
   }

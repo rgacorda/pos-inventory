@@ -31,4 +31,9 @@ export class ApplyInventoryVarianceDto {
   @IsArray()
   @IsUUID('4', { each: true })
   productIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  skipProductIds?: string[];
 }
