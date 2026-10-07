@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { apiClient, syncService } from "@/lib/api-client";
 import { dbHelpers } from "@/lib/db";
+import { recordLoggedInCashier } from "@/lib/session-cashiers";
 import { UserRole } from "@pos/shared-types";
 
 export function LoginForm({
@@ -61,6 +62,10 @@ export function LoginForm({
       // Store user info
       if (typeof window !== "undefined") {
         localStorage.setItem("user", JSON.stringify(response.user));
+        recordLoggedInCashier({
+          id: response.user.id,
+          name: response.user.name || "Cashier",
+        });
         localStorage.setItem("organizationId", response.user.organizationId);
         if (response.user.organizationName) {
           localStorage.setItem(

@@ -943,6 +943,7 @@ export default function Page() {
         orderNumber,
         terminalId,
         cashierId: user.id || undefined,
+        cashierName: user.name || undefined,
         customerName: loyaltyCustomer ? loyaltyCustomer.name : customerName.trim() || undefined,
         customerAddress: customerAddress.trim() || undefined,
         items,

@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { useTodaysOrders } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { dbHelpers, ReceiptPaperSize } from "@/lib/db";
 import { syncService, apiClient } from "@/lib/api-client";
 import {
@@ -50,6 +50,12 @@ import {
 import { TestPrinterDialog } from "@/components/test-printer-dialog";
 import { formatCurrency } from "@pos/shared-utils";
 import { OrderStatus } from "@pos/shared-types";
+import {
+  getCurrentCashier,
+  getTodaysLoggedInCashiers,
+  recordLoggedInCashier,
+  SessionCashier,
+} from "@/lib/session-cashiers";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -73,11 +79,44 @@ export function Sidebar() {
   const [voidPinError, setVoidPinError] = useState<string>("");
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [roundUpAmountDue, setRoundUpAmountDue] = useState(true);
+  const [loggedInCashiers, setLoggedInCashiers] = useState<SessionCashier[]>([]);
+  const [currentCashierId, setCurrentCashierId] = useState<string | null>(null);
 
-  const todaysSales =
-    todaysOrders
-      ?.filter((order) => order.status !== OrderStatus.VOID)
-      .reduce((sum, order) => sum + (order.totalAmount || 0), 0) ?? 0;
+  useEffect(() => {
+    const current = getCurrentCashier();
+    if (current) recordLoggedInCashier(current);
+    setCurrentCashierId(current?.id ?? null);
+    setLoggedInCashiers(getTodaysLoggedInCashiers());
+  }, []);
+
+  const salesByCashier = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string; total: number }>();
+
+    for (const cashier of loggedInCashiers) {
+      byId.set(cashier.id, { id: cashier.id, name: cashier.name, total: 0 });
+    }
+
+    for (const order of todaysOrders ?? []) {
+      if (order.status === OrderStatus.VOID) continue;
+      const id = order.cashierId || "unknown";
+      const existing = byId.get(id);
+      const name = existing?.name || order.cashierName || "Cashier";
+      byId.set(id, {
+        id,
+        name,
+        total: (existing?.total ?? 0) + (Number(order.totalAmount) || 0),
+      });
+    }
+
+    const cashiers = Array.from(byId.values()).sort((a, b) => {
+      if (a.id === currentCashierId) return -1;
+      if (b.id === currentCashierId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const total = cashiers.reduce((sum, cashier) => sum + cashier.total, 0);
+    return { cashiers, total };
+  }, [todaysOrders, loggedInCashiers, currentCashierId]);
 
   // Check for failed items on mount and periodically
   useEffect(() => {
@@ -670,10 +709,10 @@ export function Sidebar() {
           </div>
         )}
 
-        {/* Total Sales */}
+        {/* Today's sales by logged-in cashier, then the terminal total */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-xs text-blue-700">Today's Sales</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-blue-700">Today&apos;s Sales</p>
             <Button
               variant="ghost"
               size="sm"
@@ -687,9 +726,28 @@ export function Sidebar() {
               )}
             </Button>
           </div>
-          <p className="text-lg font-semibold text-blue-900">
-            {showSales ? formatCurrency(todaysSales) : "••••••"}
-          </p>
+          <div className="max-h-36 space-y-1.5 overflow-y-auto">
+            {salesByCashier.cashiers.map((cashier) => (
+              <div
+                key={cashier.id}
+                className="flex items-center justify-between gap-2"
+              >
+                <p className="text-xs text-blue-800 truncate">
+                  {cashier.name}
+                  {cashier.id === currentCashierId ? " (You)" : ""}
+                </p>
+                <p className="text-sm font-semibold text-blue-900 shrink-0">
+                  {showSales ? formatCurrency(cashier.total) : "••••"}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 border-t border-blue-200 pt-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-blue-800">Total</p>
+            <p className="text-lg font-semibold text-blue-900">
+              {showSales ? formatCurrency(salesByCashier.total) : "••••••"}
+            </p>
+          </div>
         </div>
 
         {/* Test Printer */}

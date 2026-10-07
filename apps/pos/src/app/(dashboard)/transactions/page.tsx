@@ -52,9 +52,12 @@ import {
   ArrowUp,
   ArrowDown,
   ShoppingCart,
+  Banknote,
+  CreditCard,
+  Wallet,
 } from "lucide-react";
 import { showSuccessToast } from "@/lib/toast-utils";
-import { OrderStatus } from "@pos/shared-types";
+import { OrderStatus, PaymentMethod, PaymentStatus } from "@pos/shared-types";
 import { useCart, ExchangedItem } from "@/contexts/cart-context";
 import { format } from "date-fns";
 
@@ -105,6 +108,33 @@ function getItemsBought(
 function getOrderTimestamp(order: LocalOrder) {
   return new Date(order.localCreatedAt).getTime();
 }
+
+const PAYMENT_SUMMARY_CARDS = [
+  {
+    method: PaymentMethod.CASH,
+    label: "Cash",
+    icon: Banknote,
+    idle: "border-green-200 bg-white hover:bg-green-50",
+    active: "border-green-500 bg-green-50 ring-2 ring-green-500",
+    iconWrap: "bg-green-100 text-green-700",
+  },
+  {
+    method: PaymentMethod.DIGITAL_WALLET,
+    label: "E-Wallet",
+    icon: Wallet,
+    idle: "border-purple-200 bg-white hover:bg-purple-50",
+    active: "border-purple-500 bg-purple-50 ring-2 ring-purple-500",
+    iconWrap: "bg-purple-100 text-purple-700",
+  },
+  {
+    method: PaymentMethod.CARD,
+    label: "Card",
+    icon: CreditCard,
+    idle: "border-blue-200 bg-white hover:bg-blue-50",
+    active: "border-blue-500 bg-blue-50 ring-2 ring-blue-500",
+    iconWrap: "bg-blue-100 text-blue-700",
+  },
+] as const;
 
 function OrderStatusBadge({ status }: { status: string }) {
   const className =
@@ -193,6 +223,37 @@ export default function OrdersPage() {
     return map;
   }, [todaysPayments]);
 
+  const paymentSummary = useMemo(() => {
+    const voidedOrderIds = new Set(
+      (orders ?? [])
+        .filter((order) => order.status === OrderStatus.VOID)
+        .map((order) => order.posLocalId),
+    );
+    const totals: Record<string, { amount: number; count: number }> = {
+      [PaymentMethod.CASH]: { amount: 0, count: 0 },
+      [PaymentMethod.CARD]: { amount: 0, count: 0 },
+      [PaymentMethod.DIGITAL_WALLET]: { amount: 0, count: 0 },
+      [PaymentMethod.STORE_CREDIT]: { amount: 0, count: 0 },
+    };
+
+    for (const payment of todaysPayments ?? []) {
+      if (voidedOrderIds.has(payment.orderId)) continue;
+      if (
+        payment.status === PaymentStatus.FAILED ||
+        payment.status === PaymentStatus.REFUNDED
+      ) {
+        continue;
+      }
+      const method = String(payment.method || "").toUpperCase();
+      const bucket = totals[method];
+      if (!bucket) continue;
+      bucket.amount += Number(payment.amount) || 0;
+      bucket.count += 1;
+    }
+
+    return totals;
+  }, [orders, todaysPayments]);
+
   const productsById = useMemo(() => {
     const map = new Map<string, LocalProduct>();
     (products ?? []).forEach((product) => {
@@ -265,7 +326,8 @@ export default function OrdersPage() {
       const matchesPayment =
         paymentFilter === "ALL" ||
         (paymentsByOrder.get(order.posLocalId) ?? []).some(
-          (payment) => payment.method === paymentFilter,
+          (payment) =>
+            String(payment.method || "").toUpperCase() === paymentFilter,
         );
 
       const matchesStatus =
@@ -392,7 +454,47 @@ export default function OrdersPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {PAYMENT_SUMMARY_CARDS.map((card) => {
+              const summary = paymentSummary[card.method];
+              const selected = paymentFilter === card.method;
+              const Icon = card.icon;
+              return (
+                <button
+                  key={card.method}
+                  type="button"
+                  onClick={() =>
+                    setPaymentFilter((current) =>
+                      current === card.method ? "ALL" : card.method,
+                    )
+                  }
+                  className={`rounded-xl border p-4 text-left shadow-sm transition-colors ${
+                    selected ? card.active : card.idle
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-gray-600">
+                      {card.label}
+                    </p>
+                    <div
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.iconWrap}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <p className="mt-3 text-2xl font-semibold text-gray-900">
+                    {formatCurrency(summary?.amount ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {summary?.count ?? 0}{" "}
+                    {summary?.count === 1 ? "payment" : "payments"}
+                    {selected ? " · Showing this type" : " · Tap to filter"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
           <Card>
             <CardHeader>
               <div>
@@ -420,7 +522,7 @@ export default function OrdersPage() {
                     <SelectItem value="ALL">All Payments</SelectItem>
                     <SelectItem value="CASH">Cash</SelectItem>
                     <SelectItem value="CARD">Card</SelectItem>
-                    <SelectItem value="DIGITAL_WALLET">Digital Wallet</SelectItem>
+                    <SelectItem value="DIGITAL_WALLET">E-Wallet</SelectItem>
                     <SelectItem value="STORE_CREDIT">Store Credit</SelectItem>
                   </SelectContent>
                 </Select>
