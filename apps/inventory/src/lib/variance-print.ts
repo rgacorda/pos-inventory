@@ -181,7 +181,7 @@ export function buildVariancePrintDocument(data: VariancePrintData) {
     <thead>
       <tr>
         <th>Product</th>
-        <th class="num">Old stock</th>
+        <th class="num">Stock at count</th>
         <th class="num">New stock</th>
         <th class="num">Difference</th>
         <th class="num">Unit cost</th>

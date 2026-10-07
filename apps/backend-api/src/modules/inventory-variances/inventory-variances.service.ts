@@ -68,7 +68,7 @@ export class InventoryVariancesService {
               id: count.id,
               countedQuantity: count.countedQuantity,
               systemQuantity: count.systemQuantity,
-              variance: count.countedQuantity - stockQuantity,
+              variance: count.countedQuantity - Number(count.systemQuantity),
               countedByName: userNames.get(count.countedByUserId) || 'Unknown',
               updatedAt: count.updatedAt,
             }
@@ -106,7 +106,6 @@ export class InventoryVariancesService {
       const current = existingMap.get(item.productId);
       if (current) {
         current.countedQuantity = item.countedQuantity;
-        current.systemQuantity = systemQuantity;
         current.countedByUserId = user.id;
         return current;
       }
@@ -160,6 +159,7 @@ export class InventoryVariancesService {
         name: string;
         previousQuantity: number;
         countedQuantity: number;
+        nextQuantity: number;
       }[] = [];
 
       for (const count of counts) {
@@ -172,12 +172,14 @@ export class InventoryVariancesService {
         }
 
         const previousQuantity = Number(product.stockQuantity) || 0;
-        if (previousQuantity !== count.countedQuantity) {
-          product.stockQuantity = count.countedQuantity;
+        const snapshot = Number(count.systemQuantity) || 0;
+        const adjustment = count.countedQuantity - snapshot;
+        const nextQuantity = previousQuantity + adjustment;
+        if (nextQuantity !== previousQuantity) {
+          product.stockQuantity = nextQuantity;
           await queryRunner.manager.save(product);
         }
 
-        count.systemQuantity = previousQuantity;
         count.status = 'APPLIED';
         count.appliedByUserId = user.id;
         count.appliedAt = new Date();
@@ -188,14 +190,14 @@ export class InventoryVariancesService {
           name: product.name,
           previousQuantity,
           countedQuantity: count.countedQuantity,
+          nextQuantity,
         });
       }
 
       await queryRunner.commitTransaction();
       return {
         applied: counts.length,
-        updated: items.filter((item) => item.previousQuantity !== item.countedQuantity)
-          .length,
+        updated: items.filter((item) => item.previousQuantity !== item.nextQuantity).length,
         items,
       };
     } catch (error) {

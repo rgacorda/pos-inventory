@@ -183,10 +183,14 @@ export default function VarianceInventoryPage() {
     return row.count ? row.count.countedQuantity : null;
   }
 
+  function stockAtCount(row: VarianceRow) {
+    return row.count ? Number(row.count.systemQuantity) : row.stockQuantity;
+  }
+
   function difference(row: VarianceRow) {
     const counted = displayedCount(row);
     if (counted === null) return null;
-    return counted - row.stockQuantity;
+    return counted - stockAtCount(row);
   }
 
   const summary = useMemo(() => {
@@ -350,7 +354,7 @@ export default function VarianceInventoryPage() {
     const lines = rows.flatMap((row) => {
       const newStock = displayedCount(row);
       if (newStock === null) return [];
-      const oldStock = row.stockQuantity;
+      const oldStock = stockAtCount(row);
       const difference = newStock - oldStock;
       const unitCost = Number(row.cost) || 0;
       return [
@@ -479,7 +483,7 @@ export default function VarianceInventoryPage() {
         const delta = difference(row);
         return delta !== null && delta !== 0;
       }).length
-    : applyRow && applyCount !== null && applyCount !== applyRow.stockQuantity
+    : applyRow && applyCount !== null && applyCount !== stockAtCount(applyRow)
       ? 1
       : 0;
 
@@ -500,7 +504,7 @@ export default function VarianceInventoryPage() {
               <CardTitle>Variance Inventory</CardTitle>
               <CardDescription>
                 {isAdmin
-                  ? "Counts save as you type. Compare them with system stock, then update product quantities."
+                  ? "Counts save as you type. Updating stock keeps sales made after the count and applies only the original difference."
                   : "Enter the quantity on the shelf. Each count saves automatically, and an admin updates stock."}
               </CardDescription>
             </div>
@@ -593,7 +597,10 @@ export default function VarianceInventoryPage() {
                       <div className="font-medium leading-snug">{row.name}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                         <span>{row.sku}</span>
-                        <span>Stock {row.stockQuantity}</span>
+                        <span>Stock {stockAtCount(row)}</span>
+                        {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
+                          <span>Now {row.stockQuantity}</span>
+                        )}
                         {differenceLabel(delta)}
                       </div>
                     </div>
@@ -642,7 +649,7 @@ export default function VarianceInventoryPage() {
                 <TableRow>
                   <TableHead>Product</TableHead>
                   <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">System stock</TableHead>
+                  <TableHead className="text-right">Stock at count</TableHead>
                   <TableHead>Counted quantity</TableHead>
                   <TableHead className="text-right">Difference</TableHead>
                   <TableHead>Counted by</TableHead>
@@ -668,7 +675,14 @@ export default function VarianceInventoryPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">{row.sku}</TableCell>
-                        <TableCell className="text-right font-medium">{row.stockQuantity}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          <div>{stockAtCount(row)}</div>
+                          {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
+                            <div className="text-xs font-normal text-muted-foreground">
+                              Now {row.stockQuantity}
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {quantityField(row, false)}
                         </TableCell>
@@ -751,9 +765,9 @@ export default function VarianceInventoryPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {applyTarget === "all"
-                ? `This sets stock to the counted quantity for ${pendingApplyCount} product${pendingApplyCount === 1 ? "" : "s"}. ${changingCount} will change. Counts that already match are cleared without a stock change.`
+                ? `This applies the original difference to the current stock for ${pendingApplyCount} product${pendingApplyCount === 1 ? "" : "s"}. ${changingCount} will change. Sales after a product was counted stay in the quantity.`
                 : applyRow && applyCount !== null
-                  ? `Set ${applyRow.name} from ${applyRow.stockQuantity} to ${applyCount}.`
+                  ? `Stock was ${stockAtCount(applyRow)} when ${applyRow.name} was counted. The count is ${applyCount}. Current stock is ${applyRow.stockQuantity}, so it will become ${applyRow.stockQuantity + (applyCount - stockAtCount(applyRow))}.`
                   : "Save a count before updating stock."}
             </AlertDialogDescription>
           </AlertDialogHeader>
