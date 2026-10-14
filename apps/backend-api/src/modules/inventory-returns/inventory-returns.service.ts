@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -18,6 +19,7 @@ import {
   ResolveInventoryReturnDto,
   ReturnItemDto,
 } from './dto/inventory-return.dto';
+import { UserRole } from '@pos/shared-types';
 
 @Injectable()
 export class InventoryReturnsService {
@@ -39,13 +41,29 @@ export class InventoryReturnsService {
       supplierId?: string;
       startDate?: string;
       endDate?: string;
+      archived?: boolean;
     },
+    user?: { role?: string },
   ) {
+    if (filters?.archived) {
+      if (
+        user?.role !== UserRole.ADMIN &&
+        user?.role !== UserRole.SUPER_ADMIN
+      ) {
+        throw new ForbiddenException('Only an admin can view archived returns');
+      }
+    }
+
     const queryBuilder = this.returnRepository
       .createQueryBuilder('inventoryReturn')
       .where('inventoryReturn.organizationId = :organizationId', {
         organizationId,
       })
+      .andWhere(
+        filters?.archived
+          ? 'inventoryReturn.deletedAt IS NOT NULL'
+          : 'inventoryReturn.deletedAt IS NULL',
+      )
       .orderBy('inventoryReturn.createdAt', 'DESC');
 
     if (filters?.status) {
@@ -139,8 +157,14 @@ export class InventoryReturnsService {
     id: string,
     organizationId: string,
     updateDto: UpdateInventoryReturnDto,
+    user?: { role?: string },
   ): Promise<InventoryReturn> {
+    if (user?.role !== UserRole.ADMIN && user?.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only an admin can edit returns');
+    }
+
     const inventoryReturn = await this.findOne(id, organizationId);
+    this.ensureNotArchived(inventoryReturn);
 
     if (inventoryReturn.status !== 'NOT_RESOLVED') {
       throw new BadRequestException(
@@ -204,6 +228,7 @@ export class InventoryReturnsService {
     resolveDto: ResolveInventoryReturnDto,
   ): Promise<InventoryReturn> {
     const inventoryReturn = await this.findOne(id, organizationId);
+    this.ensureNotArchived(inventoryReturn);
 
     if (inventoryReturn.status === 'RESOLVED') {
       throw new BadRequestException(
@@ -246,6 +271,7 @@ export class InventoryReturnsService {
     organizationId: string,
   ): Promise<InventoryReturn> {
     const inventoryReturn = await this.findOne(id, organizationId);
+    this.ensureNotArchived(inventoryReturn);
 
     if (inventoryReturn.status !== 'RESOLVED') {
       throw new BadRequestException('This return is not resolved.');
@@ -579,8 +605,43 @@ export class InventoryReturnsService {
     return unique;
   }
 
+  async archive(
+    id: string,
+    organizationId: string,
+    user: { id?: string; userId?: string; name?: string; email?: string },
+  ) {
+    const inventoryReturn = await this.findOne(id, organizationId);
+    if (inventoryReturn.deletedAt) {
+      throw new BadRequestException('Return is already archived');
+    }
+
+    inventoryReturn.deletedAt = new Date();
+    inventoryReturn.deletedByUserId = user.id || user.userId || null;
+    inventoryReturn.deletedByName = user.name || user.email || 'Unknown user';
+    await this.returnRepository.save(inventoryReturn);
+    return { message: 'Return archived' };
+  }
+
+  async restore(id: string, organizationId: string) {
+    const inventoryReturn = await this.findOne(id, organizationId);
+    if (!inventoryReturn.deletedAt) {
+      throw new BadRequestException('Return is not archived');
+    }
+
+    inventoryReturn.deletedAt = null;
+    inventoryReturn.deletedByUserId = null;
+    inventoryReturn.deletedByName = null;
+    await this.returnRepository.save(inventoryReturn);
+    return this.findOne(id, organizationId);
+  }
+
   async delete(id: string, organizationId: string) {
     const inventoryReturn = await this.findOne(id, organizationId);
+    if (!inventoryReturn.deletedAt) {
+      throw new BadRequestException(
+        'Archive the return before permanently deleting it',
+      );
+    }
 
     // Deleting a return should leave stock exactly as if it never existed:
     // give back whatever was deducted for the returned items, and reverse
@@ -610,7 +671,8 @@ export class InventoryReturnsService {
       .createQueryBuilder('inventoryReturn')
       .where('inventoryReturn.organizationId = :organizationId', {
         organizationId,
-      });
+      })
+      .andWhere('inventoryReturn.deletedAt IS NULL');
 
     if (filters?.startDate && filters?.endDate) {
       queryBuilder.andWhere(
@@ -643,6 +705,49 @@ export class InventoryReturnsService {
       totalReturnedCost,
       totalReplacementCost,
     };
+  }
+
+  async annotateDeletedProducts(records: InventoryReturn[]) {
+    const ids = new Set<string>();
+    for (const record of records) {
+      for (const item of record.returnedItems || []) {
+        if (item?.productId) ids.add(item.productId);
+      }
+      for (const item of record.replacementItems || []) {
+        if (item?.productId) ids.add(item.productId);
+      }
+    }
+    if (ids.size === 0) return records;
+
+    const archivedRows = await this.productRepository
+      .createQueryBuilder('product')
+      .select('product.id')
+      .where('product.id IN (:...ids)', { ids: [...ids] })
+      .andWhere('product.deletedAt IS NOT NULL')
+      .getMany();
+    const deletedIds = new Set(archivedRows.map((product) => product.id));
+
+    for (const record of records) {
+      record.returnedItems = (record.returnedItems || []).map((item) => ({
+        ...item,
+        productDeleted: deletedIds.has(item.productId),
+      }));
+      if (record.replacementItems) {
+        record.replacementItems = record.replacementItems.map((item) => ({
+          ...item,
+          productDeleted: deletedIds.has(item.productId),
+        }));
+      }
+    }
+    return records;
+  }
+
+  private ensureNotArchived(inventoryReturn: InventoryReturn) {
+    if (inventoryReturn.deletedAt) {
+      throw new BadRequestException(
+        'Archived returns cannot be changed. Restore the return first.',
+      );
+    }
   }
 
   /** Recomputes each item's totalCost server-side so it can never drift from quantity * unitCost. */

@@ -38,8 +38,12 @@ export class ProductsController {
   async findAll(
     @CurrentUser() user: any,
     @Query('supplierId') supplierId?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.productsService.findAll(user, { supplierId });
+    return this.productsService.findAll(user, {
+      supplierId,
+      archived: archived === 'true',
+    });
   }
 
   @Get('barcode/:barcode')
@@ -62,10 +66,29 @@ export class ProductsController {
     return this.productsService.update(id, updateProductDto, user);
   }
 
-  @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Post(':id/dismiss-edits')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  async dismissEdits(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.productsService.dismissEdits(id, user);
+  }
+
+  @Post(':id/restore')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  async restore(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.productsService.restore(id, user);
+  }
+
+  @Delete(':id/permanent')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.remove(id, user);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async archive(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.productsService.archive(id, user);
   }
 }

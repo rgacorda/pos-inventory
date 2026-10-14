@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -46,6 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { apiClient } from "@/lib/api-client";
+import { visibleEditHistory } from "@/lib/edit-history";
 import { Plus, Edit, Trash2, Search, Package, AlertTriangle, Check, ChevronsUpDown, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal } from "lucide-react";
 import {
   Command,
@@ -98,6 +100,54 @@ const PRODUCT_TABLE_COLUMNS_STORAGE_KEY = "products-table-hidden-columns";
 
 function formatPeso(amount: number) {
   return `₱${amount.toFixed(2)}`;
+}
+
+function profitCents(sellPrice: number, cost: number) {
+  return Math.round((sellPrice - cost) * 100);
+}
+
+/** Zero profit is allowed. A selling price below cost is not. */
+function getNegativeProfitError(formData: {
+  cost: string;
+  price: string;
+  packQuantity: string;
+  packPrice: string;
+  halfPackQuantity: string;
+  halfPackPrice: string;
+}) {
+  const unitCost = parseFloat(formData.cost);
+  const cost = Number.isFinite(unitCost) ? unitCost : 0;
+
+  if (formData.price !== "") {
+    const price = parseFloat(formData.price);
+    if (!Number.isFinite(price) || profitCents(price, cost) < 0) {
+      return "Unit price cannot be below cost. A profit of zero is allowed.";
+    }
+  }
+
+  const packQty = parseInt(formData.packQuantity, 10);
+  const packPrice = parseFloat(formData.packPrice);
+  if (
+    packQty > 0 &&
+    formData.packPrice !== "" &&
+    Number.isFinite(packPrice) &&
+    profitCents(packPrice, cost * packQty) < 0
+  ) {
+    return "Pack price cannot be below the cost of that pack. A profit of zero is allowed.";
+  }
+
+  const halfQty = parseInt(formData.halfPackQuantity, 10);
+  const halfPrice = parseFloat(formData.halfPackPrice);
+  if (
+    halfQty > 0 &&
+    formData.halfPackPrice !== "" &&
+    Number.isFinite(halfPrice) &&
+    profitCents(halfPrice, cost * halfQty) < 0
+  ) {
+    return "Half-pack price cannot be below the cost of that half-pack. A profit of zero is allowed.";
+  }
+
+  return null;
 }
 
 function TierPricingSummary({
@@ -211,14 +261,18 @@ export default function ProductsPage() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [canEditStock, setCanEditStock] = useState(false);
+  const [canDeleteProduct, setCanDeleteProduct] = useState(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem("user");
       const user = raw ? JSON.parse(raw) : null;
-      setCanEditStock(user?.role === "ADMIN");
+      const isAdmin = user?.role === "ADMIN";
+      setCanEditStock(isAdmin);
+      setCanDeleteProduct(isAdmin);
     } catch {
       setCanEditStock(false);
+      setCanDeleteProduct(false);
     }
   }, []);
 
@@ -312,6 +366,7 @@ export default function ProductsPage() {
   // Stays true across Strict Mode's double effect so we only recalc after
   // the user actually changes cost or markup.
   const preserveSellingPriceRef = useRef(false);
+  const openedEditFromQuery = useRef(false);
 
   const handlePricingInputChange = (
     field: "cost" | "markupPercentage" | "markupFixed",
@@ -512,7 +567,19 @@ export default function ProductsPage() {
     setShowEditDialog(true);
   };
 
+  useEffect(() => {
+    if (openedEditFromQuery.current || products.length === 0) return;
+    const editId = new URLSearchParams(window.location.search).get("edit");
+    if (!editId) return;
+    const product = products.find((item) => item.id === editId);
+    if (!product) return;
+    openedEditFromQuery.current = true;
+    handleEditProduct(product);
+    window.history.replaceState(null, "", "/products");
+  }, [products]);
+
   const handleDeleteProduct = (product: any) => {
+    if (!canDeleteProduct) return;
     setSelectedProduct(product);
     setShowDeleteDialog(true);
   };
@@ -551,8 +618,15 @@ export default function ProductsPage() {
     return payload;
   };
 
+  const pricingError = getNegativeProfitError(formData);
+
   const handleSubmitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    const profitError = getNegativeProfitError(formData);
+    if (profitError) {
+      showErrorFromException(new Error(profitError), "Pricing");
+      return;
+    }
     setIsSaving(true);
 
     try {
@@ -570,6 +644,11 @@ export default function ProductsPage() {
 
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const profitError = getNegativeProfitError(formData);
+    if (profitError) {
+      showErrorFromException(new Error(profitError), "Pricing");
+      return;
+    }
     setIsSaving(true);
 
     try {
@@ -587,9 +666,10 @@ export default function ProductsPage() {
   };
 
   const confirmDelete = async () => {
+    if (!canDeleteProduct) return;
     try {
       await apiClient.deleteProduct(selectedProduct.id);
-      showSuccessToast(SUCCESS_MESSAGES.DELETED("Product"));
+      showSuccessToast("Product archived");
       setShowDeleteDialog(false);
       setSelectedProduct(null);
       loadProducts();
@@ -936,6 +1016,14 @@ export default function ProductsPage() {
                       {isColumnVisible('name') && (
                         <TableCell className="font-medium">
                           {product.name}
+                          {visibleEditHistory(
+                            product.editHistory,
+                            product.editHistoryDismissedAt,
+                          ).length > 0 && (
+                            <Badge variant="outline" className="ml-2">
+                              Edited
+                            </Badge>
+                          )}
                         </TableCell>
                       )}
                       {isColumnVisible('sku') && (
@@ -1069,13 +1157,15 @@ export default function ProductsPage() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteProduct(product)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canDeleteProduct && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteProduct(product)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1776,7 +1866,10 @@ export default function ProductsPage() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving}>
+                {pricingError && (
+                  <p className="text-sm text-red-600 mr-auto">{pricingError}</p>
+                )}
+                <Button type="submit" disabled={isSaving || !!pricingError}>
                   {isSaving ? "Adding..." : "Add Product"}
                 </Button>
               </DialogFooter>
@@ -1788,12 +1881,68 @@ export default function ProductsPage() {
       {/* Edit Product Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         {showEditDialog && (
-          <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="!max-w-4xl max-h-[90vh] !overflow-hidden">
             <DialogHeader>
-              <DialogTitle>Edit Product</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                Edit Product
+                {visibleEditHistory(
+                  selectedProduct?.editHistory,
+                  selectedProduct?.editHistoryDismissedAt,
+                ).length > 0 && <Badge variant="outline">Edited</Badge>}
+              </DialogTitle>
               <DialogDescription>Update product information</DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmitEdit}>
+            {visibleEditHistory(
+              selectedProduct?.editHistory,
+              selectedProduct?.editHistoryDismissedAt,
+            ).length > 0 && (
+              <div
+                className="shrink-0 space-y-2 overflow-y-auto rounded-md border bg-amber-50 p-3 text-sm leading-5"
+                style={{ flexShrink: 0, maxHeight: "50vh", minHeight: "12rem" }}
+              >
+                <p className="text-muted-foreground">
+                  {visibleEditHistory(
+                    selectedProduct.editHistory,
+                    selectedProduct.editHistoryDismissedAt,
+                  ).length}{" "}
+                  edit
+                  {visibleEditHistory(
+                    selectedProduct.editHistory,
+                    selectedProduct.editHistoryDismissedAt,
+                  ).length === 1
+                    ? ""
+                    : "s"}
+                </p>
+                {[...visibleEditHistory(
+                  selectedProduct.editHistory,
+                  selectedProduct.editHistoryDismissedAt,
+                )].reverse().map(
+                  (entry: {
+                    editedAt: string;
+                    editedByName?: string;
+                    changes?: Array<{ label: string; from: string; to: string }>;
+                  }, index: number) => (
+                    <div key={`${entry.editedAt}-${index}`}>
+                      <p className="font-medium">
+                        {entry.editedByName || "Unknown user"}
+                        {" · "}
+                        {format(new Date(entry.editedAt), "MMM d, yyyy h:mm a")}
+                      </p>
+                      {(entry.changes || []).map((change) => (
+                        <p key={`${entry.editedAt}-${change.label}`}>
+                          <span className="font-medium">{change.label}</span>
+                          {" "}
+                          {change.from}
+                          {" → "}
+                          {change.to}
+                        </p>
+                      ))}
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
+            <form onSubmit={handleSubmitEdit} className="min-h-0 flex-1 overflow-y-auto">
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -2287,7 +2436,10 @@ export default function ProductsPage() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving}>
+                {pricingError && (
+                  <p className="text-sm text-red-600 mr-auto">{pricingError}</p>
+                )}
+                <Button type="submit" disabled={isSaving || !!pricingError}>
                   {isSaving ? "Updating..." : "Update Product"}
                 </Button>
               </DialogFooter>
@@ -2300,16 +2452,17 @@ export default function ProductsPage() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Archive this product?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete{" "}
-              <span className="font-semibold">{selectedProduct?.name}</span>.
-              This action cannot be undone.
+              <span className="font-semibold">{selectedProduct?.name}</span> will
+              disappear from Products and the POS. Deliveries that already include
+              it will show it as Deleted. You can restore it, or permanently
+              delete it, from Archive.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete}>Archive</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

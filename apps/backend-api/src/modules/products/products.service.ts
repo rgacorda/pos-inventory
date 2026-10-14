@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError } from 'typeorm';
 import { ProductEntity } from '../../entities/product.entity';
+import { Supplier } from '../../entities/supplier.entity';
 import { CreateProductDto, UpdateProductDto } from './dto';
 import { UserRole } from '@pos/shared-types';
 
@@ -68,16 +69,24 @@ export class ProductsService {
     });
 
     if (existing) {
-      throw new ConflictException('SKU already exists in this organization');
+      throw new ConflictException(this.skuConflictMessage(existing));
     }
 
     this.computePackPrices(createProductDto);
+    this.assertNonNegativeProfit(createProductDto);
 
     const product = this.productsRepository.create(createProductDto);
     return this.productsRepository.save(product);
   }
 
-  async findAll(requestingUser: any, filters?: { supplierId?: string }) {
+  async findAll(
+    requestingUser: any,
+    filters?: { supplierId?: string; archived?: boolean },
+  ) {
+    if (filters?.archived) {
+      this.assertAdmin(requestingUser);
+    }
+
     const query = this.productsRepository
       .createQueryBuilder('product')
       // Only pull the supplier's name (never website credentials/notes).
@@ -90,6 +99,12 @@ export class ProductsService {
         orgId: requestingUser.organizationId,
       });
     }
+
+    query.andWhere(
+      filters?.archived
+        ? 'product.deletedAt IS NOT NULL'
+        : 'product.deletedAt IS NULL',
+    );
 
     if (filters?.supplierId) {
       query.andWhere('product.supplierId = :supplierId', {
@@ -139,8 +154,14 @@ export class ProductsService {
       });
 
       if (existing) {
-        throw new ConflictException('SKU already exists in this organization');
+        throw new ConflictException(this.skuConflictMessage(existing));
       }
+    }
+
+    if (product.deletedAt) {
+      throw new BadRequestException(
+        'Archived products cannot be edited. Restore the product first.',
+      );
     }
 
     // Stock changes on the product form are admin-only. Managers submit a
@@ -154,11 +175,14 @@ export class ProductsService {
       delete updateProductDto.stockQuantity;
     }
 
+    const before = this.snapshotProduct(product);
+
     // Drop the joined supplier relation before assign/save. TypeORM's save()
     // prefers a loaded ManyToOne over the FK column, so changing supplierId
     // while `supplier` is still populated would stamp the old supplier back
     // and the request would still return 200 ("Product updated").
     delete (product as any).supplier;
+    delete (updateProductDto as any).editHistory;
 
     Object.assign(product, updateProductDto);
 
@@ -167,14 +191,75 @@ export class ProductsService {
     }
 
     this.computePackPrices(product);
+    this.assertNonNegativeProfit(product);
+    await this.recordProductEdits(product, before, requestingUser);
     await this.productsRepository.save(product);
     // Reload with the supplier join so the response matches what was saved.
     return this.findOne(id, requestingUser);
   }
 
-  async remove(id: string, requestingUser: any) {
+  async dismissEdits(id: string, requestingUser: any) {
+    this.assertAdmin(requestingUser);
     const product = await this.findOne(id, requestingUser);
-    
+    const history = product.editHistory || [];
+    if (history.length === 0) {
+      return product;
+    }
+
+    const latest = history.reduce(
+      (max, entry) => (entry.editedAt > max ? entry.editedAt : max),
+      history[0].editedAt,
+    );
+    delete (product as any).supplier;
+    // A second past the latest edit, so timestamp rounding cannot leave
+    // that edit visible. A later save is still newer than this.
+    product.editHistoryDismissedAt = new Date(new Date(latest).getTime() + 1000);
+    await this.productsRepository.save(product);
+    return this.findOne(id, requestingUser);
+  }
+
+  async archive(id: string, requestingUser: any) {
+    this.assertAdmin(requestingUser);
+    const product = await this.findOne(id, requestingUser);
+
+    if (product.deletedAt) {
+      throw new BadRequestException('Product is already archived');
+    }
+
+    delete (product as any).supplier;
+    this.stampArchived(product, requestingUser);
+    await this.productsRepository.save(product);
+  }
+
+  async restore(id: string, requestingUser: any) {
+    this.assertAdmin(requestingUser);
+    const product = await this.findOne(id, requestingUser);
+
+    if (!product.deletedAt) {
+      throw new BadRequestException('Product is not archived');
+    }
+
+    delete (product as any).supplier;
+    product.deletedAt = null;
+    product.deletedByUserId = null;
+    product.deletedByName = null;
+    await this.productsRepository.save(product);
+    return this.findOne(id, requestingUser);
+  }
+
+  async remove(id: string, requestingUser: any) {
+    this.assertAdmin(requestingUser);
+
+    const product = await this.findOne(id, requestingUser);
+
+    if (!product.deletedAt) {
+      throw new BadRequestException(
+        'Archive the product before permanently deleting it',
+      );
+    }
+
+    delete (product as any).supplier;
+
     try {
       await this.productsRepository.remove(product);
     } catch (error) {
@@ -214,10 +299,180 @@ export class ProductsService {
       });
     }
 
+    query.andWhere('product.deletedAt IS NULL');
+
     // Order by stock quantity DESC (products with stock first), then by name
     return query
       .orderBy('product.stockQuantity', 'DESC')
       .addOrderBy('product.name', 'ASC')
       .getMany();
+  }
+
+  private snapshotProduct(product: ProductEntity) {
+    return {
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      barcode: product.barcode,
+      status: product.status,
+      cost: product.cost,
+      price: product.price,
+      stockQuantity: product.stockQuantity,
+      packQuantity: product.packQuantity,
+      packPrice: product.packPrice,
+      halfPackQuantity: product.halfPackQuantity,
+      halfPackPrice: product.halfPackPrice,
+      supplierId: product.supplierId,
+      supplierName: product.supplier?.name || null,
+    };
+  }
+
+  private async recordProductEdits(
+    product: ProductEntity,
+    before: ReturnType<ProductsService['snapshotProduct']>,
+    user?: { id?: string; userId?: string; name?: string; email?: string },
+  ) {
+    const supplierName =
+      product.supplierId === before.supplierId
+        ? before.supplierName
+        : await this.supplierName(product.supplierId, product.organizationId);
+
+    const changes: Array<{ label: string; from: string; to: string }> = [];
+    const track = (
+      label: string,
+      from: string,
+      to: string,
+    ) => {
+      if (from !== to) changes.push({ label, from, to });
+    };
+
+    track('Name', this.displayText(before.name), this.displayText(product.name));
+    track('SKU', this.displayText(before.sku), this.displayText(product.sku));
+    track('Category', this.displayText(before.category), this.displayText(product.category));
+    track('Barcode', this.displayText(before.barcode), this.displayText(product.barcode));
+    track('Status', this.displayText(before.status), this.displayText(product.status));
+    track('Supplier', this.displayText(before.supplierName), this.displayText(supplierName));
+    track('Cost', this.displayMoney(before.cost), this.displayMoney(product.cost));
+    track('Selling price', this.displayMoney(before.price), this.displayMoney(product.price));
+    track('Stock', this.displayInt(before.stockQuantity), this.displayInt(product.stockQuantity));
+    track('Pack quantity', this.displayInt(before.packQuantity), this.displayInt(product.packQuantity));
+    track('Pack price', this.displayMoney(before.packPrice), this.displayMoney(product.packPrice));
+    track(
+      'Half-pack quantity',
+      this.displayInt(before.halfPackQuantity),
+      this.displayInt(product.halfPackQuantity),
+    );
+    track(
+      'Half-pack price',
+      this.displayMoney(before.halfPackPrice),
+      this.displayMoney(product.halfPackPrice),
+    );
+
+    if (changes.length === 0) return;
+
+    product.editHistory = [
+      ...(product.editHistory || []),
+      {
+        editedAt: new Date().toISOString(),
+        editedByUserId: user?.id || user?.userId || null,
+        editedByName: user?.name || user?.email || 'Unknown user',
+        changes,
+      },
+    ];
+  }
+
+  private async supplierName(id: string | null, organizationId: string) {
+    if (!id) return null;
+    const supplier = await this.productsRepository.manager.findOne(Supplier, {
+      where: { id, organizationId },
+      select: { id: true, name: true },
+    });
+    return supplier?.name || null;
+  }
+
+  private displayText(value: unknown) {
+    if (value == null) return '—';
+    const text = String(value).trim();
+    return text || '—';
+  }
+
+  private displayMoney(value: unknown) {
+    if (value == null || value === '') return '—';
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '—';
+    return `₱${amount.toFixed(2)}`;
+  }
+
+  private displayInt(value: unknown) {
+    if (value == null || value === '') return '—';
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '—';
+    return String(amount);
+  }
+
+  private assertAdmin(user: { role?: string }) {
+    if (user?.role !== UserRole.ADMIN && user?.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only an admin can do that');
+    }
+  }
+
+  private skuConflictMessage(existing: ProductEntity) {
+    return existing.deletedAt
+      ? 'This SKU belongs to an archived product. Restore it from Archive or choose another SKU.'
+      : 'SKU already exists in this organization';
+  }
+
+  private stampArchived(
+    record: { deletedAt: Date | null; deletedByUserId: string | null; deletedByName: string | null },
+    user: { id?: string; userId?: string; name?: string; email?: string },
+  ) {
+    record.deletedAt = new Date();
+    record.deletedByUserId = user.id || user.userId || null;
+    record.deletedByName = user.name || user.email || 'Unknown user';
+  }
+
+  /**
+   * Unit, pack, and half-pack selling prices may match cost (zero profit)
+   * but cannot go below it.
+   */
+  private assertNonNegativeProfit(dto: {
+    cost?: number | null;
+    price?: number | null;
+    packQuantity?: number | null;
+    packPrice?: number | null;
+    halfPackQuantity?: number | null;
+    halfPackPrice?: number | null;
+  }) {
+    const cost = Number(dto.cost) || 0;
+    const price = Number(dto.price);
+    if (!Number.isFinite(price) || Math.round((price - cost) * 100) < 0) {
+      throw new BadRequestException(
+        'Unit selling price cannot be below cost. A profit of zero is allowed.',
+      );
+    }
+
+    const packQty = Number(dto.packQuantity) || 0;
+    if (packQty > 0 && dto.packPrice != null && Number(dto.packPrice) > 0) {
+      const packPrice = Number(dto.packPrice);
+      if (Math.round((packPrice - cost * packQty) * 100) < 0) {
+        throw new BadRequestException(
+          'Pack price cannot be below the cost of that pack. A profit of zero is allowed.',
+        );
+      }
+    }
+
+    const halfQty = Number(dto.halfPackQuantity) || 0;
+    if (
+      halfQty > 0 &&
+      dto.halfPackPrice != null &&
+      Number(dto.halfPackPrice) > 0
+    ) {
+      const halfPrice = Number(dto.halfPackPrice);
+      if (Math.round((halfPrice - cost * halfQty) * 100) < 0) {
+        throw new BadRequestException(
+          'Half-pack price cannot be below the cost of that half-pack. A profit of zero is allowed.',
+        );
+      }
+    }
   }
 }

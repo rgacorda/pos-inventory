@@ -520,7 +520,8 @@ export class SyncService {
   ): Promise<ProductCatalogDto> {
     const queryBuilder = this.productRepository
       .createQueryBuilder('product')
-      .where('product.status = :status', { status: ProductStatus.ACTIVE });
+      .where('product.status = :status', { status: ProductStatus.ACTIVE })
+      .andWhere('product.deletedAt IS NULL');
 
     // Filter by organization for non-super-admins
     if (user?.organizationId) {

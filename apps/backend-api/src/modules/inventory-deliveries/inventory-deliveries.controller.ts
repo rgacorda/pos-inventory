@@ -30,12 +30,19 @@ export class InventoryDeliveriesController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('status') status?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.inventoryDeliveriesService.findAll(req.user.organizationId, {
-      startDate,
-      endDate,
-      status,
-    });
+    const deliveries = await this.inventoryDeliveriesService.findAll(
+      req.user.organizationId,
+      {
+        startDate,
+        endDate,
+        status,
+        archived: archived === 'true',
+      },
+      req.user,
+    );
+    return this.inventoryDeliveriesService.annotateDeletedProducts(deliveries);
   }
 
   @Get('stats')
@@ -54,7 +61,14 @@ export class InventoryDeliveriesController {
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async findOne(@Request() req, @Param('id') id: string) {
-    return this.inventoryDeliveriesService.findOne(id, req.user.organizationId);
+    const delivery = await this.inventoryDeliveriesService.findOne(
+      id,
+      req.user.organizationId,
+    );
+    const [annotated] = await this.inventoryDeliveriesService.annotateDeletedProducts([
+      delivery,
+    ]);
+    return annotated;
   }
 
   @Post()
@@ -77,12 +91,39 @@ export class InventoryDeliveriesController {
       id,
       req.user.organizationId,
       updateDto,
+      req.user,
     );
   }
 
-  @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Post(':id/dismiss-edits')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async dismissEdits(@Request() req, @Param('id') id: string) {
+    return this.inventoryDeliveriesService.dismissEdits(
+      id,
+      req.user.organizationId,
+      req.user,
+    );
+  }
+
+  @Post(':id/restore')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async restore(@Request() req, @Param('id') id: string) {
+    return this.inventoryDeliveriesService.restore(id, req.user.organizationId);
+  }
+
+  @Delete(':id/permanent')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async delete(@Request() req, @Param('id') id: string) {
     return this.inventoryDeliveriesService.delete(id, req.user.organizationId);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async archive(@Request() req, @Param('id') id: string) {
+    return this.inventoryDeliveriesService.archive(
+      id,
+      req.user.organizationId,
+      req.user,
+    );
   }
 }

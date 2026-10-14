@@ -130,7 +130,7 @@ class APIClient {
   }
 
   // Products API
-  async getProducts(filters?: { supplierId?: string }) {
+  async getProducts(filters?: { supplierId?: string; archived?: boolean }) {
     const response = await this.client.get("/products", { params: filters });
     return response.data;
   }
@@ -152,6 +152,20 @@ class APIClient {
 
   async deleteProduct(id: string) {
     await this.client.delete(`/products/${id}`);
+  }
+
+  async restoreProduct(id: string) {
+    const response = await this.client.post(`/products/${id}/restore`);
+    return response.data;
+  }
+
+  async permanentlyDeleteProduct(id: string) {
+    await this.client.delete(`/products/${id}/permanent`);
+  }
+
+  async dismissProductEdits(id: string) {
+    const response = await this.client.post(`/products/${id}/dismiss-edits`);
+    return response.data;
   }
 
   // Users API
@@ -316,6 +330,22 @@ class APIClient {
     await this.client.delete(`/inventory-deliveries/${id}`);
   }
 
+  async restoreInventoryDelivery(id: string) {
+    const response = await this.client.post(`/inventory-deliveries/${id}/restore`);
+    return response.data;
+  }
+
+  async permanentlyDeleteInventoryDelivery(id: string) {
+    await this.client.delete(`/inventory-deliveries/${id}/permanent`);
+  }
+
+  async dismissDeliveryEdits(id: string) {
+    const response = await this.client.post(
+      `/inventory-deliveries/${id}/dismiss-edits`,
+    );
+    return response.data;
+  }
+
   async getInventoryDeliveryStats(filters?: any) {
     const response = await this.client.get("/inventory-deliveries/stats", {
       params: filters,
@@ -370,6 +400,15 @@ class APIClient {
 
   async deleteInventoryReturn(id: string) {
     await this.client.delete(`/inventory-returns/${id}`);
+  }
+
+  async restoreInventoryReturn(id: string) {
+    const response = await this.client.post(`/inventory-returns/${id}/restore`);
+    return response.data;
+  }
+
+  async permanentlyDeleteInventoryReturn(id: string) {
+    await this.client.delete(`/inventory-returns/${id}/permanent`);
   }
 
   // Expenses API

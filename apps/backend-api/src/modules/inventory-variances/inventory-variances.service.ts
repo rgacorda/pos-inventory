@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { InventoryVarianceCount } from '../../entities/inventory-variance-count.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { UserEntity } from '../../entities/user.entity';
@@ -33,7 +33,7 @@ export class InventoryVariancesService {
     const organizationId = this.requireOrganization(user);
 
     const products = await this.productsRepository.find({
-      where: { organizationId },
+      where: { organizationId, deletedAt: IsNull() },
       order: { name: 'ASC' },
     });
 
@@ -93,6 +93,9 @@ export class InventoryVariancesService {
     if (products.length !== productIds.length) {
       throw new BadRequestException('One or more products were not found');
     }
+    if (products.some((product) => product.deletedAt)) {
+      throw new BadRequestException('Archived products cannot be counted');
+    }
 
     const productMap = new Map(products.map((product) => [product.id, product]));
     const existing = await this.countsRepository.find({
@@ -138,20 +141,34 @@ export class InventoryVariancesService {
 
     const products = await this.productsRepository.find({
       where: { organizationId, id: In(counts.map((count) => count.productId)) },
-      select: { id: true, name: true, sku: true },
+      select: { id: true, name: true, sku: true, deletedAt: true },
     });
     const productsById = new Map(products.map((product) => [product.id, product]));
     const errors = counts.flatMap((count) => {
-      if (productsById.has(count.productId)) return [];
-      return [
-        {
-          productId: count.productId,
-          countId: count.id,
-          name: 'Deleted product',
-          sku: '',
-          reason: 'This product no longer exists, so its stock cannot be updated.',
-        },
-      ];
+      const product = productsById.get(count.productId);
+      if (!product) {
+        return [
+          {
+            productId: count.productId,
+            countId: count.id,
+            name: 'Deleted product',
+            sku: '',
+            reason: 'This product no longer exists, so its stock cannot be updated.',
+          },
+        ];
+      }
+      if (product.deletedAt) {
+        return [
+          {
+            productId: count.productId,
+            countId: count.id,
+            name: product.name,
+            sku: product.sku,
+            reason: 'This product is archived, so its stock cannot be updated.',
+          },
+        ];
+      }
+      return [];
     });
 
     return { errors, readyCount: counts.length - errors.length };
@@ -227,6 +244,11 @@ export class InventoryVariancesService {
           .getOne();
         if (!product) {
           throw new NotFoundException('Product not found');
+        }
+        if (product.deletedAt) {
+          throw new BadRequestException(
+            `${product.name} is archived, so its stock cannot be updated`,
+          );
         }
 
         const previousQuantity = Number(product.stockQuantity) || 0;

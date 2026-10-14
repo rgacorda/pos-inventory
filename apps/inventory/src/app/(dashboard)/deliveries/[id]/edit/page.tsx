@@ -93,6 +93,7 @@ interface DeliveryItem {
     packs: number;
     unitsPerPack: number;
   };
+  productDeleted?: boolean;
 }
 
 interface Product {
@@ -938,6 +939,11 @@ export default function EditDeliveryPage() {
                       <TableRow key={index}>
                         <TableCell className="font-medium">
                           {item.productName}
+                          {item.productDeleted && (
+                            <span className="ml-2 inline-block rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">
+                              Deleted
+                            </span>
+                          )}
                           {item.isFree && (
                             <span className="ml-2 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
                               FREE

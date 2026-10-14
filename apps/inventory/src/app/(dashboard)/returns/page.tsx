@@ -127,6 +127,11 @@ function ItemsSummaryTable({
             <TableRow key={`${item.productId}-${index}`}>
               <TableCell className="font-medium">
                 {item.productName}
+                {item.productDeleted && (
+                  <Badge variant="destructive" className="ml-2">
+                    Deleted
+                  </Badge>
+                )}
               </TableCell>
               <TableCell className="font-mono text-sm text-muted-foreground">
                 {item.productSku || "—"}
@@ -156,6 +161,7 @@ function ItemsSummaryTable({
 
 export default function InventoryReturnsPage() {
   const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [returns, setReturns] = useState<InventoryReturnRecord[]>([]);
   const [products, setProducts] = useState<ReturnItemProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -185,6 +191,12 @@ export default function InventoryReturnsPage() {
 
   useEffect(() => {
     fetchData();
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      setIsAdmin(user?.role === "ADMIN");
+    } catch {
+      setIsAdmin(false);
+    }
   }, []);
 
   async function fetchData() {
@@ -250,7 +262,7 @@ export default function InventoryReturnsPage() {
   async function confirmDelete() {
     try {
       await apiClient.deleteInventoryReturn(selectedReturnId);
-      showSuccessToast(SUCCESS_MESSAGES.DELETED("Return"));
+      showSuccessToast("Return archived");
       setShowDeleteDialog(false);
       setSelectedReturnId("");
       fetchData();
@@ -454,16 +466,18 @@ export default function InventoryReturnsPage() {
                       >
                         {r.status === "NOT_RESOLVED" ? (
                           <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Edit"
-                              onClick={() =>
-                                router.push(`/returns/${r.id}/edit`)
-                              }
-                            >
-                              <IconEdit className="h-4 w-4" />
-                            </Button>
+                            {isAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Edit"
+                                onClick={() =>
+                                  router.push(`/returns/${r.id}/edit`)
+                                }
+                              >
+                                <IconEdit className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -491,14 +505,16 @@ export default function InventoryReturnsPage() {
                             <IconArrowBackUp className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title="Delete"
-                          onClick={() => handleDelete(r.id)}
-                        >
-                          <IconTrash className="h-4 w-4" />
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Archive"
+                            onClick={() => handleDelete(r.id)}
+                          >
+                            <IconTrash className="h-4 w-4" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -857,16 +873,17 @@ export default function InventoryReturnsPage() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Return</AlertDialogTitle>
+            <AlertDialogTitle>Archive this return?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this return? Any stock it
-              affected will be reversed. This action cannot be undone.
+              It will leave the Returns list. Stock stays as it is until you
+              permanently delete it from Archive, which reverses the stock
+              this return changed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete}>
-              Delete
+              Archive
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

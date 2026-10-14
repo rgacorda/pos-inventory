@@ -45,6 +45,7 @@ export interface ReturnLineItem {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  productDeleted?: boolean;
 }
 
 export interface QuickAddSource {

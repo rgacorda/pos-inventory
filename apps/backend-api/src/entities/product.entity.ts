@@ -114,6 +114,32 @@ export class ProductEntity {
   @JoinColumn({ name: 'supplierId' })
   supplier: any;
 
+  /**
+   * Append-only log of edits made from the product form. Creating a product
+   * does not add an entry.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  editHistory: Array<{
+    editedAt: string;
+    editedByUserId: string | null;
+    editedByName: string;
+    changes: Array<{ label: string; from: string; to: string }>;
+  }> | null;
+
+  /** Edits at or before this time are acknowledged and hidden from the Edited label. */
+  @Column({ type: 'timestamp', nullable: true })
+  editHistoryDismissedAt: Date | null;
+
+  /** Set when an admin archives the product. Hidden from Products and the POS until restored. */
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  deletedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deletedByName: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

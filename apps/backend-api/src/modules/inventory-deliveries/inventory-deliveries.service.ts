@@ -1,10 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { Repository } from 'typeorm';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { Supplier } from '../../entities/supplier.entity';
 import { InventoryReturnsService } from '../inventory-returns/inventory-returns.service';
+import { UserRole } from '@pos/shared-types';
 
 @Injectable()
 export class InventoryDeliveriesService {
@@ -53,11 +59,26 @@ export class InventoryDeliveriesService {
 
   async findAll(
     organizationId: string,
-    filters?: { startDate?: string; endDate?: string; status?: string },
+    filters?: {
+      startDate?: string;
+      endDate?: string;
+      status?: string;
+      archived?: boolean;
+    },
+    user?: { role?: string },
   ) {
+    if (filters?.archived) {
+      this.assertAdmin(user);
+    }
+
     const queryBuilder = this.deliveryRepository
       .createQueryBuilder('delivery')
       .where('delivery.organizationId = :organizationId', { organizationId })
+      .andWhere(
+        filters?.archived
+          ? 'delivery.deletedAt IS NOT NULL'
+          : 'delivery.deletedAt IS NULL',
+      )
       .orderBy('delivery.deliveryDate', 'DESC');
 
     if (filters?.startDate && filters?.endDate) {
@@ -134,8 +155,20 @@ export class InventoryDeliveriesService {
     id: string,
     organizationId: string,
     updateDto: any,
+    user?: {
+      id?: string;
+      userId?: string;
+      name?: string;
+      email?: string;
+      role?: string;
+    },
   ): Promise<InventoryDelivery> {
     const delivery = await this.findOne(id, organizationId);
+    if (delivery.deletedAt) {
+      throw new BadRequestException(
+        'Archived deliveries cannot be edited. Restore the delivery first.',
+      );
+    }
     const oldStatus = delivery.status;
     // Snapshot the items as they were before this update, since stock was
     // already applied based on this exact list (if the delivery was
@@ -178,6 +211,12 @@ export class InventoryDeliveriesService {
       itemsForTotal,
       discountForTotal,
     );
+
+    // The server owns this log. A client cannot invent or erase edits.
+    delete updateDto.editHistory;
+    if (updateDto.items !== undefined) {
+      this.recordItemEdits(delivery, oldItems, updateDto.items, user);
+    }
 
     Object.assign(delivery, updateDto);
     const updatedDelivery = (await this.deliveryRepository.save(
@@ -411,8 +450,65 @@ export class InventoryDeliveriesService {
     }
   }
 
+  async dismissEdits(
+    id: string,
+    organizationId: string,
+    user?: { role?: string },
+  ) {
+    this.assertAdmin(user);
+    const delivery = await this.findOne(id, organizationId);
+    const history = delivery.editHistory || [];
+    if (history.length === 0) {
+      return delivery;
+    }
+
+    const latest = history.reduce(
+      (max, entry) => (entry.editedAt > max ? entry.editedAt : max),
+      history[0].editedAt,
+    );
+    delivery.editHistoryDismissedAt = new Date(new Date(latest).getTime() + 1000);
+    await this.deliveryRepository.save(delivery);
+    return this.findOne(id, organizationId);
+  }
+
+  async archive(
+    id: string,
+    organizationId: string,
+    user: { id?: string; userId?: string; name?: string; email?: string },
+  ) {
+    const delivery = await this.findOne(id, organizationId);
+    if (delivery.deletedAt) {
+      throw new BadRequestException('Delivery is already archived');
+    }
+
+    delivery.deletedAt = new Date();
+    delivery.deletedByUserId = user.id || user.userId || null;
+    delivery.deletedByName = user.name || user.email || 'Unknown user';
+    await this.deliveryRepository.save(delivery);
+    return { message: 'Delivery archived' };
+  }
+
+  async restore(id: string, organizationId: string) {
+    const delivery = await this.findOne(id, organizationId);
+    if (!delivery.deletedAt) {
+      throw new BadRequestException('Delivery is not archived');
+    }
+
+    delivery.deletedAt = null;
+    delivery.deletedByUserId = null;
+    delivery.deletedByName = null;
+    await this.deliveryRepository.save(delivery);
+    return this.findOne(id, organizationId);
+  }
+
   async delete(id: string, organizationId: string) {
     const delivery = await this.findOne(id, organizationId);
+
+    if (!delivery.deletedAt) {
+      throw new BadRequestException(
+        'Archive the delivery before permanently deleting it',
+      );
+    }
 
     // Deleting a delivery that already added stock should reverse it,
     // otherwise the stock it contributed would be left behind permanently.
@@ -427,6 +523,113 @@ export class InventoryDeliveriesService {
 
     await this.deliveryRepository.remove(delivery);
     return { message: 'Delivery deleted successfully' };
+  }
+
+  /**
+   * Marks line items whose product has been archived so delivery views can
+   * show them as deleted without dropping the historical line.
+   */
+  async annotateDeletedProducts(deliveries: InventoryDelivery[]) {
+    const ids = new Set<string>();
+    for (const delivery of deliveries) {
+      for (const item of delivery.items || []) {
+        if (item?.productId) ids.add(item.productId);
+      }
+    }
+    if (ids.size === 0) return deliveries;
+
+    const archivedRows = await this.productRepository
+      .createQueryBuilder('product')
+      .select('product.id')
+      .where('product.id IN (:...ids)', { ids: [...ids] })
+      .andWhere('product.deletedAt IS NOT NULL')
+      .getMany();
+    const deletedIds = new Set(archivedRows.map((product) => product.id));
+
+    for (const delivery of deliveries) {
+      delivery.items = (delivery.items || []).map((item) => ({
+        ...item,
+        productDeleted: deletedIds.has(item.productId),
+      }));
+    }
+    return deliveries;
+  }
+
+  private assertAdmin(user?: { role?: string }) {
+    if (user?.role !== UserRole.ADMIN && user?.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only an admin can view archived deliveries');
+    }
+  }
+
+  private recordItemEdits(
+    delivery: InventoryDelivery,
+    oldItems: Array<{ productId: string; productName: string; quantity: number }>,
+    newItems: Array<{ productId: string; productName: string; quantity: number }>,
+    user?: { id?: string; userId?: string; name?: string; email?: string },
+  ) {
+    const previous = this.quantitiesByProduct(oldItems);
+    const next = this.quantitiesByProduct(newItems);
+    const added: NonNullable<InventoryDelivery['editHistory']>[number]['added'] = [];
+    const removed: NonNullable<InventoryDelivery['editHistory']>[number]['removed'] = [];
+    const changed: NonNullable<InventoryDelivery['editHistory']>[number]['changed'] = [];
+
+    for (const [productId, item] of next) {
+      const before = previous.get(productId);
+      if (!before) {
+        added.push(item);
+      } else if (before.quantity !== item.quantity) {
+        changed.push({
+          productId,
+          productName: item.productName || before.productName,
+          previousQuantity: before.quantity,
+          quantity: item.quantity,
+        });
+      }
+    }
+
+    for (const [productId, item] of previous) {
+      if (!next.has(productId)) {
+        removed.push({ productId, productName: item.productName, quantity: item.quantity });
+      }
+    }
+
+    if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+      return;
+    }
+
+    delivery.editHistory = [
+      ...(delivery.editHistory || []),
+      {
+        editedAt: new Date().toISOString(),
+        editedByUserId: user?.id || user?.userId || null,
+        editedByName: user?.name || user?.email || 'Unknown user',
+        added,
+        removed,
+        changed,
+      },
+    ];
+  }
+
+  private quantitiesByProduct(
+    items: Array<{ productId: string; productName: string; quantity: number }>,
+  ) {
+    const totals = new Map<string, { productId: string; productName: string; quantity: number }>();
+    for (const item of items || []) {
+      if (!item?.productId) continue;
+      const quantity = Number(item.quantity) || 0;
+      const current = totals.get(item.productId);
+      if (current) {
+        current.quantity += quantity;
+        if (item.productName) current.productName = item.productName;
+      } else {
+        totals.set(item.productId, {
+          productId: item.productId,
+          productName: item.productName || 'Unknown product',
+          quantity,
+        });
+      }
+    }
+    return totals;
   }
 
   private extractRequestedResolutions(
@@ -516,7 +719,8 @@ export class InventoryDeliveriesService {
   ) {
     const queryBuilder = this.deliveryRepository
       .createQueryBuilder('delivery')
-      .where('delivery.organizationId = :organizationId', { organizationId });
+      .where('delivery.organizationId = :organizationId', { organizationId })
+      .andWhere('delivery.deletedAt IS NULL');
 
     if (filters?.startDate && filters?.endDate) {
       queryBuilder.andWhere(

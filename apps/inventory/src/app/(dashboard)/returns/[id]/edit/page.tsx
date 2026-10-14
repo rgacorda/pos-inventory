@@ -88,6 +88,16 @@ export default function EditInventoryReturnPage() {
   const [returnedItems, setReturnedItems] = useState<ReturnLineItem[]>([]);
 
   useEffect(() => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      if (user?.role !== "ADMIN") {
+        router.replace("/returns");
+        return;
+      }
+    } catch {
+      router.replace("/returns");
+      return;
+    }
     loadData();
   }, [returnId]);
 

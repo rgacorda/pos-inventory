@@ -20,6 +20,8 @@ import {
   IconBuildingStore,
   IconStar,
   IconClipboardList,
+  IconArchive,
+  IconListCheck,
 } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -128,6 +130,18 @@ const data = {
           url: "/organization",
           icon: IconBuilding,
           requiredRole: "ADMIN", // Only visible to ADMIN (for their own org)
+        },
+        {
+          title: "Edited",
+          url: "/edits",
+          icon: IconListCheck,
+          requiredRole: "ADMIN",
+        },
+        {
+          title: "Archive",
+          url: "/archive",
+          icon: IconArchive,
+          requiredRole: "ADMIN",
         },
         {
           title: "Terminals",

@@ -16,6 +16,8 @@ export interface InventoryReturnItem {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  /** Present on read responses when the product has been archived. */
+  productDeleted?: boolean;
 }
 
 @Entity('inventory_returns')
@@ -87,6 +89,15 @@ export class InventoryReturn {
 
   @Column({ type: 'timestamp', nullable: true })
   resolvedAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  deletedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deletedByName: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

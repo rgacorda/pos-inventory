@@ -124,7 +124,32 @@ export class InventoryDelivery {
       packs: number;
       unitsPerPack: number;
     };
+    /** Set on read when this product has been archived. Not stored on write. */
+    productDeleted?: boolean;
   }>;
+
+  /**
+   * Append-only log of item edits. Receiving a delivery without changing
+   * its products does not add an entry.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  editHistory: Array<{
+    editedAt: string;
+    editedByUserId: string | null;
+    editedByName: string;
+    added: Array<{ productId: string; productName: string; quantity: number }>;
+    removed: Array<{ productId: string; productName: string; quantity: number }>;
+    changed: Array<{
+      productId: string;
+      productName: string;
+      previousQuantity: number;
+      quantity: number;
+    }>;
+  }> | null;
+
+  /** Edits at or before this time are acknowledged and hidden from the Edited label. */
+  @Column({ type: 'timestamp', nullable: true })
+  editHistoryDismissedAt: Date | null;
 
   @Column({ type: 'varchar', length: 50, default: 'RECEIVED' })
   status: 'PENDING' | 'RECEIVED' | 'CANCELLED';
@@ -137,6 +162,15 @@ export class InventoryDelivery {
 
   @Column({ type: 'text', nullable: true })
   receiptImageUrl: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  deletedByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deletedByName: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

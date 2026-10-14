@@ -36,13 +36,20 @@ export class InventoryReturnsController {
     @Query('supplierId') supplierId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.inventoryReturnsService.findAll(req.user.organizationId, {
-      status,
-      supplierId,
-      startDate,
-      endDate,
-    });
+    const records = await this.inventoryReturnsService.findAll(
+      req.user.organizationId,
+      {
+        status,
+        supplierId,
+        startDate,
+        endDate,
+        archived: archived === 'true',
+      },
+      req.user,
+    );
+    return this.inventoryReturnsService.annotateDeletedProducts(records);
   }
 
   @Get('stats')
@@ -61,7 +68,14 @@ export class InventoryReturnsController {
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async findOne(@Request() req, @Param('id') id: string) {
-    return this.inventoryReturnsService.findOne(id, req.user.organizationId);
+    const inventoryReturn = await this.inventoryReturnsService.findOne(
+      id,
+      req.user.organizationId,
+    );
+    const [annotated] = await this.inventoryReturnsService.annotateDeletedProducts([
+      inventoryReturn,
+    ]);
+    return annotated;
   }
 
   @Post()
@@ -74,7 +88,7 @@ export class InventoryReturnsController {
   }
 
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async update(
     @Request() req,
     @Param('id') id: string,
@@ -84,6 +98,7 @@ export class InventoryReturnsController {
       id,
       req.user.organizationId,
       updateDto,
+      req.user,
     );
   }
 
@@ -107,9 +122,25 @@ export class InventoryReturnsController {
     return this.inventoryReturnsService.unresolve(id, req.user.organizationId);
   }
 
-  @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Post(':id/restore')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async restore(@Request() req, @Param('id') id: string) {
+    return this.inventoryReturnsService.restore(id, req.user.organizationId);
+  }
+
+  @Delete(':id/permanent')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async delete(@Request() req, @Param('id') id: string) {
     return this.inventoryReturnsService.delete(id, req.user.organizationId);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async archive(@Request() req, @Param('id') id: string) {
+    return this.inventoryReturnsService.archive(
+      id,
+      req.user.organizationId,
+      req.user,
+    );
   }
 }

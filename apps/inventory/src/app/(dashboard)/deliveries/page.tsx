@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
+import { visibleEditHistory } from "@/lib/edit-history";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -74,6 +75,7 @@ interface DeliveryItem {
     packs: number;
     unitsPerPack: number;
   };
+  productDeleted?: boolean;
 }
 
 interface InventoryDelivery {
@@ -102,6 +104,19 @@ interface InventoryDelivery {
   invoiceNumber?: string;
   receiptImageUrl?: string;
   createdAt: string;
+  editHistoryDismissedAt?: string | null;
+  editHistory?: Array<{
+    editedAt: string;
+    editedByName: string;
+    added: Array<{ productId: string; productName: string; quantity: number }>;
+    removed: Array<{ productId: string; productName: string; quantity: number }>;
+    changed: Array<{
+      productId: string;
+      productName: string;
+      previousQuantity: number;
+      quantity: number;
+    }>;
+  }> | null;
 }
 
 function formatItemQuantity(item: DeliveryItem) {
@@ -143,6 +158,11 @@ function DeliveryItemsTable({ items }: { items: DeliveryItem[] }) {
                   {item.isFree && (
                     <Badge variant="secondary" className="ml-2">
                       Free
+                    </Badge>
+                  )}
+                  {item.productDeleted && (
+                    <Badge variant="destructive" className="ml-2">
+                      Deleted
                     </Badge>
                   )}
                 </TableCell>
@@ -202,12 +222,48 @@ function DeliveryMeta({ delivery }: { delivery: InventoryDelivery }) {
       {delivery.notes && (
         <p className="text-sm text-muted-foreground">{delivery.notes}</p>
       )}
+      {visibleEditHistory(delivery.editHistory, delivery.editHistoryDismissedAt).length > 0 && (
+        <div className="max-h-[50vh] space-y-2 overflow-y-auto rounded-md border bg-amber-50 p-3 text-sm leading-5">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">Edited</Badge>
+            <span className="text-muted-foreground">
+              {visibleEditHistory(delivery.editHistory, delivery.editHistoryDismissedAt).length} edit
+              {visibleEditHistory(delivery.editHistory, delivery.editHistoryDismissedAt).length === 1 ? "" : "s"}
+            </span>
+          </div>
+          {[...visibleEditHistory(delivery.editHistory, delivery.editHistoryDismissedAt)].reverse().map((entry, index) => (
+            <div key={`${entry.editedAt}-${index}`} className="space-y-1">
+              <p className="font-medium">
+                {entry.editedByName || "Unknown user"}
+                {" · "}
+                {format(new Date(entry.editedAt), "MMM d, yyyy h:mm a")}
+              </p>
+              {entry.added.map((item) => (
+                <p key={`added-${entry.editedAt}-${item.productId}`} className="text-green-700">
+                  Added {item.productName} × {item.quantity}
+                </p>
+              ))}
+              {entry.removed.map((item) => (
+                <p key={`removed-${entry.editedAt}-${item.productId}`} className="text-red-700">
+                  Removed {item.productName} × {item.quantity}
+                </p>
+              ))}
+              {(entry.changed || []).map((item) => (
+                <p key={`changed-${entry.editedAt}-${item.productId}`}>
+                  {item.productName} quantity {item.previousQuantity} → {item.quantity}
+                </p>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function InventoryDeliveriesPage() {
   const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [deliveries, setDeliveries] = useState<InventoryDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -224,6 +280,12 @@ export default function InventoryDeliveriesPage() {
 
   useEffect(() => {
     fetchDeliveries();
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      setIsAdmin(user?.role === "ADMIN");
+    } catch {
+      setIsAdmin(false);
+    }
   }, []);
 
   async function fetchDeliveries() {
@@ -284,7 +346,7 @@ export default function InventoryDeliveriesPage() {
   async function confirmDelete() {
     try {
       await apiClient.deleteInventoryDelivery(selectedDeliveryId);
-      showSuccessToast(SUCCESS_MESSAGES.DELETED("Delivery"));
+      showSuccessToast("Delivery archived");
       setShowDeleteDialog(false);
       setSelectedDeliveryId("");
       fetchDeliveries();
@@ -416,7 +478,15 @@ export default function InventoryDeliveriesPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>{getStatusBadge(delivery.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {getStatusBadge(delivery.status)}
+                          {visibleEditHistory(
+                            delivery.editHistory,
+                            delivery.editHistoryDismissedAt,
+                          ).length > 0 && <Badge variant="outline">Edited</Badge>}
+                        </div>
+                      </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {delivery.receiptImageUrl ? (
                           <a
@@ -452,17 +522,21 @@ export default function InventoryDeliveriesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          title="Edit"
                           onClick={() => router.push(`/deliveries/${delivery.id}/edit`)}
                         >
                           <IconEdit className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteDelivery(delivery.id)}
-                        >
-                          <IconTrash className="h-4 w-4" />
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Archive"
+                            onClick={() => handleDeleteDelivery(delivery.id)}
+                          >
+                            <IconTrash className="h-4 w-4" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -537,6 +611,10 @@ export default function InventoryDeliveriesPage() {
             <DialogTitle className="flex items-center gap-2">
               Delivery Items
               {viewingDelivery && getStatusBadge(viewingDelivery.status)}
+              {visibleEditHistory(
+                viewingDelivery?.editHistory,
+                viewingDelivery?.editHistoryDismissedAt,
+              ).length > 0 && <Badge variant="outline">Edited</Badge>}
             </DialogTitle>
             <DialogDescription>
               {viewingDelivery
@@ -612,15 +690,16 @@ export default function InventoryDeliveriesPage() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Delivery</AlertDialogTitle>
+            <AlertDialogTitle>Archive this delivery?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this delivery? This action cannot be
-              undone.
+              It will leave the Deliveries list. Stock stays as it is, and
+              Financials still includes it, until you permanently delete it
+              from Archive.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete}>Archive</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
