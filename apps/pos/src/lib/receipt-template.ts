@@ -222,7 +222,7 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
       margin: 0;
       padding: 0;
       background: #fff;
-      color: #777;
+      color: #000;
       font-family: Arial, Helvetica, sans-serif;
     }
     .receipt {

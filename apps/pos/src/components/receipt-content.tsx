@@ -50,7 +50,7 @@ export function ReceiptContent({
 
   return (
     <div
-      className={`w-full font-sans bg-white text-gray-500 ${
+      className={`w-full font-sans bg-white text-black ${
         isWide
           ? "max-w-[68mm] px-2 pt-2 pb-4 text-[7pt] leading-snug"
           : "max-w-[46mm] px-1.5 pt-2 pb-4 text-[8pt] leading-snug"
