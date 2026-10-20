@@ -63,6 +63,8 @@ export class InventoryVariancesService {
         status: product.status,
         stockQuantity,
         cost: Number(product.cost) || 0,
+        packQuantity: product.packQuantity ? Number(product.packQuantity) : null,
+        halfPackQuantity: product.halfPackQuantity ? Number(product.halfPackQuantity) : null,
         count: count
           ? {
               id: count.id,

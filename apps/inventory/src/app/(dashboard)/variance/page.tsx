@@ -64,6 +64,8 @@ interface VarianceRow {
   status: string;
   stockQuantity: number;
   cost: number;
+  packQuantity?: number | null;
+  halfPackQuantity?: number | null;
   count: VarianceCount | null;
 }
 
@@ -87,20 +89,107 @@ const FILTERS: { id: VarianceFilter; label: string }[] = [
 
 const SAVE_DELAY_MS = 400;
 
-function parseCount(raw: string): number | null {
+interface CountDraft {
+  packs: string;
+  halves: string;
+  units: string;
+}
+
+function emptyDraft(): CountDraft {
+  return { packs: "", halves: "", units: "" };
+}
+
+function isBlankDraft(draft: CountDraft | undefined) {
+  if (!draft) return true;
+  return draft.packs.trim() === "" && draft.halves.trim() === "" && draft.units.trim() === "";
+}
+
+function positiveInt(value: number | null | undefined) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function packSize(row: Pick<VarianceRow, "packQuantity">) {
+  return positiveInt(row.packQuantity);
+}
+
+function halfPackSize(row: Pick<VarianceRow, "halfPackQuantity">) {
+  return positiveInt(row.halfPackQuantity);
+}
+
+function parsePart(raw: string): number | null {
   const value = raw.trim();
+  if (value === "") return 0;
   if (!/^\d+$/.test(value)) return null;
   return parseInt(value, 10);
 }
 
+function splitQuantity(total: number, row: VarianceRow): CountDraft {
+  const pack = packSize(row);
+  const half = halfPackSize(row);
+  if (total <= 0 || (pack === 0 && half === 0)) {
+    return { packs: "", halves: "", units: String(Math.max(0, total)) };
+  }
+
+  let remaining = total;
+  let packs = 0;
+  let halves = 0;
+  const bundles = [
+    pack > 0 ? { kind: "pack" as const, size: pack } : null,
+    half > 0 ? { kind: "half" as const, size: half } : null,
+  ]
+    .filter((bundle): bundle is { kind: "pack" | "half"; size: number } => bundle !== null)
+    .sort((a, b) => b.size - a.size);
+
+  for (const bundle of bundles) {
+    const count = Math.floor(remaining / bundle.size);
+    if (count <= 0) continue;
+    remaining -= count * bundle.size;
+    if (bundle.kind === "pack") packs = count;
+    else halves = count;
+  }
+
+  return {
+    packs: packs > 0 ? String(packs) : "",
+    halves: halves > 0 ? String(halves) : "",
+    units: remaining > 0 ? String(remaining) : "",
+  };
+}
+
+function draftFromRow(row: VarianceRow): CountDraft {
+  if (!row.count) return emptyDraft();
+  return splitQuantity(row.count.countedQuantity, row);
+}
+
+function countFromDraft(draft: CountDraft | undefined, row: VarianceRow): number | null {
+  const value = draft ?? emptyDraft();
+  if (isBlankDraft(value)) return null;
+  const packs = parsePart(value.packs);
+  const halves = parsePart(value.halves);
+  const units = parsePart(value.units);
+  if (packs === null || halves === null || units === null) return null;
+  return packs * packSize(row) + halves * halfPackSize(row) + units;
+}
+
+function quantityPartsLabel(total: number, row: VarianceRow): string | null {
+  if (packSize(row) === 0 && halfPackSize(row) === 0) return null;
+  if (total <= 0) return null;
+  const split = splitQuantity(total, row);
+  const parts: string[] = [];
+  if (split.packs) parts.push(`${split.packs} pack${split.packs === "1" ? "" : "s"}`);
+  if (split.halves) parts.push(`${split.halves} half`);
+  if (split.units) parts.push(`${split.units} pc`);
+  return parts.length > 0 ? parts.join(" + ") : null;
+}
+
 export default function VarianceInventoryPage() {
   const [rows, setRows] = useState<VarianceRow[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, CountDraft>>({});
   const [loading, setLoading] = useState(true);
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const rowsRef = useRef<VarianceRow[]>([]);
-  const draftsRef = useRef<Record<string, string>>({});
+  const draftsRef = useRef<Record<string, CountDraft>>({});
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const chainRef = useRef<Record<string, Promise<void>>>({});
   const savedValuesRef = useRef<Record<string, number | null>>({});
@@ -138,9 +227,9 @@ export default function VarianceInventoryPage() {
   draftsRef.current = drafts;
 
   function rememberDrafts(nextRows: VarianceRow[]) {
-    const nextDrafts: Record<string, string> = {};
+    const nextDrafts: Record<string, CountDraft> = {};
     for (const row of nextRows) {
-      nextDrafts[row.productId] = row.count ? String(row.count.countedQuantity) : "";
+      nextDrafts[row.productId] = draftFromRow(row);
     }
     setDrafts(nextDrafts);
   }
@@ -161,14 +250,9 @@ export default function VarianceInventoryPage() {
       syncSavedValues(data);
       if (options?.keepDrafts) {
         setDrafts((current) => {
-          const next: Record<string, string> = {};
+          const next: Record<string, CountDraft> = {};
           for (const row of data) {
-            next[row.productId] =
-              current[row.productId] !== undefined
-                ? current[row.productId]
-                : row.count
-                  ? String(row.count.countedQuantity)
-                  : "";
+            next[row.productId] = current[row.productId] ?? draftFromRow(row);
           }
           return next;
         });
@@ -182,25 +266,26 @@ export default function VarianceInventoryPage() {
     }
   }
 
-  function savedDraft(row: VarianceRow) {
-    return row.count ? String(row.count.countedQuantity) : "";
-  }
-
   function isDirty(row: VarianceRow) {
-    return (drafts[row.productId] ?? "") !== savedDraft(row);
+    const draft = drafts[row.productId];
+    const saved = row.count ? row.count.countedQuantity : null;
+    if (isBlankDraft(draft)) return saved !== null;
+    const total = countFromDraft(draft, row);
+    if (total === null) return true;
+    return total !== saved;
   }
 
   function draftError(row: VarianceRow) {
-    const raw = (drafts[row.productId] ?? "").trim();
-    if (raw === "") return null;
-    if (parseCount(raw) === null) return "Enter a whole number of 0 or more";
+    const draft = drafts[row.productId];
+    if (isBlankDraft(draft)) return null;
+    if (countFromDraft(draft, row) === null) return "Enter a whole number of 0 or more";
     return null;
   }
 
   function displayedCount(row: VarianceRow) {
-    const raw = (drafts[row.productId] ?? "").trim();
-    if (raw !== "") {
-      const parsed = parseCount(raw);
+    const draft = drafts[row.productId];
+    if (draft && !isBlankDraft(draft)) {
+      const parsed = countFromDraft(draft, row);
       if (parsed !== null) return parsed;
     }
     return row.count ? row.count.countedQuantity : null;
@@ -293,7 +378,7 @@ export default function VarianceInventoryPage() {
     return rows.flatMap((row) => {
       if (allowed && !allowed.has(row.productId)) return [];
       if (!isDirty(row)) return [];
-      const countedQuantity = parseCount(drafts[row.productId] ?? "");
+      const countedQuantity = countFromDraft(drafts[row.productId], row);
       if (countedQuantity === null) return [];
       return [{ productId: row.productId, countedQuantity }];
     });
@@ -321,8 +406,14 @@ export default function VarianceInventoryPage() {
     setRows(rowsRef.current);
   }
 
+  function draftTotal(productId: string) {
+    const row = rowsRef.current.find((entry) => entry.productId === productId);
+    if (!row) return null;
+    return countFromDraft(draftsRef.current[productId], row);
+  }
+
   async function persistCount(productId: string, countedQuantity: number) {
-    if ((draftsRef.current[productId] ?? "").trim() !== String(countedQuantity)) return;
+    if (draftTotal(productId) !== countedQuantity) return;
     if (savedValuesRef.current[productId] === countedQuantity) return;
 
     markSaving(productId, true);
@@ -330,9 +421,10 @@ export default function VarianceInventoryPage() {
       const data: VarianceRow[] = await apiClient.saveVarianceCounts({
         items: [{ productId, countedQuantity }],
       });
-      if ((draftsRef.current[productId] ?? "").trim() !== String(countedQuantity)) {
+      const latest = draftTotal(productId);
+      if (latest !== countedQuantity) {
         const saved = data.find((row) => row.productId === productId);
-        if (saved?.count && (draftsRef.current[productId] ?? "").trim() === "") {
+        if (saved?.count && latest === null && isBlankDraft(draftsRef.current[productId])) {
           await apiClient.clearVarianceCount(saved.count.id);
           savedValuesRef.current[productId] = null;
           replaceRow(productId, { ...saved, count: null });
@@ -353,7 +445,7 @@ export default function VarianceInventoryPage() {
   }
 
   async function persistClear(productId: string) {
-    if ((draftsRef.current[productId] ?? "").trim() !== "") return;
+    if (!isBlankDraft(draftsRef.current[productId])) return;
     const currentRow = rowsRef.current.find((row) => row.productId === productId);
     if (!currentRow?.count) return;
 
@@ -369,18 +461,32 @@ export default function VarianceInventoryPage() {
     }
   }
 
-  function queueCountSave(productId: string, raw: string, delay: number) {
+  function queueCountSave(productId: string, delay: number) {
     const existing = timersRef.current[productId];
     if (existing) clearTimeout(existing);
     timersRef.current[productId] = setTimeout(() => {
       delete timersRef.current[productId];
-      const parsed = parseCount(raw);
-      if (parsed !== null) {
-        enqueue(productId, () => persistCount(productId, parsed));
+      const row = rowsRef.current.find((entry) => entry.productId === productId);
+      if (!row) return;
+      const draft = draftsRef.current[productId];
+      if (isBlankDraft(draft)) {
+        enqueue(productId, () => persistClear(productId));
         return;
       }
-      if (raw.trim() === "") enqueue(productId, () => persistClear(productId));
+      const countedQuantity = countFromDraft(draft, row);
+      if (countedQuantity === null) return;
+      enqueue(productId, () => persistCount(productId, countedQuantity));
     }, delay);
+  }
+
+  function updateDraft(productId: string, part: keyof CountDraft, value: string) {
+    const current = draftsRef.current[productId] ?? emptyDraft();
+    draftsRef.current = {
+      ...draftsRef.current,
+      [productId]: { ...current, [part]: value },
+    };
+    setDrafts(draftsRef.current);
+    queueCountSave(productId, SAVE_DELAY_MS);
   }
 
   async function handleClear(row: VarianceRow) {
@@ -388,7 +494,7 @@ export default function VarianceInventoryPage() {
     const existing = timersRef.current[row.productId];
     if (existing) clearTimeout(existing);
     delete timersRef.current[row.productId];
-    draftsRef.current = { ...draftsRef.current, [row.productId]: "" };
+    draftsRef.current = { ...draftsRef.current, [row.productId]: emptyDraft() };
     setDrafts(draftsRef.current);
     enqueue(row.productId, async () => {
       await persistClear(row.productId);
@@ -471,7 +577,7 @@ export default function VarianceInventoryPage() {
         target === "all" ? { skipProductIds } : { productIds: [target] },
       );
       if (target !== "all") {
-        setDrafts((current) => ({ ...current, [target]: "" }));
+        setDrafts((current) => ({ ...current, [target]: emptyDraft() }));
       }
       if (skipProductIds.length > 0) setShowIssuesOnly(false);
       await loadWorksheet({ quiet: true, keepDrafts: target !== "all" });
@@ -493,34 +599,66 @@ export default function VarianceInventoryPage() {
 
   function quantityField(row: VarianceRow, prominent: boolean) {
     const error = draftError(row);
+    const draft = drafts[row.productId] ?? emptyDraft();
+    const pack = packSize(row);
+    const half = halfPackSize(row);
+    const total = displayedCount(row);
+    const showConversion =
+      (draft.packs.trim() !== "" || draft.halves.trim() !== "") && total !== null;
+    const fields: { key: keyof CountDraft; label: string; hint: string }[] = [];
+    if (pack > 0) fields.push({ key: "packs", label: "Pack", hint: `×${pack}` });
+    if (half > 0) fields.push({ key: "halves", label: "Half", hint: `×${half}` });
+    fields.push({ key: "units", label: pack > 0 || half > 0 ? "Pcs" : "Count", hint: "" });
+
     return (
-      <div className={prominent ? "space-y-1" : undefined}>
-        <Input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          enterKeyHint="done"
-          value={drafts[row.productId] ?? ""}
-          onChange={(e) => {
-            const value = e.target.value;
-            setDrafts((current) => ({
-              ...current,
-              [row.productId]: value,
-            }));
-            queueCountSave(row.productId, value, SAVE_DELAY_MS);
-          }}
-          onBlur={(e) => queueCountSave(row.productId, e.target.value, 0)}
+      <div className={prominent ? "space-y-2" : "ml-auto w-fit space-y-1"}>
+        <div
           className={
-            prominent
-              ? "h-14 text-center text-2xl font-semibold"
-              : "h-10 w-28 text-base md:text-sm"
+            fields.length > 1
+              ? `grid gap-2 ${fields.length === 3 ? "grid-cols-3" : "grid-cols-2"} ${prominent ? "" : "w-[15rem]"}`
+              : undefined
           }
-          aria-label={`Counted quantity for ${row.name}`}
-        />
+        >
+          {fields.map((field) => (
+            <label key={field.key} className="block space-y-1">
+              {fields.length > 1 && (
+                <span className="block text-center text-[11px] font-medium text-muted-foreground">
+                  {field.label}
+                  {field.hint ? <span className="font-normal"> {field.hint}</span> : null}
+                </span>
+              )}
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                enterKeyHint="done"
+                value={draft[field.key]}
+                onChange={(e) => updateDraft(row.productId, field.key, e.target.value)}
+                onBlur={() => queueCountSave(row.productId, 0)}
+                className={
+                  prominent
+                    ? fields.length > 1
+                      ? "h-14 text-center text-xl font-semibold"
+                      : "h-14 text-center text-2xl font-semibold"
+                    : fields.length > 1
+                      ? "h-10 text-center text-base md:text-sm"
+                      : "h-10 w-28 text-base md:text-sm"
+                }
+                aria-label={
+                  fields.length > 1
+                    ? `${field.label} counted for ${row.name}`
+                    : `Counted quantity for ${row.name}`
+                }
+              />
+            </label>
+          ))}
+        </div>
         {savingIds.has(row.productId) ? (
           <p className="text-xs text-muted-foreground">Saving...</p>
         ) : error ? (
           <p className="text-xs text-red-600">{error}</p>
+        ) : showConversion ? (
+          <p className="text-xs text-muted-foreground">= {total} units</p>
         ) : null}
       </div>
     );
@@ -604,8 +742,8 @@ export default function VarianceInventoryPage() {
               <CardTitle>Variance Inventory</CardTitle>
               <CardDescription>
                 {isAdmin
-                  ? "Counts save as you type. Updating stock keeps sales made after the count and applies only the original difference."
-                  : "Enter the quantity on the shelf. Each count saves automatically, and an admin updates stock."}
+                  ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference."
+                  : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock."}
               </CardDescription>
             </div>
             {isAdmin && (
@@ -731,7 +869,12 @@ export default function VarianceInventoryPage() {
                       <div className="font-medium leading-snug">{row.name}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                         <span>{row.sku}</span>
-                        <span>Stock {stockAtCount(row)}</span>
+                        <span>
+                          Stock {stockAtCount(row)}
+                          {quantityPartsLabel(stockAtCount(row), row)
+                            ? ` (${quantityPartsLabel(stockAtCount(row), row)})`
+                            : ""}
+                        </span>
                         {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
                           <span>Now {row.stockQuantity}</span>
                         )}
@@ -811,6 +954,11 @@ export default function VarianceInventoryPage() {
                         <TableCell className="text-muted-foreground">{row.sku}</TableCell>
                         <TableCell className="text-right font-medium">
                           <div>{stockAtCount(row)}</div>
+                          {quantityPartsLabel(stockAtCount(row), row) && (
+                            <div className="text-xs font-normal text-muted-foreground">
+                              {quantityPartsLabel(stockAtCount(row), row)}
+                            </div>
+                          )}
                           {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
                             <div className="text-xs font-normal text-muted-foreground">
                               Now {row.stockQuantity}
@@ -901,7 +1049,7 @@ export default function VarianceInventoryPage() {
               {applyTarget === "all"
                 ? `This applies the original difference to the current stock for ${pendingApplyCount} product${pendingApplyCount === 1 ? "" : "s"}. ${changingCount} will change. Sales after a product was counted stay in the quantity.`
                 : applyRow && applyCount !== null
-                  ? `Stock was ${stockAtCount(applyRow)} when ${applyRow.name} was counted. The count is ${applyCount}. Current stock is ${applyRow.stockQuantity}, so it will become ${applyRow.stockQuantity + (applyCount - stockAtCount(applyRow))}.`
+                  ? `Stock was ${stockAtCount(applyRow)} when ${applyRow.name} was counted. The count is ${applyCount}${quantityPartsLabel(applyCount, applyRow) ? ` (${quantityPartsLabel(applyCount, applyRow)})` : ""}. Current stock is ${applyRow.stockQuantity}, so it will become ${applyRow.stockQuantity + (applyCount - stockAtCount(applyRow))}.`
                   : "Save a count before updating stock."}
             </AlertDialogDescription>
           </AlertDialogHeader>
