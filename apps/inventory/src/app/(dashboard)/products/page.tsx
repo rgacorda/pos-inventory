@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
 import { 
   showSuccessToast, 
   showErrorFromException,
@@ -250,6 +252,7 @@ export default function ProductsPage() {
     convenienceMarkup: "0",
     taxRate: "0.08",
     stockQuantity: "",
+    infiniteStock: false,
     lowStockThreshold: "10",
     barcode: "",
     status: "ACTIVE",
@@ -505,6 +508,7 @@ export default function ProductsPage() {
       convenienceMarkup: "0",
       taxRate: "0",
       stockQuantity: "",
+      infiniteStock: false,
       lowStockThreshold: "10",
       barcode: "",
       status: "ACTIVE",
@@ -559,7 +563,8 @@ export default function ProductsPage() {
       convenienceMarkupPercentage: product.convenienceMarkupPercentage?.toString() || "",
       convenienceMarkup: product.convenienceMarkup?.toString() || "0",
       taxRate: product.taxRate?.toString() || "0",
-      stockQuantity: product.stockQuantity?.toString() || "",
+      stockQuantity: product.infiniteStock ? "" : product.stockQuantity?.toString() || "",
+      infiniteStock: Boolean(product.infiniteStock),
       lowStockThreshold: product.lowStockThreshold?.toString() || "10",
       barcode: product.barcode || "",
       status: product.status || "ACTIVE",
@@ -611,7 +616,13 @@ export default function ProductsPage() {
       taxRate: parseFloat(formData.taxRate),
       lowStockThreshold: formData.lowStockThreshold === "" ? null : parseInt(formData.lowStockThreshold, 10),
     };
-    if (includeStock) {
+    if (canEditStock) {
+      payload.infiniteStock = formData.infiniteStock;
+      if (!formData.infiniteStock) {
+        payload.stockQuantity =
+          formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10);
+      }
+    } else if (includeStock) {
       payload.stockQuantity =
         formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10);
     }
@@ -723,13 +734,22 @@ export default function ProductsPage() {
           bValue = b.supplier?.name || '';
         }
 
+        if (sortColumn === 'stockQuantity') {
+          aValue = isUnlimitedStock(a) ? Number.POSITIVE_INFINITY : Number(a.stockQuantity) || 0;
+          bValue = isUnlimitedStock(b) ? Number.POSITIVE_INFINITY : Number(b.stockQuantity) || 0;
+        }
+
         if (sortColumn === 'packsAvailable') {
-          aValue = a.packQuantity
-            ? Math.floor((Number(a.stockQuantity) || 0) / Number(a.packQuantity))
-            : -1;
-          bValue = b.packQuantity
-            ? Math.floor((Number(b.stockQuantity) || 0) / Number(b.packQuantity))
-            : -1;
+          aValue = !a.packQuantity
+            ? -1
+            : isUnlimitedStock(a)
+              ? Number.POSITIVE_INFINITY
+              : Math.floor((Number(a.stockQuantity) || 0) / Number(a.packQuantity));
+          bValue = !b.packQuantity
+            ? -1
+            : isUnlimitedStock(b)
+              ? Number.POSITIVE_INFINITY
+              : Math.floor((Number(b.stockQuantity) || 0) / Number(b.packQuantity));
         }
 
         // Handle null/undefined
@@ -764,9 +784,9 @@ export default function ProductsPage() {
     );
   };
 
-  // Filter low stock products (stockQuantity <= lowStockThreshold)
+  // Unlimited products have no quantity, so they are never low stock.
   const lowStockProducts = products.filter(
-    (p) => p.stockQuantity <= (p.lowStockThreshold ?? 10)
+    (p) => !isUnlimitedStock(p) && p.stockQuantity <= (p.lowStockThreshold ?? 10)
   );
 
   const totalPages = Math.ceil(sortedProducts.length / itemsPerPage);
@@ -1093,7 +1113,9 @@ export default function ProductsPage() {
                       )}
                       {isColumnVisible('packsAvailable') && (
                         <TableCell>
-                          {product.packQuantity ? (
+                          {isUnlimitedStock(product) && product.packQuantity ? (
+                            <span className="font-medium text-blue-600">Unlimited</span>
+                          ) : product.packQuantity ? (
                             (() => {
                               const packsSellable = Math.floor(
                                 (Number(product.stockQuantity) || 0) / Number(product.packQuantity)
@@ -1124,14 +1146,14 @@ export default function ProductsPage() {
                         <TableCell>
                           <span
                             className={`font-medium ${
-                              product.stockQuantity > 10
+                              isUnlimitedStock(product) || product.stockQuantity > 10
                                 ? "text-green-600"
                                 : product.stockQuantity > 0
                                   ? "text-yellow-600"
                                   : "text-red-600"
                             }`}
                           >
-                            {product.stockQuantity}
+                            {formatStockQuantity(product)}
                           </span>
                         </TableCell>
                       )}
@@ -1781,19 +1803,22 @@ export default function ProductsPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="stockQuantity">Stock Quantity *</Label>
+                    <Label htmlFor="stockQuantity">
+                      Stock Quantity{formData.infiniteStock ? "" : " *"}
+                    </Label>
                     <Input
                       id="stockQuantity"
                       type="number"
-                      value={formData.stockQuantity}
+                      value={formData.infiniteStock ? "" : formData.stockQuantity}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
                           stockQuantity: e.target.value,
                         })
                       }
-                      placeholder="100"
-                      required
+                      placeholder={formData.infiniteStock ? "Unlimited" : "100"}
+                      required={!formData.infiniteStock}
+                      disabled={formData.infiniteStock}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1809,9 +1834,27 @@ export default function ProductsPage() {
                         })
                       }
                       placeholder="10"
+                      disabled={formData.infiniteStock}
                     />
                   </div>
                 </div>
+                {canEditStock && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="infiniteStock"
+                      checked={formData.infiniteStock}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, infiniteStock: checked === true })
+                      }
+                    />
+                    <div>
+                      <Label htmlFor="infiniteStock">Unlimited stock</Label>
+                      <p className="text-xs text-muted-foreground">
+                        This product has no quantity. Sales, deliveries, returns, voids, and exchanges will not change its stock.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -2345,24 +2388,35 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-stockQuantity">
-                      Stock Quantity{canEditStock ? " *" : ""}
+                      Stock Quantity{canEditStock && !formData.infiniteStock ? " *" : ""}
                     </Label>
                     <Input
                       id="edit-stockQuantity"
                       type="number"
-                      value={formData.stockQuantity}
+                      value={formData.infiniteStock ? "" : formData.stockQuantity}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
                           stockQuantity: e.target.value,
                         })
                       }
-                      required={canEditStock}
-                      disabled={!canEditStock}
+                      placeholder={formData.infiniteStock ? "Unlimited" : undefined}
+                      required={canEditStock && !formData.infiniteStock}
+                      disabled={!canEditStock || formData.infiniteStock}
                     />
-                    {!canEditStock && (
+                    {!canEditStock && !formData.infiniteStock && (
                       <p className="text-xs text-muted-foreground">
                         Only an admin can change stock. Enter a count on Variance Inventory.
+                      </p>
+                    )}
+                    {!canEditStock && formData.infiniteStock && (
+                      <p className="text-xs text-muted-foreground">
+                        Unlimited stock. Only an admin can turn this off.
+                      </p>
+                    )}
+                    {canEditStock && !formData.infiniteStock && selectedProduct?.infiniteStock && (
+                      <p className="text-xs text-muted-foreground">
+                        Enter the quantity on hand to start tracking again.
                       </p>
                     )}
                   </div>
@@ -2380,9 +2434,27 @@ export default function ProductsPage() {
                           lowStockThreshold: e.target.value,
                         })
                       }
+                      disabled={formData.infiniteStock}
                     />
                   </div>
                 </div>
+                {canEditStock && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="edit-infiniteStock"
+                      checked={formData.infiniteStock}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, infiniteStock: checked === true })
+                      }
+                    />
+                    <div>
+                      <Label htmlFor="edit-infiniteStock">Unlimited stock</Label>
+                      <p className="text-xs text-muted-foreground">
+                        This product has no quantity. Sales, deliveries, returns, voids, and exchanges will not change its stock.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

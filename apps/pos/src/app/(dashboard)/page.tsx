@@ -41,7 +41,7 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, PriceBreakdown } from "@pos/shared-utils";
+import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, formatStockQuantity, hasAvailableStock, PriceBreakdown, stockSortValue } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
 import {
@@ -507,6 +507,7 @@ export default function Page() {
       cost: refProduct?.cost ?? 0,
       taxRate: refProduct?.taxRate ?? 0,
       stockQuantity: refProduct ? refProduct.stockQuantity : 999999,
+      infiniteStock: refProduct?.infiniteStock,
       barcode: refProduct?.barcode,
       status: ProductStatus.ACTIVE,
       createdAt: new Date(),
@@ -564,8 +565,8 @@ export default function Page() {
       return;
     }
 
-    // Prefer product with stock; otherwise use first match
-    const product = matched.sort((a, b) => b.stockQuantity - a.stockQuantity)[0];
+    // Prefer a product that can be sold (unlimited, then highest stock)
+    const product = matched.sort((a, b) => stockSortValue(b) - stockSortValue(a))[0];
 
     setManualItemBarcodeError("");
     setManualItemName(product.name);
@@ -615,12 +616,10 @@ export default function Page() {
       return;
     }
 
-    // Sort by stock (products with stock first)
-    const sortedProducts = matchedProducts.sort((a, b) => {
-      if (a.stockQuantity > 0 && b.stockQuantity === 0) return -1;
-      if (a.stockQuantity === 0 && b.stockQuantity > 0) return 1;
-      return b.stockQuantity - a.stockQuantity;
-    });
+    // Sort sellable products first. Unlimited stock sorts above any finite count.
+    const sortedProducts = matchedProducts.sort(
+      (a, b) => stockSortValue(b) - stockSortValue(a),
+    );
 
     if (sortedProducts.length === 1) {
       // Only one product found, add directly
@@ -1922,17 +1921,17 @@ export default function Page() {
                 {matchingProducts.map((product) => (
                   <TableRow 
                     key={product.id}
-                    className={showItemCounts && product.stockQuantity === 0 ? "opacity-50" : ""}
+                    className={showItemCounts && !hasAvailableStock(product) ? "opacity-50" : ""}
                   >
                     <TableCell className="font-medium">
                       <div>
                         {product.name}
-                        {showItemCounts && product.stockQuantity === 0 && (
+                        {showItemCounts && !hasAvailableStock(product) && (
                           <span className="ml-2 text-xs text-red-600 font-semibold">
                             OUT OF STOCK
                           </span>
                         )}
-                        {showItemCounts && product.stockQuantity > 0 && matchingProducts.findIndex(p => p.stockQuantity > 0) === matchingProducts.findIndex(p => p.id === product.id) && (
+                        {showItemCounts && hasAvailableStock(product) && matchingProducts.findIndex((p) => hasAvailableStock(p)) === matchingProducts.findIndex((p) => p.id === product.id) && (
                           <span className="ml-2 text-xs text-green-600 font-semibold">
                             ✓ HAS STOCK
                           </span>
@@ -1960,8 +1959,8 @@ export default function Page() {
                     </TableCell>
                     {showItemCounts && (
                       <TableCell className="text-right">
-                        <span className={product.stockQuantity > 0 ? "text-green-600 font-semibold" : "text-red-600"}>
-                          {product.stockQuantity}
+                        <span className={hasAvailableStock(product) ? "text-green-600 font-semibold" : "text-red-600"}>
+                          {formatStockQuantity(product)}
                         </span>
                       </TableCell>
                     )}
@@ -1970,7 +1969,7 @@ export default function Page() {
                         size="sm"
                         onClick={() => handleProductSelection(product)}
                         className="h-8"
-                        variant={product.stockQuantity > 0 ? "default" : "outline"}
+                        variant={hasAvailableStock(product) ? "default" : "outline"}
                       >
                         <Plus className="h-4 w-4 mr-1" />
                         Add

@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsInt,
+  IsBoolean,
   Min,
   IsUUID,
   ValidateIf,
@@ -109,6 +110,10 @@ export class CreateProductDto {
   @Min(0)
   @IsOptional()
   stockQuantity?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  infiniteStock?: boolean;
 
   @IsInt()
   @Min(0)
@@ -239,6 +244,10 @@ export class UpdateProductDto {
   @Min(0)
   @IsOptional()
   stockQuantity?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  infiniteStock?: boolean;
 
   @IsInt()
   @Min(0)

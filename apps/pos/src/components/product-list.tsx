@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useProducts } from "@/hooks/useDatabase";
 import { LocalProduct } from "@/lib/db";
+import { formatStockQuantity } from "@pos/shared-utils";
 import {
   Select,
   SelectContent,
@@ -115,14 +116,14 @@ export function ProductList({ onAddToCart }: ProductListProps) {
                   <TableCell className="text-right">
                     <span
                       className={`text-xs px-2 py-1 rounded ${
-                        product.stockQuantity > 10
+                        product.infiniteStock || product.stockQuantity > 10
                           ? "bg-green-100 text-green-700"
                           : product.stockQuantity > 0
                             ? "bg-yellow-100 text-yellow-700"
                             : "bg-red-100 text-red-700"
                       }`}
                     >
-                      {product.stockQuantity}
+                      {formatStockQuantity(product)}
                     </span>
                   </TableCell>
                 </TableRow>

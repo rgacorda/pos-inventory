@@ -41,6 +41,8 @@ export interface Product extends BaseEntity {
   convenienceMarkupPercentage?: number; // Optional convenience markup percentage
   convenienceMarkup?: number; // Optional convenience markup fixed amount
   stockQuantity: number;
+  /** When true, the product has no tracked quantity. */
+  infiniteStock?: boolean;
   lowStockThreshold?: number;
   barcode?: string;
   imageUrl?: string;

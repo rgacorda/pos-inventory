@@ -593,7 +593,11 @@ export class OrdersService {
           where: { id: item.productId },
         });
 
-        if (product) {
+        if (product?.infiniteStock) {
+          this.logger.log(
+            `Skipping stock restoration for unlimited stock product: ${item.name}`,
+          );
+        } else if (product) {
           // Restore stock by adding back the quantity
           await queryRunner.manager.increment(
             ProductEntity,
@@ -677,7 +681,11 @@ export class OrdersService {
           where: { id: item.productId },
         });
 
-        if (product) {
+        if (product?.infiniteStock) {
+          this.logger.log(
+            `Skipping stock restoration for unlimited stock product: ${item.name}`,
+          );
+        } else if (product) {
           await queryRunner.manager.increment(
             ProductEntity,
             { id: item.productId },

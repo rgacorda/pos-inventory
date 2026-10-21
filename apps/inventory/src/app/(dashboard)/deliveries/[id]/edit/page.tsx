@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
+import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -105,6 +106,7 @@ interface Product {
   price: number;
   cost: number;
   stockQuantity: number;
+  infiniteStock?: boolean;
   barcode?: string;
   taxRate?: number;
   lowStockThreshold?: number;
@@ -1198,7 +1200,7 @@ export default function EditDeliveryPage() {
                                 ₱{Number(product.cost || 0).toFixed(2)}
                               </p>
                               <p className="text-sm text-muted-foreground">
-                                Stock: {product.stockQuantity}
+                                Stock: {formatStockQuantity(product)}
                               </p>
                             </div>
                           </div>
@@ -1575,8 +1577,14 @@ export default function EditDeliveryPage() {
             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
               <p className="font-medium text-blue-900">Preview (updates when the delivery is saved):</p>
               <p className="text-blue-800">
-                Stock: {selectedProductForItem?.stockQuantity || 0} 
-                {itemFormData.quantity && ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
+                {isUnlimitedStock(selectedProductForItem) ? (
+                  <>Unlimited stock. Saving this delivery will not change quantity.</>
+                ) : (
+                  <>
+                    Stock: {selectedProductForItem?.stockQuantity || 0}
+                    {itemFormData.quantity && ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
+                  </>
+                )}
               </p>
               <p className="text-blue-800">
                 Cost: ₱{Number(selectedProductForItem?.cost || 0).toFixed(2)} / unit

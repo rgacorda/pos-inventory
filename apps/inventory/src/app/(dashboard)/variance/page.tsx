@@ -742,8 +742,8 @@ export default function VarianceInventoryPage() {
               <CardTitle>Variance Inventory</CardTitle>
               <CardDescription>
                 {isAdmin
-                  ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference."
-                  : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock."}
+                  ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference. Products set to unlimited stock are not listed."
+                  : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock. Products set to unlimited stock are not listed."}
               </CardDescription>
             </div>
             {isAdmin && (

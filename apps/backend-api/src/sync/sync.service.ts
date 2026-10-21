@@ -319,7 +319,11 @@ export class SyncService {
             where: { id: item.productId },
           });
 
-          if (product) {
+          if (product?.infiniteStock) {
+            this.logger.log(
+              `Skipping inventory update for unlimited stock product: ${item.name}`,
+            );
+          } else if (product) {
             await queryRunner.manager.decrement(
               ProductEntity,
               { id: item.productId },
@@ -557,6 +561,7 @@ export class SyncService {
         imageUrl: p.imageUrl,
         status: p.status,
         stockQuantity: p.stockQuantity,
+        infiniteStock: p.infiniteStock === true,
       })),
       lastUpdated: new Date(),
     };
@@ -680,7 +685,11 @@ export class SyncService {
         where: { id: returnedItem.productId },
       });
 
-      if (returnedProduct) {
+      if (returnedProduct?.infiniteStock) {
+        this.logger.log(
+          `Skipping stock restoration for unlimited stock product: ${returnedItem.name || returnedProduct.name}`,
+        );
+      } else if (returnedProduct) {
         await queryRunner.manager.increment(
           ProductEntity,
           { id: returnedItem.productId },

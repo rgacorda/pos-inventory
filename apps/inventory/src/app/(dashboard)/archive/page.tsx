@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { apiClient } from "@/lib/api-client";
+import { formatStockQuantity } from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -48,6 +49,7 @@ interface ArchivedProduct {
   name: string;
   sku: string;
   stockQuantity: number;
+  infiniteStock?: boolean;
   deletedAt?: string | null;
   deletedByName?: string | null;
 }
@@ -211,7 +213,7 @@ export default function ArchivePage() {
                   cells: [
                     product.name,
                     product.sku,
-                    String(product.stockQuantity ?? 0),
+                    formatStockQuantity(product),
                     archivedBy(product.deletedByName, product.deletedAt),
                   ],
                   actions: (

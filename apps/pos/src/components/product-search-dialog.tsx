@@ -33,6 +33,7 @@ import {
   uniqueCategories,
 } from "@/lib/product-search";
 import { Eye, EyeOff, Search } from "lucide-react";
+import { formatStockQuantity } from "@pos/shared-utils";
 
 interface ProductSearchDialogProps {
   open: boolean;
@@ -202,7 +203,7 @@ export function ProductSearchDialog({
                         </TableCell>
                         {showItemCounts && (
                           <TableCell className="text-right">
-                            {product.stockQuantity}
+                            {formatStockQuantity(product)}
                           </TableCell>
                         )}
                       </TableRow>

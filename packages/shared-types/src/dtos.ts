@@ -147,6 +147,8 @@ export interface ProductDto {
   imageUrl?: string;
   status: string;
   stockQuantity: number;
+  /** When true, the product has no tracked quantity. */
+  infiniteStock?: boolean;
 }
 
 /**

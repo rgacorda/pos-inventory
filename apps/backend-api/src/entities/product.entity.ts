@@ -79,6 +79,13 @@ export class ProductEntity {
   @Column({ type: 'int', default: 0 })
   stockQuantity: number;
 
+  /**
+   * When true, quantity is not tracked. Sales, deliveries, returns, voids,
+   * exchanges, and variance counts leave stockQuantity unchanged.
+   */
+  @Column({ type: 'boolean', default: false })
+  infiniteStock: boolean;
+
   @Column({ type: 'int', nullable: true })
   lowStockThreshold: number;
 

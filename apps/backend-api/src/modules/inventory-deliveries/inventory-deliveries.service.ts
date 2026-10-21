@@ -291,7 +291,9 @@ export class InventoryDeliveriesService {
       });
 
       if (product) {
-        product.stockQuantity += item.quantity;
+        if (!product.infiniteStock) {
+          product.stockQuantity += item.quantity;
+        }
         // Tag the product with its most recent supplier so it can be
         // filtered by supplier later on.
         if (supplierId) {
@@ -346,7 +348,7 @@ export class InventoryDeliveriesService {
       });
       if (!product) continue;
 
-      if (delta !== 0) {
+      if (delta !== 0 && !product.infiniteStock) {
         product.stockQuantity += delta;
       }
       if (supplierId) {
@@ -375,7 +377,7 @@ export class InventoryDeliveriesService {
       const product = await this.productRepository.findOne({
         where: { id: productId, organizationId },
       });
-      if (product) {
+      if (product && !product.infiniteStock) {
         product.stockQuantity -= quantity;
         await this.productRepository.save(product);
       }

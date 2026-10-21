@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { formatStockQuantity, isUnlimitedStock, stockSortValue } from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -96,6 +97,7 @@ interface SupplierProduct {
   price: number;
   cost?: number;
   stockQuantity: number;
+  infiniteStock?: boolean;
   lowStockThreshold?: number;
   status: string;
   packQuantity?: number;
@@ -276,7 +278,7 @@ export default function SuppliersPage() {
     try {
       const data = await apiClient.getProducts({ supplierId: supplier.id });
       const sorted = [...data].sort(
-        (a: SupplierProduct, b: SupplierProduct) => a.stockQuantity - b.stockQuantity
+        (a: SupplierProduct, b: SupplierProduct) => stockSortValue(a) - stockSortValue(b)
       );
       setSupplierProducts(sorted);
     } catch (error) {
@@ -979,11 +981,15 @@ export default function SuppliersPage() {
                   </TableHeader>
                   <TableBody>
                     {supplierProducts.map((product) => {
+                      const unlimited = isUnlimitedStock(product);
                       const isLowStock =
+                        !unlimited &&
                         product.stockQuantity <= (product.lowStockThreshold ?? 10);
-                      const packsSellable = product.packQuantity
-                        ? Math.floor((Number(product.stockQuantity) || 0) / Number(product.packQuantity))
-                        : null;
+                      const packsSellable = unlimited
+                        ? null
+                        : product.packQuantity
+                          ? Math.floor((Number(product.stockQuantity) || 0) / Number(product.packQuantity))
+                          : null;
                       const isSelected = selectedProductIds.includes(product.id);
                       const quantityType =
                         productQuantityTypes[product.id] || getDefaultQuantityType(product);
@@ -1024,11 +1030,13 @@ export default function SuppliersPage() {
                           </TableCell>
                           <TableCell className="text-right py-3">
                             <span className={isLowStock ? "font-semibold text-red-600" : ""}>
-                              {product.stockQuantity}
+                              {formatStockQuantity(product)}
                             </span>
                           </TableCell>
                           <TableCell className="text-right py-3">
-                            {packsSellable !== null ? (
+                            {unlimited && product.packQuantity ? (
+                              <span className="font-medium text-blue-600">Unlimited</span>
+                            ) : packsSellable !== null ? (
                               <span
                                 className={
                                   packsSellable > 0

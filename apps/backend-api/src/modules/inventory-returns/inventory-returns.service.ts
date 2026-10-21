@@ -824,6 +824,9 @@ export class InventoryReturnsService {
       const product = await this.productRepository.findOne({
         where: { id: productId, organizationId },
       });
+      if (product?.infiniteStock) {
+        continue;
+      }
       if (product) {
         product.stockQuantity += multiplier * quantity;
         await this.productRepository.save(product);

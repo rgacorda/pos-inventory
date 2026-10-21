@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError } from 'typeorm';
 import { ProductEntity } from '../../entities/product.entity';
+import { InventoryVarianceCount } from '../../entities/inventory-variance-count.entity';
 import { Supplier } from '../../entities/supplier.entity';
 import { CreateProductDto, UpdateProductDto } from './dto';
 import { UserRole } from '@pos/shared-types';
@@ -70,6 +71,11 @@ export class ProductsService {
 
     if (existing) {
       throw new ConflictException(this.skuConflictMessage(existing));
+    }
+
+    if (createProductDto.infiniteStock) {
+      this.assertAdmin(requestingUser);
+      createProductDto.stockQuantity = createProductDto.stockQuantity ?? 0;
     }
 
     this.computePackPrices(createProductDto);
@@ -164,9 +170,29 @@ export class ProductsService {
       );
     }
 
-    // Stock changes on the product form are admin-only. Managers submit a
-    // physical count on Variance Inventory, and an admin applies it.
-    if (requestingUser.role === UserRole.MANAGER && updateProductDto.stockQuantity !== undefined) {
+    if (updateProductDto.infiniteStock !== undefined) {
+      const nextUnlimited = Boolean(updateProductDto.infiniteStock);
+      if (nextUnlimited !== Boolean(product.infiniteStock)) {
+        this.assertAdmin(requestingUser);
+      }
+    }
+
+    const willBeUnlimited =
+      updateProductDto.infiniteStock !== undefined
+        ? Boolean(updateProductDto.infiniteStock)
+        : Boolean(product.infiniteStock);
+
+    // Unlimited products have no quantity. Ignore a stock number so a save
+    // cannot turn tracking back on by accident, and so managers cannot
+    // change a quantity that is not in use.
+    if (willBeUnlimited) {
+      delete updateProductDto.stockQuantity;
+    } else if (
+      requestingUser.role === UserRole.MANAGER &&
+      updateProductDto.stockQuantity !== undefined
+    ) {
+      // Stock changes on the product form are admin-only. Managers submit a
+      // physical count on Variance Inventory, and an admin applies it.
       const nextStock = Number(updateProductDto.stockQuantity);
       const currentStock = Number(product.stockQuantity) || 0;
       if (nextStock !== currentStock) {
@@ -193,7 +219,14 @@ export class ProductsService {
     this.computePackPrices(product);
     this.assertNonNegativeProfit(product);
     await this.recordProductEdits(product, before, requestingUser);
+    const enablingUnlimited = Boolean(product.infiniteStock) && !before.infiniteStock;
     await this.productsRepository.save(product);
+    if (enablingUnlimited) {
+      await this.productsRepository.manager.delete(InventoryVarianceCount, {
+        productId: product.id,
+        status: 'PENDING',
+      });
+    }
     // Reload with the supplier join so the response matches what was saved.
     return this.findOne(id, requestingUser);
   }
@@ -303,7 +336,8 @@ export class ProductsService {
 
     // Order by stock quantity DESC (products with stock first), then by name
     return query
-      .orderBy('product.stockQuantity', 'DESC')
+      .orderBy('product.infiniteStock', 'DESC')
+      .addOrderBy('product.stockQuantity', 'DESC')
       .addOrderBy('product.name', 'ASC')
       .getMany();
   }
@@ -318,6 +352,7 @@ export class ProductsService {
       cost: product.cost,
       price: product.price,
       stockQuantity: product.stockQuantity,
+      infiniteStock: Boolean(product.infiniteStock),
       packQuantity: product.packQuantity,
       packPrice: product.packPrice,
       halfPackQuantity: product.halfPackQuantity,
@@ -354,7 +389,11 @@ export class ProductsService {
     track('Supplier', this.displayText(before.supplierName), this.displayText(supplierName));
     track('Cost', this.displayMoney(before.cost), this.displayMoney(product.cost));
     track('Selling price', this.displayMoney(before.price), this.displayMoney(product.price));
-    track('Stock', this.displayInt(before.stockQuantity), this.displayInt(product.stockQuantity));
+    track(
+      'Stock',
+      before.infiniteStock ? 'Unlimited' : this.displayInt(before.stockQuantity),
+      product.infiniteStock ? 'Unlimited' : this.displayInt(product.stockQuantity),
+    );
     track('Pack quantity', this.displayInt(before.packQuantity), this.displayInt(product.packQuantity));
     track('Pack price', this.displayMoney(before.packPrice), this.displayMoney(product.packPrice));
     track(

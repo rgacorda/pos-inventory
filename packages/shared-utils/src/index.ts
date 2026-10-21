@@ -9,3 +9,6 @@ export * from "./validation";
 
 // Formatting utilities
 export * from "./formatting";
+
+// Stock utilities
+export * from "./stock";

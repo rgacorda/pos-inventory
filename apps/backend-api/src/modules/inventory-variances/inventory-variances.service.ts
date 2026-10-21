@@ -29,11 +29,26 @@ export class InventoryVariancesService {
     return user.organizationId;
   }
 
+  /** Pending counts cannot change an unlimited product, so drop them. */
+  private async clearPendingUnlimitedCounts(organizationId: string) {
+    const unlimited = await this.productsRepository.find({
+      where: { organizationId, infiniteStock: true },
+      select: { id: true },
+    });
+    if (unlimited.length === 0) return;
+    await this.countsRepository.delete({
+      organizationId,
+      status: 'PENDING',
+      productId: In(unlimited.map((product) => product.id)),
+    });
+  }
+
   async getWorksheet(user: { organizationId?: string }) {
     const organizationId = this.requireOrganization(user);
+    await this.clearPendingUnlimitedCounts(organizationId);
 
     const products = await this.productsRepository.find({
-      where: { organizationId, deletedAt: IsNull() },
+      where: { organizationId, deletedAt: IsNull(), infiniteStock: false },
       order: { name: 'ASC' },
     });
 
@@ -98,6 +113,11 @@ export class InventoryVariancesService {
     if (products.some((product) => product.deletedAt)) {
       throw new BadRequestException('Archived products cannot be counted');
     }
+    if (products.some((product) => product.infiniteStock)) {
+      throw new BadRequestException(
+        'Unlimited stock products are not counted',
+      );
+    }
 
     const productMap = new Map(products.map((product) => [product.id, product]));
     const existing = await this.countsRepository.find({
@@ -143,7 +163,7 @@ export class InventoryVariancesService {
 
     const products = await this.productsRepository.find({
       where: { organizationId, id: In(counts.map((count) => count.productId)) },
-      select: { id: true, name: true, sku: true, deletedAt: true },
+      select: { id: true, name: true, sku: true, deletedAt: true, infiniteStock: true },
     });
     const productsById = new Map(products.map((product) => [product.id, product]));
     const errors = counts.flatMap((count) => {
@@ -167,6 +187,18 @@ export class InventoryVariancesService {
             name: product.name,
             sku: product.sku,
             reason: 'This product is archived, so its stock cannot be updated.',
+          },
+        ];
+      }
+      if (product.infiniteStock) {
+        return [
+          {
+            productId: count.productId,
+            countId: count.id,
+            name: product.name,
+            sku: product.sku,
+            reason:
+              'This product has unlimited stock, so a count cannot change its quantity.',
           },
         ];
       }
@@ -250,6 +282,11 @@ export class InventoryVariancesService {
         if (product.deletedAt) {
           throw new BadRequestException(
             `${product.name} is archived, so its stock cannot be updated`,
+          );
+        }
+        if (product.infiniteStock) {
+          throw new BadRequestException(
+            `${product.name} has unlimited stock, so its quantity cannot be updated`,
           );
         }
 

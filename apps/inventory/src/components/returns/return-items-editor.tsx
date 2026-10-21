@@ -24,6 +24,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { showErrorToast } from "@/lib/toast-utils";
+import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
 import { IconX, IconPlus, IconSearch, IconPencil } from "@tabler/icons-react";
 
 export interface ReturnItemProduct {
@@ -33,6 +34,7 @@ export interface ReturnItemProduct {
   category?: string;
   cost: number;
   stockQuantity: number;
+  infiniteStock?: boolean;
   barcode?: string;
   supplierId?: string | null;
   supplier?: { id: string; name: string } | null;
@@ -246,12 +248,14 @@ export function ReturnItemsEditor({
   const subtotal = items.reduce((sum, i) => sum + i.totalCost, 0);
 
   const previewQuantity = parseFloat(quantityInput) || 0;
+  const previewUnlimited = isUnlimitedStock(activeProduct);
   const previewStock = activeProduct?.stockQuantity ?? 0;
   const previewAfterStock =
     stockEffect === "deduct"
       ? previewStock - previewQuantity
       : previewStock + previewQuantity;
-  const wouldGoNegative = stockEffect === "deduct" && previewAfterStock < 0;
+  const wouldGoNegative =
+    !previewUnlimited && stockEffect === "deduct" && previewAfterStock < 0;
 
   return (
     <div className="space-y-4">
@@ -474,7 +478,7 @@ export function ReturnItemsEditor({
                             ₱{Number(product.cost || 0).toFixed(2)}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            Stock: {product.stockQuantity}
+                            Stock: {formatStockQuantity(product)}
                           </p>
                         </div>
                       </div>
@@ -544,14 +548,20 @@ export function ReturnItemsEditor({
 
             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm space-y-1">
               <p className="text-blue-800">
-                Current Stock: {previewStock}
-                {previewQuantity > 0 && (
-                  <span
-                    className={`ml-1 font-semibold ${wouldGoNegative ? "text-red-600" : "text-green-700"}`}
-                  >
-                    {" → "}
-                    {previewAfterStock}
-                  </span>
+                {previewUnlimited ? (
+                  <>Unlimited stock. This return will not change quantity.</>
+                ) : (
+                  <>
+                    Current Stock: {previewStock}
+                    {previewQuantity > 0 && (
+                      <span
+                        className={`ml-1 font-semibold ${wouldGoNegative ? "text-red-600" : "text-green-700"}`}
+                      >
+                        {" → "}
+                        {previewAfterStock}
+                      </span>
+                    )}
+                  </>
                 )}
               </p>
               <p className="text-blue-800">
