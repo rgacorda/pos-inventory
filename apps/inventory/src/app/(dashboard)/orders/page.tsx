@@ -52,6 +52,11 @@ import {
 } from "@/components/ui/popover";
 import { apiClient } from "@/lib/api-client";
 import {
+  orderToReceiptData,
+  ReceiptReprint,
+} from "@/components/receipt-reprint";
+import type { ReceiptOrganization } from "@/lib/receipt-template";
+import {
   Search,
   Filter,
   Eye,
@@ -61,6 +66,7 @@ import {
   ArrowLeftRight,
   ArrowUp,
   ArrowDown,
+  Printer,
 } from "lucide-react";
 import {
   showErrorFromException,
@@ -69,8 +75,17 @@ import {
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
 } from "@/lib/toast-utils";
-import { format } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
+
+function todayRange(): DateRange {
+  const today = startOfDay(new Date());
+  return { from: today, to: new Date(today) };
+}
+
+function getOrderDate(order: { completedAt?: string; createdAt?: string }) {
+  return new Date(order.completedAt || order.createdAt || Date.now());
+}
 
 function formatPaymentMethod(method?: string) {
   if (!method) return "";
@@ -89,7 +104,7 @@ function getOrderPaymentMethods(order: any) {
 }
 
 function getOrderTimestamp(order: any) {
-  return new Date(order.createdAt).getTime();
+  return getOrderDate(order).getTime();
 }
 
 export default function OrdersPage() {
@@ -101,13 +116,30 @@ export default function OrdersPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showVoidConfirm, setShowVoidConfirm] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(todayRange);
+  const [organization, setOrganization] = useState<ReceiptOrganization | null>(
+    null,
+  );
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [timeSort, setTimeSort] = useState<"asc" | "desc">("desc");
   const itemsPerPage = 20;
 
   useEffect(() => {
     loadOrders();
+    apiClient
+      .getMyOrganization()
+      .then((org) => {
+        setOrganization({
+          name: org.name,
+          address: org.address || undefined,
+          phone: org.phone || undefined,
+        });
+      })
+      .catch(() => {
+        const name = localStorage.getItem("organizationName");
+        if (name) setOrganization({ name });
+      });
   }, []);
 
   const loadOrders = async () => {
@@ -200,12 +232,10 @@ export default function OrdersPage() {
 
     const matchesDateRange =
       !dateRange?.from ||
-      !dateRange?.to ||
       (() => {
-        const orderDate = new Date(order.createdAt);
-        const from = new Date(dateRange.from);
-        const to = new Date(dateRange.to);
-        from.setHours(0, 0, 0, 0);
+        const orderDate = getOrderDate(order);
+        const from = startOfDay(dateRange.from);
+        const to = new Date(dateRange.to ?? dateRange.from);
         to.setHours(23, 59, 59, 999);
         return orderDate >= from && orderDate <= to;
       })();
@@ -263,7 +293,9 @@ export default function OrdersPage() {
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dateRange?.from ? (
-                    dateRange.to ? (
+                    dateRange.to &&
+                    format(dateRange.from, "yyyy-MM-dd") !==
+                      format(dateRange.to, "yyyy-MM-dd") ? (
                       <>
                         {format(dateRange.from, "MMM dd, yyyy")} -{" "}
                         {format(dateRange.to, "MMM dd, yyyy")}
@@ -272,7 +304,7 @@ export default function OrdersPage() {
                       format(dateRange.from, "MMM dd, yyyy")
                     )
                   ) : (
-                    <span>Pick a date range</span>
+                    <span>All dates</span>
                   )}
                 </Button>
               </PopoverTrigger>
@@ -393,10 +425,10 @@ export default function OrdersPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {new Date(order.createdAt).toLocaleDateString()}
+                        {getOrderDate(order).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        {format(new Date(order.createdAt), "h:mm a")}
+                        {format(getOrderDate(order), "h:mm a")}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
@@ -533,7 +565,7 @@ export default function OrdersPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Date & Time</p>
                   <p className="font-medium">
-                    {new Date(selectedOrder.createdAt).toLocaleString()}
+                    {getOrderDate(selectedOrder).toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -763,6 +795,15 @@ export default function OrdersPage() {
             </div>
           )}
           <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowReceiptDialog(true)}
+              className="w-full sm:w-auto"
+              disabled={!selectedOrder}
+            >
+              <Printer className="h-4 w-4 mr-2" />
+              Reprint Receipt
+            </Button>
             {canVoidOrder(selectedOrder) && (
               <Button
                 variant="destructive"
@@ -773,6 +814,34 @@ export default function OrdersPage() {
                 Void & Refund Order
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
+        <DialogContent className="flex max-h-[min(90dvh,90vh)] flex-col overflow-hidden sm:max-w-md">
+          <DialogHeader className="shrink-0">
+            <DialogTitle>Reprint Receipt</DialogTitle>
+            <DialogDescription>
+              Print receipt for this order
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto py-4">
+            {selectedOrder && (
+              <ReceiptReprint
+                data={orderToReceiptData(selectedOrder, organization)}
+                onPrintComplete={() => setShowReceiptDialog(false)}
+              />
+            )}
+          </div>
+          <DialogFooter className="shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowReceiptDialog(false)}
+              className="w-full"
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -801,7 +870,7 @@ export default function OrdersPage() {
                     <p>Total Amount: <strong>₱{Number(selectedOrder.totalAmount || 0).toFixed(2)}</strong></p>
                     <p>Items: <strong>{selectedOrder.items?.length || 0}</strong></p>
                     <p className="text-muted-foreground mt-2 text-xs">
-                      Created: {new Date(selectedOrder.createdAt).toLocaleString()}
+                      Created: {getOrderDate(selectedOrder).toLocaleString()}
                     </p>
                   </div>
                 )}
