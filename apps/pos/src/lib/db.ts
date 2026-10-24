@@ -184,6 +184,19 @@ export class POSDatabase extends Dexie {
       unknownBarcodes: "++id, &barcode, scannedAt",
       customers: "id, phone, organizationId, cachedAt",
     });
+
+    // Version 8: Index order numbers so a scanned receipt can be found locally
+    this.version(8).stores({
+      orders:
+        "++id, posLocalId, serverId, orderNumber, terminalId, status, syncStatus, completedAt, localCreatedAt, customerName, exchangeRef, customerId",
+      payments:
+        "++id, posLocalId, serverId, orderId, terminalId, method, syncStatus, processedAt, localCreatedAt, reference",
+      products: "id, sku, barcode, category, status, lastSyncedAt",
+      syncMetadata: "++id, key, updatedAt",
+      organization: "id, updatedAt",
+      unknownBarcodes: "++id, &barcode, scannedAt",
+      customers: "id, phone, organizationId, cachedAt",
+    });
   }
 }
 
@@ -433,6 +446,14 @@ export const dbHelpers = {
       .equals(status)
       .reverse()
       .sortBy("localCreatedAt");
+  },
+
+  async getOrderByOrderNumber(orderNumber: string) {
+    return db.orders.where("orderNumber").equals(orderNumber).first();
+  },
+
+  async getExchangeChildOrder(orderNumber: string) {
+    return db.orders.where("exchangeRef").equals(orderNumber).first();
   },
 
   // Get today's orders

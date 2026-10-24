@@ -1,5 +1,6 @@
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
+import { renderBarcodeSvg } from "@/lib/code128";
 
 export interface ReceiptItem {
   name: string;
@@ -197,6 +198,15 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
     </div>
   `;
 
+  const barcode = data.orderNumber
+    ? `
+      <div class="barcode-wrap">
+        ${renderBarcodeSvg(data.orderNumber)}
+        <div class="barcode-caption">${esc(data.orderNumber)}</div>
+      </div>
+    `
+    : "";
+
   return `
     <div class="receipt">
       ${header}
@@ -207,6 +217,7 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
       ${spacer()}
       ${totals}
       ${payment}
+      ${barcode}
       ${cutSpacer()}
     </div>
   `;
@@ -255,6 +266,9 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .item-name { width: 100%; word-break: break-word; margin-bottom: 0; }
     .item-narrow { margin-bottom: 1px; }
     .item-amounts { display: flex; justify-content: flex-end; gap: 6px; align-items: baseline; white-space: nowrap; }
+    .barcode-wrap { margin: 1mm 0 0; }
+    .barcode-wrap svg { display: block; width: 100%; height: 12mm; }
+    .barcode-caption { text-align: center; margin-top: 1px; letter-spacing: 0.2px; }
   `;
 }
 

@@ -639,12 +639,117 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Receipt scan and exchange are store-wide: any cashier in the organization
+   * can look up a receipt and exchange it, not only the cashier who rang it.
+   */
+  private async findInOrganization(id: string, requestingUser: any) {
+    const order = await this.ordersRepository.findOne({
+      where: { id },
+      relations: ['items'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (
+      requestingUser.role !== UserRole.SUPER_ADMIN &&
+      order.organizationId !== requestingUser.organizationId
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    return order;
+  }
+
+  async findByOrderNumber(orderNumber: string, requestingUser: any) {
+    const normalized = orderNumber?.trim();
+    if (!normalized) {
+      throw new BadRequestException('Order number is required');
+    }
+
+    const order = await this.ordersRepository.findOne({
+      where: { orderNumber: normalized },
+      relations: ['items', 'payments'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (
+      requestingUser.role !== UserRole.SUPER_ADMIN &&
+      order.organizationId !== requestingUser.organizationId
+    ) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const exchangeChild = await this.ordersRepository.findOne({
+      where: {
+        exchangeRef: order.orderNumber,
+        organizationId: order.organizationId,
+      },
+    });
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      posLocalId: order.posLocalId,
+      terminalId: order.terminalId,
+      cashierId: order.cashierId,
+      cashierName: order.cashierName,
+      customerName: order.customerName,
+      customerAddress: order.customerAddress,
+      customerId: order.customerId,
+      pointsEarned: order.pointsEarned,
+      pointsRedeemed: order.pointsRedeemed,
+      subtotal: order.subtotal,
+      taxAmount: order.taxAmount,
+      discountAmount: order.discountAmount,
+      totalAmount: order.totalAmount,
+      status: order.status,
+      completedAt: order.completedAt,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      exchangeRef: order.exchangeRef,
+      exchangedAt: order.exchangedAt,
+      returnedItems: order.returnedItems,
+      items: (order.items ?? []).map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        sku: item.sku,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        discountAmount: item.discountAmount,
+        subtotal: item.subtotal,
+        total: item.total,
+      })),
+      payments: (order.payments ?? []).map((payment) => ({
+        id: payment.id,
+        posLocalId: payment.posLocalId,
+        paymentNumber: payment.paymentNumber,
+        terminalId: payment.terminalId,
+        method: payment.method,
+        amount: payment.amount,
+        status: payment.status,
+        reference: payment.reference,
+        processedAt: payment.processedAt,
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt,
+      })),
+      exchangeChildOrderNumber: exchangeChild?.orderNumber ?? null,
+    };
+  }
+
   async exchangeOrder(
     id: string,
     dto: ExchangeOrderDto,
     requestingUser: any,
   ) {
-    const order = await this.findOne(id, requestingUser);
+    const order = await this.findInOrganization(id, requestingUser);
 
     if (order.exchangedAt) {
       throw new BadRequestException('Order has already been exchanged');
@@ -720,7 +825,7 @@ export class OrdersService {
         `Order ${order.orderNumber} exchanged successfully. Stock restored for ${restoredCount} returned item(s).`,
       );
 
-      return this.findOne(order.id, requestingUser);
+      return this.findInOrganization(order.id, requestingUser);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Failed to exchange order ${order.orderNumber}:`, error);

@@ -603,9 +603,21 @@ export default function Page() {
 
   // Handle barcode scan
   const handleBarcodeScan = (barcode: string) => {
-    if (!barcode.trim() || !products) return;
+    const trimmed = barcode.trim();
+    if (!trimmed) return;
 
-    const matchedProducts = [...(productsByBarcode.get(barcode.trim()) ?? [])];
+    // Receipt barcodes encode the transaction number so a scan can open
+    // exchange or reprint instead of looking up a product.
+    if (/^ORD-\d+$/i.test(trimmed)) {
+      setBarcodeInput("");
+      barcodeInputRef.current?.blur();
+      router.push(`/scan?code=${encodeURIComponent(trimmed)}`);
+      return;
+    }
+
+    if (!products) return;
+
+    const matchedProducts = [...(productsByBarcode.get(trimmed) ?? [])];
 
     if (matchedProducts.length === 0) {
       showErrorToast(ERROR_MESSAGES.NOT_FOUND("Product"), {

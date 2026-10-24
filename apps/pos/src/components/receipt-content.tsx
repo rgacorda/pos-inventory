@@ -3,6 +3,7 @@
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
 import type { ReceiptData } from "@/lib/receipt-template";
+import { ReceiptBarcode } from "@/components/receipt-barcode";
 
 export type { ReceiptItem, ReceiptOrganization, ReceiptData } from "@/lib/receipt-template";
 
@@ -42,6 +43,7 @@ export function ReceiptContent({
   cashierName,
   dateTime,
   pointsRedeemed,
+  orderNumber,
   className,
 }: ReceiptContentProps) {
   const isWide = paperSize === "80mm";
@@ -191,6 +193,7 @@ export function ReceiptContent({
           <span>{totalItemCount}</span>
         </div>
         {LINE}
+        {orderNumber ? <ReceiptBarcode value={orderNumber} /> : null}
         <div className="h-[15mm]" aria-hidden="true" />
       </div>
     </div>

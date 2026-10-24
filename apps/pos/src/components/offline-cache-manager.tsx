@@ -31,6 +31,7 @@ export function OfflineCacheManager() {
           '/login',
           '/products',
           '/transactions',
+          '/scan',
           '/select-terminal',
           '/offline',
         ];

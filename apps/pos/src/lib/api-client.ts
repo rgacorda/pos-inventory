@@ -158,6 +158,13 @@ class APIClient {
     return response.data;
   }
 
+  async lookupOrderByNumber(orderNumber: string): Promise<any> {
+    const response = await this.client.get("/orders/lookup", {
+      params: { orderNumber },
+    });
+    return response.data;
+  }
+
   async lookupCustomerByPhone(phone: string): Promise<any | null> {
     const response = await this.client.get(`/customers/lookup`, {
       params: { phone },

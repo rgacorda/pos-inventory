@@ -25,6 +25,7 @@ import {
   ShoppingCart,
   Package,
   Receipt,
+  ScanBarcode,
   LogOut,
   RefreshCw,
   AlertCircle,
@@ -653,6 +654,18 @@ export function Sidebar() {
             >
               <Receipt className="h-5 w-5" />
               <span className="text-sm">Transactions</span>
+            </div>
+          </Link>
+          <Link href="/scan">
+            <div
+              className={`flex items-center gap-3 rounded-lg p-3 transition-colors ${
+                pathname === "/scan"
+                  ? "border-l-4 border-gray-900 bg-gray-50 text-gray-900 font-medium"
+                  : "hover:bg-gray-100 text-gray-700 border-l-4 border-transparent"
+              }`}
+            >
+              <ScanBarcode className="h-5 w-5" />
+              <span className="text-sm">Scan Receipt</span>
             </div>
           </Link>
           <Link href="/products">
