@@ -50,11 +50,10 @@ export function LoginForm({
       if (typeof window !== "undefined") {
         localStorage.setItem("user", JSON.stringify(response.user));
         localStorage.setItem("organizationId", response.user.organizationId);
-        if (response.user.organizationName) {
-          localStorage.setItem(
-            "organizationName",
-            response.user.organizationName,
-          );
+        const organizationName =
+          response.organization?.name || response.user.organizationName;
+        if (organizationName) {
+          localStorage.setItem("organizationName", organizationName);
         }
       }
 

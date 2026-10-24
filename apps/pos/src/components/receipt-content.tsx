@@ -2,7 +2,7 @@
 
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
-import type { ReceiptData } from "@/lib/receipt-template";
+import { receiptStoreName, type ReceiptData } from "@/lib/receipt-template";
 import { ReceiptBarcode } from "@/components/receipt-barcode";
 
 export type { ReceiptItem, ReceiptOrganization, ReceiptData } from "@/lib/receipt-template";
@@ -49,6 +49,7 @@ export function ReceiptContent({
   const isWide = paperSize === "80mm";
   const hasCustomer = !!(customerName || customerAddress);
   const totalItemCount = calculateTotalSoldItemCount(items);
+  const storeName = receiptStoreName(organization);
 
   return (
     <div
@@ -60,9 +61,9 @@ export function ReceiptContent({
     >
       {/* Header */}
       <div className="text-center mb-2">
-        <div className={isWide ? "text-[9pt]" : "text-[10pt]"}>
-          {organization?.name || "YOUR STORE NAME"}
-        </div>
+        {storeName ? (
+          <div className={isWide ? "text-[9pt]" : "text-[10pt]"}>{storeName}</div>
+        ) : null}
         {organization?.address && <div>{organization.address}</div>}
         {organization?.phone && <div>Tel: {organization.phone}</div>}
       </div>

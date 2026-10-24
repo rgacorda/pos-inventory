@@ -20,6 +20,27 @@ export interface ReceiptOrganization {
   phone?: string;
 }
 
+/** Store name saved at login. Available immediately, before the organization request responds. */
+export function cachedOrganizationName(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const stored = localStorage.getItem("organizationName")?.trim();
+    if (stored) return stored;
+    const user = JSON.parse(localStorage.getItem("user") || "null") as {
+      organizationName?: string;
+    } | null;
+    return user?.organizationName?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+export function receiptStoreName(
+  organization: ReceiptOrganization | null | undefined,
+): string {
+  return organization?.name?.trim() || cachedOrganizationName();
+}
+
 /**
  * The single canonical shape for "everything needed to render a receipt" —
  * shared by the on-screen preview (`ReceiptContent`) and the printable
@@ -99,9 +120,10 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
   const org = data.organization;
   const totalItemCount = calculateTotalSoldItemCount(data.items);
 
+  const storeName = receiptStoreName(org);
   const header = `
     <div class="center mb-2">
-      <div class="store-name">${esc(org?.name || "YOUR STORE NAME")}</div>
+      ${storeName ? `<div class="store-name">${esc(storeName)}</div>` : ""}
       ${org?.address ? `<div>${esc(org.address)}</div>` : ""}
       ${org?.phone ? `<div>Tel: ${esc(org.phone)}</div>` : ""}
     </div>

@@ -67,11 +67,10 @@ export function LoginForm({
           name: response.user.name || "Cashier",
         });
         localStorage.setItem("organizationId", response.user.organizationId);
-        if (response.user.organizationName) {
-          localStorage.setItem(
-            "organizationName",
-            response.user.organizationName,
-          );
+        const organizationName =
+          response.organization?.name || response.user.organizationName;
+        if (organizationName) {
+          localStorage.setItem("organizationName", organizationName);
         }
       }
 

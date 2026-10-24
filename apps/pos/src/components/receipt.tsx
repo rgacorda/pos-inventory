@@ -5,7 +5,12 @@ import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { ReceiptContent } from "@/components/receipt-content";
 import { printReceipt } from "@/lib/receipt-print";
-import type { ReceiptData, ReceiptOrganization } from "@/lib/receipt-template";
+import { readReceiptOrganization } from "@/lib/receipt-organization";
+import {
+  cachedOrganizationName,
+  type ReceiptData,
+  type ReceiptOrganization,
+} from "@/lib/receipt-template";
 
 interface ReceiptProps extends Omit<ReceiptData, "organization"> {
   onPrintComplete?: () => void;
@@ -13,13 +18,19 @@ interface ReceiptProps extends Omit<ReceiptData, "organization"> {
 
 export function Receipt(props: ReceiptProps) {
   const { onPrintComplete, ...receiptFields } = props;
-  const [organization, setOrganization] = useState<ReceiptOrganization | null>(null);
+  const [organization, setOrganization] = useState<ReceiptOrganization | null>(
+    () => {
+      const name = cachedOrganizationName();
+      return name ? { name } : null;
+    },
+  );
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
 
   useEffect(() => {
+    let cancelled = false;
     const loadOrganization = async () => {
-      const org = await dbHelpers.getOrganization();
-      if (org) setOrganization(org);
+      const org = await readReceiptOrganization();
+      if (!cancelled && org) setOrganization(org);
     };
     loadOrganization();
 
@@ -35,14 +46,24 @@ export function Receipt(props: ReceiptProps) {
       if (size) setPaperSize(size);
     };
     window.addEventListener(PAPER_SIZE_CHANGE_EVENT, handlePaperSizeChange);
-    return () =>
+    return () => {
+      cancelled = true;
       window.removeEventListener(PAPER_SIZE_CHANGE_EVENT, handlePaperSizeChange);
+    };
   }, []);
 
   const receiptData: ReceiptData = { ...receiptFields, organization };
 
   const handlePrint = () => {
-    printReceipt(receiptData, paperSize, onPrintComplete);
+    void (async () => {
+      const resolved = (await readReceiptOrganization(organization)) ?? organization;
+      if (resolved) setOrganization(resolved);
+      printReceipt(
+        { ...receiptFields, organization: resolved },
+        paperSize,
+        onPrintComplete,
+      );
+    })();
   };
 
   return (

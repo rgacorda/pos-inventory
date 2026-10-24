@@ -88,6 +88,9 @@ export default function OrganizationPage() {
     try {
       setLoading(true);
       const data = await apiClient.getMyOrganization();
+      if (data?.name?.trim()) {
+        localStorage.setItem("organizationName", data.name.trim());
+      }
       setOrganization(data);
       setFormData({
         name: data.name,
@@ -132,6 +135,9 @@ export default function OrganizationPage() {
     try {
       setSaving(true);
       await apiClient.updateMyOrganization(formData);
+      if (formData.name.trim()) {
+        localStorage.setItem("organizationName", formData.name.trim());
+      }
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Organization"));
       setIsEditing(false);
       fetchOrganization();

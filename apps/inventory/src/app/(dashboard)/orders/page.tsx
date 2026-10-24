@@ -55,7 +55,10 @@ import {
   orderToReceiptData,
   ReceiptReprint,
 } from "@/components/receipt-reprint";
-import type { ReceiptOrganization } from "@/lib/receipt-template";
+import {
+  cachedOrganizationName,
+  type ReceiptOrganization,
+} from "@/lib/receipt-template";
 import {
   Search,
   Filter,
@@ -127,17 +130,22 @@ export default function OrdersPage() {
 
   useEffect(() => {
     loadOrders();
+    const cachedName = cachedOrganizationName();
+    if (cachedName) setOrganization({ name: cachedName });
     apiClient
       .getMyOrganization()
       .then((org) => {
+        const name = String(org?.name || "").trim() || cachedOrganizationName();
+        if (!name) return;
+        localStorage.setItem("organizationName", name);
         setOrganization({
-          name: org.name,
+          name,
           address: org.address || undefined,
           phone: org.phone || undefined,
         });
       })
       .catch(() => {
-        const name = localStorage.getItem("organizationName");
+        const name = cachedOrganizationName();
         if (name) setOrganization({ name });
       });
   }, []);

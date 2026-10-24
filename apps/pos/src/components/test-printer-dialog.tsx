@@ -14,7 +14,12 @@ import { Printer } from "lucide-react";
 import { dbHelpers, PAPER_SIZE_CHANGE_EVENT, ReceiptPaperSize } from "@/lib/db";
 import { ReceiptContent } from "@/components/receipt-content";
 import { printReceipt } from "@/lib/receipt-print";
-import type { ReceiptData, ReceiptOrganization } from "@/lib/receipt-template";
+import { readReceiptOrganization } from "@/lib/receipt-organization";
+import {
+  cachedOrganizationName,
+  type ReceiptData,
+  type ReceiptOrganization,
+} from "@/lib/receipt-template";
 
 interface TestPrinterDialogProps {
   children?: React.ReactNode;
@@ -53,16 +58,20 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
     unitPrice: number;
     total: number;
   }>>([]);
-  const [organization, setOrganization] = useState<ReceiptOrganization | null>(null);
+  const [organization, setOrganization] = useState<ReceiptOrganization | null>(
+    () => {
+      const name = cachedOrganizationName();
+      return name ? { name } : null;
+    },
+  );
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [testOrderNumber, setTestOrderNumber] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     const loadOrganization = async () => {
-      const org = await dbHelpers.getOrganization();
-      if (org) {
-        setOrganization(org);
-      }
+      const org = await readReceiptOrganization();
+      if (!cancelled && org) setOrganization(org);
     };
     loadOrganization();
 
@@ -79,11 +88,13 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
       if (size) setPaperSize(size);
     };
     window.addEventListener(PAPER_SIZE_CHANGE_EVENT, handlePaperSizeChange);
-    return () =>
+    return () => {
+      cancelled = true;
       window.removeEventListener(
         PAPER_SIZE_CHANGE_EVENT,
         handlePaperSizeChange,
       );
+    };
   }, []);
 
   // Re-check the saved paper size every time the dialog is opened, as a
@@ -129,26 +140,30 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
   const testDate = new Date();
 
   const handlePrint = () => {
-    const receiptData: ReceiptData = {
-      orderNumber: testOrderNumber,
-      items: testItems,
-      subtotal,
-      taxAmount,
-      discountAmount: 0,
-      totalAmount,
-      paymentMethod: "cash",
-      customerName: "Sample Customer",
-      customerAddress: "123 Test Street, Test City",
-      cashReceived,
-      change,
-      cashierName: "Test Cashier",
-      dateTime: testDate,
-      organization,
-    };
-    printReceipt(receiptData, paperSize, () => {
-      setShowReceipt(false);
-      setOpen(false);
-    });
+    void (async () => {
+      const resolved = (await readReceiptOrganization(organization)) ?? organization;
+      if (resolved) setOrganization(resolved);
+      const receiptData: ReceiptData = {
+        orderNumber: testOrderNumber,
+        items: testItems,
+        subtotal,
+        taxAmount,
+        discountAmount: 0,
+        totalAmount,
+        paymentMethod: "cash",
+        customerName: "Sample Customer",
+        customerAddress: "123 Test Street, Test City",
+        cashReceived,
+        change,
+        cashierName: "Test Cashier",
+        dateTime: testDate,
+        organization: resolved,
+      };
+      printReceipt(receiptData, paperSize, () => {
+        setShowReceipt(false);
+        setOpen(false);
+      });
+    })();
   };
 
   return (
