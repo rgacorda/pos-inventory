@@ -82,8 +82,9 @@ export function calculatePriceBreakdown(
 }
 
 /**
- * Fields needed to count how many "sold items" a line represents.
- * Packs and half-packs count as 1 each; leftover pieces count individually.
+ * Fields needed to count how many pieces a line represents.
+ * Pack fields are accepted so existing call sites can pass a full line,
+ * but they do not change the count: a pack is still the pieces inside it.
  */
 export interface SoldItemCountInput {
   quantity: number;
@@ -94,35 +95,22 @@ export interface SoldItemCountInput {
 }
 
 /**
- * Count sold items using the same pack / half-pack / piece split as pricing.
+ * Count the pieces on one line.
  *
- * Examples (pack = 6, half-pack = 3):
- * - 1 pack (6 pcs) → 1
- * - 1 half-pack (3 pcs) → 1
- * - 1 half-pack + 2 pcs → 3
- * - 2 packs + 1 pc → 3
- * - 5 individual pcs (no pack pricing) → 5
+ * Pack and half-pack deals change the price, not how many items were sold.
+ * A line of 12 pieces is 12 items even when those 12 pieces are priced as
+ * one pack.
  */
-export function calculateSoldItemCount({
-  quantity,
-  packPrice,
-  packQuantity,
-  halfPackPrice,
-  halfPackQuantity,
-}: SoldItemCountInput): number {
-  const breakdown = calculatePriceBreakdown(
-    quantity,
-    0,
-    packPrice,
-    packQuantity,
-    halfPackPrice,
-    halfPackQuantity,
-  );
-  return breakdown.packs + breakdown.halfPacks + breakdown.units;
+export function calculateSoldItemCount({ quantity }: SoldItemCountInput): number {
+  const count = Number(quantity);
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  return count;
 }
 
 /**
- * Sum sold-item counts across a list of lines.
+ * Sum piece quantities across a list of lines.
+ * This is the order's Total Items: every piece added, including pieces
+ * that were priced as a pack or half-pack.
  */
 export function calculateTotalSoldItemCount(items: SoldItemCountInput[]): number {
   return items.reduce((sum, item) => sum + calculateSoldItemCount(item), 0);
