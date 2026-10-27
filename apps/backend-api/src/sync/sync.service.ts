@@ -118,6 +118,42 @@ export class SyncService {
     orderDto: CreateOrderDto,
     user?: any,
   ): Promise<SyncResultDto> {
+    const maxAttempts = 3;
+    let lastResult: SyncResultDto | undefined;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      lastResult = await this.processOrderAttempt(orderDto, user);
+      const retry =
+        lastResult.status === 'ERROR' &&
+        attempt < maxAttempts &&
+        !!lastResult.message?.startsWith('RETRYABLE:');
+      if (!retry) {
+        if (lastResult.message?.startsWith('RETRYABLE:')) {
+          return {
+            ...lastResult,
+            message: lastResult.message.slice('RETRYABLE:'.length).trim(),
+          };
+        }
+        return lastResult;
+      }
+      this.logger.warn(
+        `Retrying order ${orderDto.posLocalId} after transient error (attempt ${attempt}): ${lastResult.message}`,
+      );
+    }
+
+    return (
+      lastResult ?? {
+        posLocalId: orderDto.posLocalId,
+        status: 'ERROR',
+        message: 'Sync failed',
+      }
+    );
+  }
+
+  private async processOrderAttempt(
+    orderDto: CreateOrderDto,
+    user?: any,
+  ): Promise<SyncResultDto> {
     try {
       // Check for duplicate using posLocalId (idempotent)
       const existing = await this.orderRepository.findOne({
@@ -161,8 +197,12 @@ export class SyncService {
           cashierRecord = await queryRunner.manager.findOne(UserEntity, {
             where: { id: cashierUuid },
           });
+          // A deleted cashier must not fail the sale. The name snapshot is kept.
+          if (!cashierRecord) {
+            cashierUuid = undefined;
+          }
         }
-        const cashierName = cashierRecord?.name;
+        const cashierName = cashierRecord?.name ?? orderDto.cashierName;
 
         // Generate order number
         const orderNumber = await this.generateOrderNumber();
@@ -193,8 +233,12 @@ export class SyncService {
           : null;
 
         // Compute points earned on the net amount paid (after any redemption)
-        const amountPaid = Number(orderDto.totalAmount);
-        const pointsRedeemed = (!isExchangeOrder && orderDto.pointsRedeemed) ? orderDto.pointsRedeemed : 0;
+        const amountPaid = this.toMoney(orderDto.totalAmount);
+        const rawPoints = Number(orderDto.pointsRedeemed);
+        const pointsRedeemed =
+          !isExchangeOrder && Number.isFinite(rawPoints)
+            ? Math.max(0, Math.floor(rawPoints))
+            : 0;
         const pointsEarned = resolvedCustomerId
           ? Math.floor(amountPaid / 500)
           : undefined;
@@ -233,10 +277,10 @@ export class SyncService {
           cashierId: cashierUuid,
           cashierName,
           organizationId: user?.organizationId,
-          subtotal: orderDto.subtotal,
-          taxAmount: orderDto.taxAmount,
-          discountAmount: orderDto.discountAmount,
-          totalAmount: orderDto.totalAmount,
+          subtotal: this.toMoney(orderDto.subtotal),
+          taxAmount: this.toMoney(orderDto.taxAmount),
+          discountAmount: this.toMoney(orderDto.discountAmount),
+          totalAmount: amountPaid,
           status: isExchangeOrder ? OrderStatus.EXCHANGE : OrderStatus.SYNCED,
           completedAt,
           syncedAt: new Date(),
@@ -244,7 +288,7 @@ export class SyncService {
           customerAddress: orderDto.customerAddress,
           customerId: resolvedCustomerId,
           pointsEarned: isExchangeOrder ? undefined : pointsEarned,
-          pointsRedeemed: isExchangeOrder ? undefined : orderDto.pointsRedeemed,
+          pointsRedeemed: isExchangeOrder || pointsRedeemed <= 0 ? undefined : pointsRedeemed,
           exchangeRef: isExchangeOrder
             ? (originalOrder?.orderNumber ?? orderDto.exchangeRef)
             : undefined,
@@ -282,31 +326,47 @@ export class SyncService {
           }
         }
 
-        // Create order items
-        const items = orderDto.items.map((item) => {
+        // Create order items. Coerce local values so one bad line (NaN price,
+        // fractional quantity, tax rate that doesn't fit numeric(5,4)) cannot
+        // reject the order on every retry.
+        const items = (orderDto.items ?? []).map((item) => {
+          const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
+          const unitPrice = this.toMoney(item.unitPrice);
+          const taxRate = this.toTaxRate(item.taxRate);
+          const discountAmount = this.toMoney(item.discountAmount);
+          const subtotal = this.toMoney(quantity * unitPrice);
           const orderItem = new OrderItemEntity();
           orderItem.orderId = savedOrder.id;
-          orderItem.productId = item.productId;
-          orderItem.sku = item.sku;
-          orderItem.name = item.name;
-          orderItem.quantity = item.quantity;
-          orderItem.unitPrice = item.unitPrice;
-          orderItem.taxRate = item.taxRate;
-          orderItem.discountAmount = item.discountAmount;
-          orderItem.subtotal = item.quantity * item.unitPrice;
-          orderItem.total =
-            orderItem.subtotal -
-            item.discountAmount +
-            orderItem.subtotal * item.taxRate;
+          orderItem.productId = item.productId ? String(item.productId) : '';
+          orderItem.sku = item.sku || 'UNKNOWN';
+          orderItem.name = item.name || 'Item';
+          orderItem.quantity = quantity;
+          orderItem.unitPrice = unitPrice;
+          orderItem.taxRate = taxRate;
+          orderItem.discountAmount = discountAmount;
+          orderItem.subtotal = subtotal;
+          orderItem.total = this.toMoney(
+            subtotal - discountAmount + subtotal * taxRate,
+          );
           return orderItem;
         });
 
         await queryRunner.manager.save(OrderItemEntity, items);
 
-        // Update inventory (accept sale even if stock goes negative)
-        // Skip manual items (they have IDs starting with 'manual-')
-        for (const item of orderDto.items) {
-          // Skip inventory update for manual items
+        // Update inventory (accept sale even if stock goes negative).
+        // Skip manual items (they have IDs starting with 'manual-').
+        // Sort by product id so parallel orders lock rows in the same order
+        // and don't deadlock each other.
+        const stockItems = [...(orderDto.items ?? [])]
+          .map((item) => ({
+            ...item,
+            productId: item.productId ? String(item.productId) : '',
+            quantity: Math.max(0, Math.round(Number(item.quantity) || 0)),
+          }))
+          .filter((item) => item.productId && item.quantity > 0)
+          .sort((a, b) => a.productId.localeCompare(b.productId));
+
+        for (const item of stockItems) {
           if (item.productId.startsWith('manual-')) {
             this.logger.log(
               `Skipping inventory update for manual item: ${item.name}`,
@@ -405,14 +465,29 @@ export class SyncService {
         await queryRunner.release();
       }
     } catch (error) {
+      if (this.isPosLocalIdConflict(error)) {
+        const existing = await this.orderRepository.findOne({
+          where: { posLocalId: orderDto.posLocalId },
+        });
+        if (existing) {
+          this.logger.log(`Order already synced: ${orderDto.posLocalId}`);
+          return {
+            posLocalId: orderDto.posLocalId,
+            status: 'DUPLICATE',
+            serverId: existing.id,
+            message: 'Order already exists',
+          };
+        }
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const retriable = this.isUniqueViolation(error) || this.isDeadlock(error);
       this.logger.error(
         `Failed to sync order ${orderDto.posLocalId}: ${errorMessage}`,
       );
       return {
         posLocalId: orderDto.posLocalId,
         status: 'ERROR',
-        message: errorMessage,
+        message: retriable ? `RETRYABLE: ${errorMessage}` : errorMessage,
       };
     }
   }
@@ -461,9 +536,6 @@ export class SyncService {
         throw new Error(`Terminal not found: ${paymentDto.terminalId}`);
       }
 
-      // Generate payment number
-      const paymentNumber = await this.generatePaymentNumber();
-
       // Use the actual processing time from the POS device, not the sync time,
       // so a late-synced payment is still attributed to the day it actually occurred.
       const processedAt = this.resolveTimestamp(
@@ -472,22 +544,54 @@ export class SyncService {
         'payment',
       );
 
-      // Create payment
-      const payment = this.paymentRepository.create({
-        paymentNumber,
-        posLocalId: paymentDto.posLocalId,
-        orderId,
-        terminalId: terminal.id,
-        organizationId: user?.organizationId,
-        method: paymentDto.method,
-        amount: paymentDto.amount,
-        status: PaymentStatus.COMPLETED,
-        reference: paymentDto.reference,
-        processedAt,
-        syncedAt: new Date(),
-      });
+      // Generate payment number. Retry when two payments draw the same number.
+      let savedPayment: PaymentEntity | undefined;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const paymentNumber = this.generatePaymentNumber();
+        const payment = this.paymentRepository.create({
+          paymentNumber,
+          posLocalId: paymentDto.posLocalId,
+          orderId,
+          terminalId: terminal.id,
+          organizationId: user?.organizationId,
+          method: paymentDto.method,
+          amount: this.toMoney(paymentDto.amount),
+          status: PaymentStatus.COMPLETED,
+          reference: paymentDto.reference,
+          processedAt,
+          syncedAt: new Date(),
+        });
 
-      const savedPayment = await this.paymentRepository.save(payment);
+        try {
+          savedPayment = await this.paymentRepository.save(payment);
+          break;
+        } catch (error) {
+          if (this.isPosLocalIdConflict(error)) {
+            const raced = await this.paymentRepository.findOne({
+              where: { posLocalId: paymentDto.posLocalId },
+            });
+            if (raced) {
+              this.logger.log(`Payment already synced: ${paymentDto.posLocalId}`);
+              return {
+                posLocalId: paymentDto.posLocalId,
+                status: 'DUPLICATE',
+                serverId: raced.id,
+                message: 'Payment already exists',
+              };
+            }
+          }
+          if (attempt === 3 || !this.isUniqueViolation(error)) {
+            throw error;
+          }
+          this.logger.warn(
+            `Retrying payment ${paymentDto.posLocalId} after payment number collision (attempt ${attempt})`,
+          );
+        }
+      }
+
+      if (!savedPayment) {
+        throw new Error(`Failed to save payment ${paymentDto.posLocalId}`);
+      }
 
       this.logger.log(`Payment synced successfully: ${paymentDto.posLocalId}`);
       return {
@@ -567,22 +671,61 @@ export class SyncService {
     };
   }
 
-  private async generateOrderNumber(): Promise<string> {
-    const date = new Date();
-    const timestamp = date.getTime().toString().slice(-8);
-    const random = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0');
-    return `ORD-${timestamp}${random}`;
+  private generateOrderNumber(): string {
+    return `ORD-${this.uniqueSuffix()}`;
   }
 
-  private async generatePaymentNumber(): Promise<string> {
-    const date = new Date();
-    const timestamp = date.getTime().toString().slice(-8);
-    const random = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0');
-    return `PAY-${timestamp}${random}`;
+  private generatePaymentNumber(): string {
+    return `PAY-${this.uniqueSuffix()}`;
+  }
+
+  /**
+   * Millisecond timestamp plus 6 base36 characters (~2e9 values).
+   * The previous generator used only 1,000 random values per millisecond and
+   * a unique constraint, so parallel sync (5 orders at a time, or several
+   * terminals) collided about once every few hundred orders. The failed order
+   * stayed in error until a later attempt happened to draw a free number.
+   */
+  private uniqueSuffix(): string {
+    const time = Date.now().toString(36).toUpperCase();
+    const rand = Math.floor(Math.random() * 36 ** 6)
+      .toString(36)
+      .toUpperCase()
+      .padStart(6, '0');
+    return `${time}${rand}`;
+  }
+
+  private toMoney(value: unknown): number {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.round(amount * 100) / 100;
+  }
+
+  /** order_items.taxRate is numeric(5,4), so values must be below 10. */
+  private toTaxRate(value: unknown): number {
+    const rate = Number(value);
+    if (!Number.isFinite(rate) || rate < 0) return 0;
+    return Math.min(9.9999, Math.round(rate * 10000) / 10000);
+  }
+
+  private driverError(error: unknown): { code?: string; constraint?: string; detail?: string; message?: string } {
+    const driver = (error as { driverError?: { code?: string; constraint?: string; detail?: string; message?: string } })?.driverError;
+    return driver ?? {};
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return this.driverError(error).code === '23505';
+  }
+
+  private isPosLocalIdConflict(error: unknown): boolean {
+    if (!this.isUniqueViolation(error)) return false;
+    const driver = this.driverError(error);
+    const text = `${driver.constraint ?? ''} ${driver.detail ?? ''} ${driver.message ?? ''} ${error instanceof Error ? error.message : ''}`;
+    return /posLocalId/i.test(text) || /pos_local_id/i.test(text);
+  }
+
+  private isDeadlock(error: unknown): boolean {
+    return this.driverError(error).code === '40P01';
   }
 
   /**
@@ -676,7 +819,7 @@ export class SyncService {
         continue;
       }
 
-      const quantity = Number(returnedItem.quantity);
+      const quantity = Math.max(0, Math.round(Number(returnedItem.quantity) || 0));
       if (!quantity || quantity <= 0) {
         continue;
       }

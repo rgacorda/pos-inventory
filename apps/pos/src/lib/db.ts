@@ -215,22 +215,34 @@ export const dbHelpers = {
 
   // Get all pending items for sync (excluding voided orders and their payments)
   async getPendingSyncItems() {
-    const allPendingOrders = await db.orders
+    const pendingOrders = await db.orders
       .where("syncStatus")
       .equals("pending")
       .toArray();
+    const syncingOrders = await db.orders
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
 
-    // Filter out voided orders
-    const orders = allPendingOrders.filter(order => order.status !== "VOID");
+    // Include orders left in "syncing" by an interrupted request. Retry and the
+    // regular sync used to skip them, so they never uploaded.
+    const orders = [...pendingOrders, ...syncingOrders].filter(
+      (order) => order.status !== "VOID",
+    );
 
     const allPendingPayments = await db.payments
       .where("syncStatus")
       .equals("pending")
       .toArray();
+    const syncingPayments = await db.payments
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
 
-    // Filter out payments whose parent order is voided
     const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
-    const payments = allPendingPayments.filter(p => !voidedOrderIds.has(p.orderId));
+    const payments = [...allPendingPayments, ...syncingPayments].filter(
+      (payment) => !voidedOrderIds.has(payment.orderId),
+    );
 
     return { orders, payments };
   },
@@ -257,18 +269,30 @@ export const dbHelpers = {
       .equals("error")
       .toArray();
 
-    // Filter out voided orders from both pending and error lists
+    const syncingOrders = await db.orders
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
+
+    const syncingPayments = await db.payments
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
+
+    // Filter out voided orders from pending, error, and interrupted syncs
     const nonVoidedPendingOrders = pendingOrders.filter(order => order.status !== "VOID");
     const nonVoidedErrorOrders = errorOrders.filter(order => order.status !== "VOID");
+    const nonVoidedSyncingOrders = syncingOrders.filter(order => order.status !== "VOID");
 
     // Filter out payments whose parent order is voided
     const voidedOrderIds = await dbHelpers.getVoidedOrderPosLocalIds();
     const nonVoidedPendingPayments = pendingPayments.filter(p => !voidedOrderIds.has(p.orderId));
     const nonVoidedErrorPayments = errorPayments.filter(p => !voidedOrderIds.has(p.orderId));
+    const nonVoidedSyncingPayments = syncingPayments.filter(p => !voidedOrderIds.has(p.orderId));
 
     return {
-      orders: [...nonVoidedPendingOrders, ...nonVoidedErrorOrders],
-      payments: [...nonVoidedPendingPayments, ...nonVoidedErrorPayments],
+      orders: [...nonVoidedPendingOrders, ...nonVoidedErrorOrders, ...nonVoidedSyncingOrders],
+      payments: [...nonVoidedPendingPayments, ...nonVoidedErrorPayments, ...nonVoidedSyncingPayments],
     };
   },
 
@@ -304,7 +328,21 @@ export const dbHelpers = {
       payment => !voidedOrderIds.has(payment.orderId)
     ).length;
 
-    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${pendingOrders} pending orders, ${pendingPayments} pending payments`);
+    const allSyncingOrders = await db.orders
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
+    const syncingOrders = allSyncingOrders.filter(order => order.status !== "VOID").length;
+
+    const allSyncingPayments = await db.payments
+      .where("syncStatus")
+      .equals("syncing")
+      .toArray();
+    const syncingPayments = allSyncingPayments.filter(
+      payment => !voidedOrderIds.has(payment.orderId)
+    ).length;
+
+    console.log(`📊 Sync status: ${errorOrders} error orders, ${errorPayments} error payments, ${syncingOrders} stuck syncing orders, ${syncingPayments} stuck syncing payments, ${pendingOrders} pending orders, ${pendingPayments} pending payments`);
 
     // Log details of error items for debugging
     if (errorOrders > 0) {
@@ -331,9 +369,15 @@ export const dbHelpers = {
     }
 
     return {
-      failed: errorOrders + errorPayments, // Only actual errors
-      pending: pendingOrders + pendingPayments, // Old pending items (for monitoring)
-      total: errorOrders + errorPayments + pendingOrders + pendingPayments,
+      failed: errorOrders + errorPayments,
+      pending: pendingOrders + pendingPayments,
+      total:
+        errorOrders +
+        errorPayments +
+        syncingOrders +
+        syncingPayments +
+        pendingOrders +
+        pendingPayments,
     };
   },
 

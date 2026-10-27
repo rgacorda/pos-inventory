@@ -188,16 +188,19 @@ export function Sidebar() {
     setIsRetrying(true);
     try {
       const success = await syncService.retryFailedSync();
-      if (success) {
-        showSuccessToast(SUCCESS_MESSAGES.SYNCED("Transactions"), {
-          description: "All pending and failed transactions have been synced.",
-        });
-        // Refresh counts
-        const counts = await dbHelpers.getFailedItemsCount();
-        setFailedCount(counts);
-      } else {
+      const counts = await dbHelpers.getFailedItemsCount();
+      setFailedCount(counts);
+      if (!success) {
         showErrorToast(ERROR_MESSAGES.SYNC_FAILED("transactions"), {
           description: "Unable to sync. Check your connection and try again.",
+        });
+      } else if (counts.failed > 0) {
+        showErrorToast(ERROR_MESSAGES.SYNC_FAILED("transactions"), {
+          description: `${counts.failed} transaction${counts.failed === 1 ? "" : "s"} still could not sync.`,
+        });
+      } else {
+        showSuccessToast(SUCCESS_MESSAGES.SYNCED("Transactions"), {
+          description: "All pending and failed transactions have been synced.",
         });
       }
     } catch (error) {

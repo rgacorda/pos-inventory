@@ -509,10 +509,12 @@ export class SyncService {
       );
       await this.markItemsAsSyncing(batch, []);
       try {
+        const orders = await this.toOrderDtos(batch);
+        if (orders.length === 0) continue;
         const req: SyncRequestDto = {
           terminalId,
           lastSyncAt: lastSyncAt || undefined,
-          orders: batch.map(this.convertLocalOrderToDto),
+          orders,
           payments: [],
         };
         const response = await apiClient.sync(req);
@@ -520,9 +522,9 @@ export class SyncService {
         lastSyncedAt = new Date(response.syncedAt);
         if (response.catalog) lastCatalog = response.catalog;
       } catch (error) {
-        // Mark only this batch as error — already-synced batches stay "synced"
+        // Keep going so one bad batch does not block the rest of the retry.
         await this.markItemsAsError(error);
-        throw error;
+        console.error("Order batch failed:", error);
       }
     }
 
@@ -534,11 +536,12 @@ export class SyncService {
       );
       await this.markItemsAsSyncing([], batch);
       try {
+        const payments = batch.map(this.convertLocalPaymentToDto);
         const req: SyncRequestDto = {
           terminalId,
           lastSyncAt: lastSyncAt || undefined,
           orders: [],
-          payments: batch.map(this.convertLocalPaymentToDto),
+          payments,
         };
         const response = await apiClient.sync(req);
         await this.processSyncResults(response);
@@ -546,7 +549,7 @@ export class SyncService {
         if (response.catalog) lastCatalog = response.catalog;
       } catch (error) {
         await this.markItemsAsError(error);
-        throw error;
+        console.error("Payment batch failed:", error);
       }
     }
 
@@ -697,28 +700,57 @@ export class SyncService {
     console.log(`Updated ${products.length} products in catalog`);
   }
 
+  private async toOrderDtos(orders: any[]): Promise<CreateOrderDto[]> {
+    const dtos: CreateOrderDto[] = [];
+    for (const order of orders) {
+      try {
+        dtos.push(this.convertLocalOrderToDto(order));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Sync failed";
+        console.error(`Skipping unsyncable order ${order?.orderNumber}:`, error);
+        if (order?.id) {
+          await db.orders.update(order.id, {
+            syncStatus: "error",
+            syncError: message,
+          });
+        }
+      }
+    }
+    return dtos;
+  }
+
+  private money(value: unknown): number {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return 0;
+    return Math.round(amount * 100) / 100;
+  }
+
   private convertLocalOrderToDto(order: any): CreateOrderDto {
+    const items = Array.isArray(order.items) ? order.items : [];
     return {
       posLocalId: order.posLocalId,
       terminalId: order.terminalId,
       cashierId: order.cashierId,
+      cashierName: order.cashierName,
       customerName: order.customerName,
       customerAddress: order.customerAddress,
       customerId: order.customerId,
-      pointsRedeemed: order.pointsRedeemed,
-      items: order.items.map((item: any) => ({
-        productId: item.productId,
-        sku: item.sku,
-        name: item.name,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        taxRate: item.taxRate,
-        discountAmount: item.discountAmount || 0,
+      pointsRedeemed: Number.isFinite(Number(order.pointsRedeemed))
+        ? Math.max(0, Math.floor(Number(order.pointsRedeemed)))
+        : undefined,
+      items: items.map((item: any) => ({
+        productId: item?.productId != null ? String(item.productId) : "",
+        sku: item?.sku || "UNKNOWN",
+        name: item?.name || "Item",
+        quantity: Math.max(0, Math.round(Number(item?.quantity) || 0)),
+        unitPrice: this.money(item?.unitPrice),
+        taxRate: Number.isFinite(Number(item?.taxRate)) ? Number(item.taxRate) : 0,
+        discountAmount: this.money(item?.discountAmount),
       })),
-      subtotal: order.subtotal,
-      taxAmount: order.taxAmount,
-      discountAmount: order.discountAmount,
-      totalAmount: order.totalAmount,
+      subtotal: this.money(order.subtotal),
+      taxAmount: this.money(order.taxAmount),
+      discountAmount: this.money(order.discountAmount),
+      totalAmount: this.money(order.totalAmount),
       completedAt: order.completedAt,
       exchangeRef: order.exchangeRef,
       originalPosLocalId: order.originalPosLocalId,

@@ -20,6 +20,8 @@ export interface CreateOrderDto {
   posLocalId: string;
   terminalId: string;
   cashierId: string;
+  /** Snapshot from the POS. Kept when the cashier account no longer exists. */
+  cashierName?: string;
   customerName?: string;
   customerAddress?: string;
   customerId?: string;       // loyalty customer ID

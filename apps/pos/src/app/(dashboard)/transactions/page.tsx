@@ -722,6 +722,9 @@ export default function OrdersPage() {
                     <OrderStatusBadge status={selectedOrder.status} />
                     <SyncStatusBadge syncStatus={selectedOrder.syncStatus} />
                   </div>
+                  {selectedOrder.syncError && selectedOrder.syncStatus !== "synced" && (
+                    <p className="mt-2 text-xs text-red-700">{selectedOrder.syncError}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Customer</p>
