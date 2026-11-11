@@ -132,6 +132,7 @@ export default function EditDeliveryPage() {
   const deliveryId = params?.id as string;
   
   const [loading, setLoading] = useState(true);
+  const [createdByName, setCreatedByName] = useState<string | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deliveryDate, setDeliveryDate] = useState<Date>(new Date());
@@ -351,6 +352,7 @@ export default function EditDeliveryPage() {
         notes: delivery.notes || "",
       });
       
+      setCreatedByName(delivery.createdByName || null);
       setDeliveryDate(new Date(delivery.deliveryDate));
       setItems(delivery.items || []);
       const linked = (delivery.returnResolutions || []).map(
@@ -753,7 +755,7 @@ export default function EditDeliveryPage() {
         <CardHeader>
           <CardTitle>Edit Delivery</CardTitle>
           <CardDescription>
-            Update delivery information
+            Update delivery information. Created by {createdByName || "—"}.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

@@ -172,6 +172,17 @@ export class InventoryDelivery {
   @Column({ type: 'varchar', length: 255, nullable: true })
   deletedByName: string | null;
 
+  /**
+   * Who recorded this delivery. Nullable so deliveries created before
+   * this was tracked stay valid. Set by the server from the signed-in
+   * user and never taken from the client.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  createdByName: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

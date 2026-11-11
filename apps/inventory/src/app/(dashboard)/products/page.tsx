@@ -2603,7 +2603,6 @@ export default function ProductsPage() {
   );
 }
 
-}
 
 
 

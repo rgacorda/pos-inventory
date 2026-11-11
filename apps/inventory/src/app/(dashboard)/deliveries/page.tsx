@@ -103,6 +103,7 @@ interface InventoryDelivery {
   notes?: string;
   invoiceNumber?: string;
   receiptImageUrl?: string;
+  createdByName?: string | null;
   createdAt: string;
   editHistoryDismissedAt?: string | null;
   editHistory?: Array<{
@@ -210,6 +211,13 @@ function DeliveryMeta({ delivery }: { delivery: InventoryDelivery }) {
               includes -₱{Number(delivery.returnCreditAmount).toFixed(2)} return credit
             </p>
           )}
+        </div>
+        <div>
+          <p className="text-muted-foreground">Created by</p>
+          <p className="font-medium">{delivery.createdByName || "—"}</p>
+          <p className="text-xs text-muted-foreground">
+            {format(new Date(delivery.createdAt), "MMM d, yyyy h:mm a")}
+          </p>
         </div>
       </div>
       {(delivery.returnResolutions || []).length > 0 && (
@@ -356,9 +364,11 @@ export default function InventoryDeliveriesPage() {
   }
 
   const filteredDeliveries = deliveries.filter((delivery) => {
+    const query = searchQuery.toLowerCase();
     const matchesSearch =
-      delivery.supplier.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      delivery.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+      delivery.supplier.toLowerCase().includes(query) ||
+      delivery.invoiceNumber?.toLowerCase().includes(query) ||
+      delivery.createdByName?.toLowerCase().includes(query);
     const matchesStatus =
       statusFilter === "ALL" || delivery.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -409,7 +419,7 @@ export default function InventoryDeliveriesPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-4">
             <Input
-              placeholder="Search by supplier or invoice..."
+              placeholder="Search by supplier, invoice, or creator..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full sm:max-w-sm"
@@ -435,6 +445,7 @@ export default function InventoryDeliveriesPage() {
                   <TableHead>Supplier</TableHead>
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Delivery Date</TableHead>
+                  <TableHead>Created by</TableHead>
                   <TableHead>Total Cost</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Receipt</TableHead>
@@ -444,7 +455,7 @@ export default function InventoryDeliveriesPage() {
               <TableBody>
                 {paginatedDeliveries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <IconPackage className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         No deliveries found
@@ -465,6 +476,7 @@ export default function InventoryDeliveriesPage() {
                       <TableCell>
                         {format(new Date(delivery.deliveryDate), "MMM d, yyyy")}
                       </TableCell>
+                      <TableCell>{delivery.createdByName || "—"}</TableCell>
                       <TableCell>
                         ₱{Number(delivery.totalCost).toFixed(2)}
                         {Number(delivery.discountAmount) > 0 && (

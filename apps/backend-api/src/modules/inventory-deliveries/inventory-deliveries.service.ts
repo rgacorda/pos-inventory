@@ -112,7 +112,15 @@ export class InventoryDeliveriesService {
     return delivery;
   }
 
-  async create(createDto: any): Promise<InventoryDelivery> {
+  async create(
+    createDto: any,
+    user?: { id?: string; userId?: string; name?: string; email?: string },
+  ): Promise<InventoryDelivery> {
+    delete createDto.createdByUserId;
+    delete createDto.createdByName;
+    createDto.createdByUserId = user?.id || user?.userId || null;
+    createDto.createdByName = user?.name || user?.email || null;
+
     await this.resolveSupplierLink(createDto, createDto.organizationId);
 
     const requestedResolutions = this.extractRequestedResolutions(createDto);
@@ -212,8 +220,11 @@ export class InventoryDeliveriesService {
       discountForTotal,
     );
 
-    // The server owns this log. A client cannot invent or erase edits.
+    // The server owns this log and the creator. A client cannot invent,
+    // erase, or reassign either.
     delete updateDto.editHistory;
+    delete updateDto.createdByUserId;
+    delete updateDto.createdByName;
     if (updateDto.items !== undefined) {
       this.recordItemEdits(delivery, oldItems, updateDto.items, user);
     }

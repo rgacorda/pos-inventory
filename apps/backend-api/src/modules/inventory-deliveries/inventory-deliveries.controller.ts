@@ -74,10 +74,13 @@ export class InventoryDeliveriesController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async create(@Request() req, @Body() createDto: any) {
-    return this.inventoryDeliveriesService.create({
-      ...createDto,
-      organizationId: req.user.organizationId,
-    });
+    return this.inventoryDeliveriesService.create(
+      {
+        ...createDto,
+        organizationId: req.user.organizationId,
+      },
+      req.user,
+    );
   }
 
   @Put(':id')
