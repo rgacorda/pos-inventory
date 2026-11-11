@@ -29,6 +29,23 @@ import {
 import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 interface DeliveredGoods {
   total: number;
@@ -83,7 +100,23 @@ interface ProfitLossData {
     grossMargin: number;
     netMargin: number;
   };
+  trend?: {
+    bucket: "day" | "month";
+    points: Array<{
+      date: string;
+      label: string;
+      revenue: number;
+      purchases: number;
+      profit: number;
+    }>;
+  };
 }
+
+const trendChartConfig = {
+  revenue: { label: "Revenue", color: "var(--chart-2)" },
+  purchases: { label: "Purchases", color: "var(--chart-1)" },
+  profit: { label: "Profit", color: "var(--chart-4)" },
+} satisfies ChartConfig;
 
 const EXPENSE_LABELS: Record<string, string> = {
   ELECTRICITY: "Electricity",
@@ -119,6 +152,23 @@ function getProfitabilityColor(profit: number) {
   return "text-gray-600";
 }
 
+function formatAxisCurrency(value: number) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "";
+  const sign = amount < 0 ? "-" : "";
+  const abs = Math.abs(amount);
+  if (abs >= 1_000_000) return `${sign}₱${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 10_000) return `${sign}₱${Math.round(abs / 1_000)}k`;
+  if (abs >= 1_000) return `${sign}₱${(abs / 1_000).toFixed(1)}k`;
+  return `${sign}₱${Math.round(abs)}`;
+}
+
+function profitHeadline(profit: number) {
+  if (profit > 0) return `Profitable by ${formatCurrency(profit)}`;
+  if (profit < 0) return `Loss of ${formatCurrency(Math.abs(profit))}`;
+  return "Revenue matches purchases";
+}
+
 function plural(count: number, singular: string, pluralLabel = `${singular}s`) {
   const amount = Math.abs(Number(count) || 0);
   return `${amount.toLocaleString("en-PH")} ${amount === 1 ? singular : pluralLabel}`;
@@ -132,11 +182,9 @@ export default function FinancialsPage() {
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [startDate, setStartDate] = useState<Date>(() =>
-    startOfDay(startOfMonth(new Date())),
+    startOfDay(subMonths(new Date(), 3)),
   );
-  const [endDate, setEndDate] = useState<Date>(() =>
-    endOfDay(endOfMonth(new Date())),
-  );
+  const [endDate, setEndDate] = useState<Date>(() => endOfDay(new Date()));
   const requestSeq = useRef(0);
   const dataRef = useRef<ProfitLossData | null>(null);
 
@@ -432,6 +480,109 @@ export default function FinancialsPage() {
 
       {data && delivered ? (
         <>
+          {data.trend && data.trend.points.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Purchases and revenue</CardTitle>
+                <CardDescription>
+                  Goods purchased to sell, compared with revenue.{" "}
+                  {data.trend.bucket === "month"
+                    ? "Each point is a month."
+                    : "Each point is a day."}{" "}
+                  Profit is revenue minus those purchases.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p
+                    className={`text-2xl font-bold ${getProfitabilityColor(data.grossProfit)}`}
+                  >
+                    {profitHeadline(data.grossProfit)}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Revenue {formatCurrency(data.revenue.total)} · Purchases{" "}
+                    {formatCurrency(delivered.total)}
+                  </p>
+                </div>
+                <ChartContainer
+                  config={trendChartConfig}
+                  className="aspect-auto h-[280px] w-full"
+                >
+                  <ComposedChart
+                    data={data.trend.points}
+                    margin={{ left: 8, right: 8, top: 8 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      minTickGap={28}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      width={64}
+                      tickFormatter={formatAxisCurrency}
+                    />
+                    <ReferenceLine y={0} stroke="var(--border)" />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value, name) => {
+                            const key = String(name);
+                            const seriesLabel =
+                              key === "purchases"
+                                ? "Purchases"
+                                : key === "profit"
+                                  ? "Profit"
+                                  : "Revenue";
+                            return (
+                              <div className="flex w-full items-center justify-between gap-4">
+                                <span className="text-muted-foreground">
+                                  {seriesLabel}
+                                </span>
+                                <span className="font-mono font-medium tabular-nums">
+                                  {formatCurrency(Number(value))}
+                                </span>
+                              </div>
+                            );
+                          }}
+                        />
+                      }
+                    />
+                    <Area
+                      dataKey="revenue"
+                      type="monotone"
+                      fill="var(--color-revenue)"
+                      fillOpacity={0.2}
+                      stroke="var(--color-revenue)"
+                      strokeWidth={2}
+                    />
+                    <Area
+                      dataKey="purchases"
+                      type="monotone"
+                      fill="var(--color-purchases)"
+                      fillOpacity={0.15}
+                      stroke="var(--color-purchases)"
+                      strokeWidth={2}
+                    />
+                    <Line
+                      dataKey="profit"
+                      type="monotone"
+                      stroke="var(--color-profit)"
+                      strokeWidth={2}
+                      dot={data.trend.points.length < 8}
+                    />
+                    <ChartLegend content={<ChartLegendContent />} />
+                  </ComposedChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">

@@ -7,6 +7,8 @@ import { Expense } from '../../entities/expense.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { OrderStatus } from '@pos/shared-types';
 import {
+  assembleTrend,
+  businessTimeZone,
   currentBusinessMonthRange,
   parseRange,
 } from './financials.range';
@@ -82,6 +84,8 @@ export class FinancialsService {
       expenseRows,
       inventoryRow,
       monthDeliveryResult,
+      revenueDays,
+      purchaseDays,
     ] = await Promise.all([
       this.orderRepository
         .createQueryBuilder('order')
@@ -115,6 +119,10 @@ export class FinancialsService {
       this.inventoryValueQuery(organizationId),
 
       this.deliveredGoodsQuery(organizationId, month.startDate, month.endDate),
+
+      this.dailyRevenue(organizationId, period.startDate, period.endDate),
+
+      this.dailyPurchases(organizationId, period.startDate, period.endDate),
     ]);
 
     const revenue = this.money(revenueResult?.total);
@@ -134,6 +142,12 @@ export class FinancialsService {
     const netProfit = this.money(grossProfit - operatingExpenses);
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
     const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+    const trend = assembleTrend(
+      new Date(period.startDate),
+      new Date(period.endDate),
+      this.readDayMap(revenueDays),
+      this.readDayMap(purchaseDays),
+    );
 
     return {
       period,
@@ -161,6 +175,7 @@ export class FinancialsService {
         grossMargin: Number(grossMargin.toFixed(2)),
         netMargin: Number(netMargin.toFixed(2)),
       },
+      trend,
     };
   }
 
@@ -171,6 +186,82 @@ export class FinancialsService {
       month.startDate,
       month.endDate,
     );
+  }
+
+  /**
+   * Daily revenue in the shop timezone. Exchange checkouts are included,
+   * matching the period total.
+   */
+  private dailyRevenue(
+    organizationId: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    const bucket = this.businessDayBucket(
+      'COALESCE(order.completedAt, order.createdAt)',
+    );
+    return this.orderRepository
+      .createQueryBuilder('order')
+      .select(bucket, 'bucket')
+      .addSelect('SUM(order.totalAmount)', 'total')
+      .where('order.organizationId = :organizationId', { organizationId })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: REVENUE_STATUSES,
+      })
+      .andWhere(
+        'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+        { startDate, endDate },
+      )
+      .groupBy(bucket)
+      .setParameter('storedAsTz', this.storedTimeZone())
+      .setParameter('displayTz', businessTimeZone())
+      .getRawMany();
+  }
+
+  /** Daily cost of received, non-archived deliveries in the shop timezone. */
+  private dailyPurchases(
+    organizationId: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    const bucket = this.businessDayBucket('delivery.deliveryDate');
+    return this.deliveryRepository
+      .createQueryBuilder('delivery')
+      .select(bucket, 'bucket')
+      .addSelect('SUM(COALESCE(delivery.totalCost, 0))', 'total')
+      .where('delivery.organizationId = :organizationId', { organizationId })
+      .andWhere('delivery.deletedAt IS NULL')
+      .andWhere('delivery.status = :status', { status: 'RECEIVED' })
+      .andWhere('delivery.deliveryDate BETWEEN :startDate AND :endDate', {
+        startDate,
+        endDate,
+      })
+      .groupBy(bucket)
+      .setParameter('storedAsTz', this.storedTimeZone())
+      .setParameter('displayTz', businessTimeZone())
+      .getRawMany();
+  }
+
+  /**
+   * Timestamps are stored without a zone, in the server's local clock.
+   * Shift them into the shop timezone before naming the calendar day.
+   */
+  private businessDayBucket(expression: string): string {
+    return `TO_CHAR((${expression} AT TIME ZONE :storedAsTz) AT TIME ZONE :displayTz, 'YYYY-MM-DD')`;
+  }
+
+  private storedTimeZone(): string {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  }
+
+  private readDayMap(rows: Array<Record<string, unknown>>): Record<string, number> {
+    const totals: Record<string, number> = {};
+    for (const row of rows) {
+      const bucket = String(row?.bucket ?? '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(bucket)) continue;
+      totals[bucket] = this.money((totals[bucket] ?? 0) + this.money(row?.total));
+    }
+    return totals;
   }
 
   /**

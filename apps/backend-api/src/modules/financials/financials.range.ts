@@ -207,3 +207,156 @@ export function parseRange(
     endDate: end.toISOString(),
   };
 }
+
+export type TrendBucket = 'day' | 'month';
+
+export interface TrendPoint {
+  date: string;
+  label: string;
+  revenue: number;
+  purchases: number;
+  profit: number;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Ranges longer than about two months are shown by month so the trend stays readable. */
+export function chooseTrendBucket(
+  start: Date,
+  end: Date,
+  timeZone = businessTimeZone(),
+): TrendBucket {
+  const startParts = zonedParts(start, timeZone);
+  const endParts = zonedParts(end, timeZone);
+  const startDay = Date.UTC(startParts.year, startParts.month - 1, startParts.day);
+  const endDay = Date.UTC(endParts.year, endParts.month - 1, endParts.day);
+  const days = Math.round((endDay - startDay) / 86_400_000);
+  return days > 62 ? 'month' : 'day';
+}
+
+function slotLabel(date: string, bucket: TrendBucket, timeZone: string): string {
+  if (bucket === 'month' && /^\d{4}-\d{2}$/.test(date)) {
+    const [year, month] = date.split('-').map(Number);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      month: 'short',
+      year: 'numeric',
+    }).format(zonedTimeToUtc(year, month, 1, 12, 0, 0, 0, timeZone));
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      month: 'short',
+      day: 'numeric',
+    }).format(zonedTimeToUtc(year, month, day, 12, 0, 0, 0, timeZone));
+  }
+  return date;
+}
+
+export function listTrendSlots(
+  start: Date,
+  end: Date,
+  bucket: TrendBucket,
+  timeZone = businessTimeZone(),
+): { date: string; label: string }[] {
+  const startParts = zonedParts(start, timeZone);
+  const endParts = zonedParts(end, timeZone);
+  const slots: { date: string; label: string }[] = [];
+
+  if (bucket === 'month') {
+    let year = startParts.year;
+    let month = startParts.month;
+    while (
+      year < endParts.year ||
+      (year === endParts.year && month <= endParts.month)
+    ) {
+      const date = `${year}-${pad2(month)}`;
+      slots.push({ date, label: slotLabel(date, bucket, timeZone) });
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+      if (slots.length > 120) break;
+    }
+    return slots;
+  }
+
+  let year = startParts.year;
+  let month = startParts.month;
+  let day = startParts.day;
+  const endKey = `${endParts.year}-${pad2(endParts.month)}-${pad2(endParts.day)}`;
+  while (slots.length <= 400) {
+    const date = `${year}-${pad2(month)}-${pad2(day)}`;
+    slots.push({ date, label: slotLabel(date, bucket, timeZone) });
+    if (date === endKey) break;
+    const next = zonedParts(
+      new Date(
+        zonedTimeToUtc(year, month, day, 12, 0, 0, 0, timeZone).getTime() +
+          24 * 60 * 60 * 1000,
+      ),
+      timeZone,
+    );
+    if (next.year === year && next.month === month && next.day === day) break;
+    year = next.year;
+    month = next.month;
+    day = next.day;
+  }
+  return slots;
+}
+
+function rollupDays(
+  days: Record<string, number>,
+  bucket: TrendBucket,
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const [day, amount] of Object.entries(days)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const key = bucket === 'month' ? day.slice(0, 7) : day;
+    totals[key] = (totals[key] ?? 0) + (Number.isFinite(amount) ? amount : 0);
+  }
+  return totals;
+}
+
+/**
+ * Builds one point per day or month in the range, including quiet periods,
+ * so a line can show whether purchases and revenue are growing.
+ */
+export function assembleTrend(
+  start: Date,
+  end: Date,
+  revenueByDay: Record<string, number>,
+  purchasesByDay: Record<string, number>,
+  timeZone = businessTimeZone(),
+): { bucket: TrendBucket; points: TrendPoint[] } {
+  const bucket = chooseTrendBucket(start, end, timeZone);
+  const slots = listTrendSlots(start, end, bucket, timeZone);
+  const revenue = rollupDays(revenueByDay, bucket);
+  const purchases = rollupDays(purchasesByDay, bucket);
+  const known = new Set(slots.map((slot) => slot.date));
+
+  for (const key of [...Object.keys(revenue), ...Object.keys(purchases)]) {
+    if (known.has(key)) continue;
+    known.add(key);
+    slots.push({ date: key, label: slotLabel(key, bucket, timeZone) });
+  }
+  slots.sort((a, b) => a.date.localeCompare(b.date));
+
+  const round = (amount: number) => Math.round(amount * 100) / 100;
+  const points = slots.map((slot) => {
+    const revenueAmount = round(revenue[slot.date] ?? 0);
+    const purchaseAmount = round(purchases[slot.date] ?? 0);
+    return {
+      date: slot.date,
+      label: slot.label,
+      revenue: revenueAmount,
+      purchases: purchaseAmount,
+      profit: round(revenueAmount - purchaseAmount),
+    };
+  });
+
+  return { bucket, points };
+}
