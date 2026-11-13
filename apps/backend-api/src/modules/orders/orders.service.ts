@@ -7,11 +7,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, QueryFailedError, DataSource } from 'typeorm';
+import { In, Repository, QueryFailedError, DataSource } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { UserEntity } from '../../entities/user.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { ProductEntity } from '../../entities/product.entity';
+import { PaymentEntity } from '../../entities/payment.entity';
+import { TerminalEntity } from '../../entities/terminal.entity';
 import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
 import { UserRole, OrderStatus } from '@pos/shared-types';
 
@@ -116,8 +118,22 @@ export class OrdersService {
       terminalId?: string;
       startDate?: string;
       endDate?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+      sort?: 'asc' | 'desc';
     },
   ) {
+    // Inventory list sends page/limit so 10k+ orders are not joined and
+    // serialized in one response (that path exceeds the 30s client timeout).
+    if (
+      filters?.page != null ||
+      filters?.limit != null ||
+      Boolean(filters?.search?.trim())
+    ) {
+      return this.findPage(requestingUser, filters);
+    }
+
     const query = this.ordersRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.items', 'items')
@@ -162,6 +178,232 @@ export class OrdersService {
     }
 
     return query.getMany();
+  }
+
+  /**
+   * One page of orders for the inventory list. Joins only terminal and cashier
+   * names, then counts items and payment methods for those rows. Loading every
+   * order with items and payments multiplies into tens of thousands of rows.
+   */
+  private async findPage(
+    requestingUser: any,
+    filters?: {
+      status?: OrderStatus;
+      terminalId?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+      sort?: 'asc' | 'desc';
+    },
+  ) {
+    const page =
+      Number.isFinite(filters?.page) && (filters?.page as number) > 0
+        ? Math.floor(filters!.page as number)
+        : 1;
+    const limit =
+      Number.isFinite(filters?.limit) && (filters?.limit as number) > 0
+        ? Math.min(100, Math.floor(filters!.limit as number))
+        : 20;
+    const sortDir = filters?.sort === 'asc' ? 'ASC' : 'DESC';
+
+    const filtered = this.ordersRepository.createQueryBuilder('order');
+    this.applyOrderListFilters(filtered, requestingUser, filters);
+
+    const total = await filtered.clone().getCount();
+
+    const idRows = await filtered
+      .clone()
+      .select('order.id', 'id')
+      .orderBy('COALESCE(order.completedAt, order.createdAt)', sortDir)
+      .addOrderBy('order.id', 'DESC')
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany();
+
+    const ids = idRows
+      .map(
+        (row) =>
+          this.rawField(row, 'id') ?? this.rawField(row, 'order_id'),
+      )
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (ids.length === 0) {
+      return { data: [], total, page, limit };
+    }
+
+    const orders = await this.ordersRepository.find({
+      where: { id: In(ids) },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        cashierName: true,
+        status: true,
+        totalAmount: true,
+        completedAt: true,
+        createdAt: true,
+        terminalId: true,
+        cashierId: true,
+      },
+    });
+
+    const terminalIds = [
+      ...new Set(orders.map((order) => order.terminalId).filter(Boolean)),
+    ] as string[];
+    const cashierIds = [
+      ...new Set(orders.map((order) => order.cashierId).filter(Boolean)),
+    ] as string[];
+
+    const [terminals, cashiers] = await Promise.all([
+      terminalIds.length
+        ? this.dataSource.getRepository(TerminalEntity).find({
+            where: { id: In(terminalIds) },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      cashierIds.length
+        ? this.dataSource.getRepository(UserEntity).find({
+            where: { id: In(cashierIds) },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const byId = new Map(orders.map((order) => [order.id, order]));
+    const terminalNameById = new Map(terminals.map((terminal) => [terminal.id, terminal.name]));
+    const cashierNameById = new Map(cashiers.map((cashier) => [cashier.id, cashier.name]));
+
+    const [itemCounts, paymentsByOrder] = await Promise.all([
+      this.orderItemsRepository
+        .createQueryBuilder('item')
+        .select('item.orderId', 'orderId')
+        .addSelect('COUNT(item.id)', 'count')
+        .where('item.orderId IN (:...ids)', { ids })
+        .groupBy('item.orderId')
+        .getRawMany(),
+      this.dataSource
+        .getRepository(PaymentEntity)
+        .createQueryBuilder('payment')
+        .select('payment.orderId', 'orderId')
+        .addSelect('payment.method', 'method')
+        .where('payment.orderId IN (:...ids)', { ids })
+        .getRawMany(),
+    ]);
+
+    const countById = new Map<string, number>();
+    for (const row of itemCounts) {
+      const orderId =
+        this.rawField(row, 'orderId') ?? this.rawField(row, 'item_orderId');
+      if (typeof orderId !== 'string') continue;
+      countById.set(orderId, parseInt(String(this.rawField(row, 'count') ?? '0'), 10));
+    }
+
+    const methodsById = new Map<string, string[]>();
+    for (const row of paymentsByOrder) {
+      const orderId =
+        this.rawField(row, 'orderId') ?? this.rawField(row, 'payment_orderId');
+      const method = this.rawField(row, 'method');
+      if (typeof orderId !== 'string' || typeof method !== 'string') continue;
+      const methods = methodsById.get(orderId) ?? [];
+      if (!methods.includes(method)) methods.push(method);
+      methodsById.set(orderId, methods);
+    }
+
+    const data = ids
+      .map((id) => {
+        const order = byId.get(id);
+        if (!order) return null;
+        const terminalName = order.terminalId
+          ? terminalNameById.get(order.terminalId)
+          : undefined;
+        const cashierName = order.cashierId
+          ? cashierNameById.get(order.cashierId)
+          : undefined;
+        return {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          cashierName: order.cashierName,
+          status: order.status,
+          totalAmount: order.totalAmount,
+          completedAt: order.completedAt,
+          createdAt: order.createdAt,
+          terminal: terminalName ? { name: terminalName } : null,
+          cashier: cashierName ? { name: cashierName } : null,
+          itemCount: countById.get(id) ?? 0,
+          payments: (methodsById.get(id) ?? []).map((method) => ({ method })),
+        };
+      })
+      .filter((order) => order !== null);
+
+    return { data, total, page, limit };
+  }
+
+  private applyOrderListFilters(
+    query: ReturnType<Repository<OrderEntity>['createQueryBuilder']>,
+    requestingUser: any,
+    filters?: {
+      status?: OrderStatus;
+      terminalId?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+    },
+  ) {
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      query.where('order.organizationId = :orgId', {
+        orgId: requestingUser.organizationId,
+      });
+    } else {
+      query.where('1=1');
+    }
+
+    const statusValues = new Set<string>(Object.values(OrderStatus));
+    if (filters?.status && statusValues.has(filters.status)) {
+      query.andWhere('order.status = :status', { status: filters.status });
+    } else if (filters?.status) {
+      query.andWhere('1 = 0');
+    }
+
+    if (filters?.terminalId) {
+      query.andWhere('order.terminalId = :terminalId', {
+        terminalId: filters.terminalId,
+      });
+    }
+
+    if (filters?.startDate && filters?.endDate) {
+      query.andWhere(
+        'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
+        {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+        },
+      );
+    }
+
+    if (requestingUser.role === UserRole.CASHIER) {
+      query.andWhere('order.cashierId = :cashierId', {
+        cashierId: requestingUser.id,
+      });
+    }
+
+    const search = filters?.search?.trim().slice(0, 100);
+    if (search) {
+      const pattern = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+      query.andWhere(
+        `(order.orderNumber ILIKE :search ESCAPE '\\' OR order.customerName ILIKE :search ESCAPE '\\' OR COALESCE(order.cashierName, '') ILIKE :search ESCAPE '\\' OR CAST(order.id AS text) ILIKE :search ESCAPE '\\' OR EXISTS (SELECT 1 FROM terminals terminal_match WHERE terminal_match.id = order.terminalId AND terminal_match.name ILIKE :search ESCAPE '\\') OR EXISTS (SELECT 1 FROM users user_match WHERE user_match.id = order.cashierId AND user_match.name ILIKE :search ESCAPE '\\'))`,
+        { search: pattern },
+      );
+    }
+  }
+
+  private rawField(row: Record<string, unknown>, key: string) {
+    if (row[key] != null) return row[key];
+    const lower = key.toLowerCase();
+    const match = Object.keys(row).find((candidate) => candidate.toLowerCase() === lower);
+    return match ? row[match] : undefined;
   }
 
   async getDashboardStats(requestingUser: any) {
@@ -471,6 +713,112 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  /**
+   * Full order for the inventory detail modal. The list endpoint stays light,
+   * so items, payments, and the linked exchange order are loaded here.
+   */
+  async findDetail(id: string, requestingUser: any) {
+    const order = await this.ordersRepository.findOne({
+      where: { id },
+      relations: ['items', 'payments', 'terminal'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
+      if (order.organizationId !== requestingUser.organizationId) {
+        throw new ForbiddenException('Access denied');
+      }
+    }
+
+    if (requestingUser.role === UserRole.CASHIER) {
+      if (order.cashierId !== requestingUser.id) {
+        throw new ForbiddenException('Access denied to this order');
+      }
+    }
+
+    const cashier = order.cashierId
+      ? await this.dataSource.getRepository(UserEntity).findOne({
+          where: { id: order.cashierId },
+          select: { id: true, name: true },
+        })
+      : null;
+
+    let originalOrderId: string | null = null;
+    if (order.exchangeRef) {
+      const original = await this.ordersRepository.findOne({
+        where: [
+          {
+            orderNumber: order.exchangeRef,
+            organizationId: order.organizationId,
+          },
+          {
+            posLocalId: order.exchangeRef,
+            organizationId: order.organizationId,
+          },
+        ],
+        select: { id: true },
+      });
+      originalOrderId = original?.id ?? null;
+    }
+
+    const exchangeChild = await this.ordersRepository.findOne({
+      where: [
+        {
+          exchangeRef: order.orderNumber,
+          organizationId: order.organizationId,
+        },
+        {
+          exchangeRef: order.posLocalId,
+          organizationId: order.organizationId,
+        },
+      ],
+      select: { id: true, orderNumber: true, returnedItems: true },
+    });
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      posLocalId: order.posLocalId,
+      customerName: order.customerName,
+      customerAddress: order.customerAddress,
+      cashierName: order.cashierName,
+      status: order.status,
+      subtotal: order.subtotal,
+      taxAmount: order.taxAmount,
+      discountAmount: order.discountAmount,
+      totalAmount: order.totalAmount,
+      pointsRedeemed: order.pointsRedeemed,
+      completedAt: order.completedAt,
+      createdAt: order.createdAt,
+      exchangeRef: order.exchangeRef,
+      exchangedAt: order.exchangedAt,
+      returnedItems: order.returnedItems,
+      originalOrderId,
+      exchangeChild: exchangeChild
+        ? {
+            id: exchangeChild.id,
+            orderNumber: exchangeChild.orderNumber,
+            returnedItems: exchangeChild.returnedItems,
+          }
+        : null,
+      terminal: order.terminal
+        ? { id: order.terminal.id, name: order.terminal.name }
+        : null,
+      cashier: cashier ? { id: cashier.id, name: cashier.name } : null,
+      items: order.items ?? [],
+      payments: (order.payments ?? []).map((payment) => ({
+        id: payment.id,
+        method: payment.method,
+        amount: payment.amount,
+        reference: payment.reference,
+        status: payment.status,
+      })),
+    };
   }
 
   async update(

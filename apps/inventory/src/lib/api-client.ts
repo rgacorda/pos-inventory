@@ -194,8 +194,22 @@ class APIClient {
   }
 
   // Orders API
-  async getOrders(filters?: any) {
+  async getOrders(filters?: {
+    status?: string;
+    terminalId?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: "asc" | "desc";
+  }) {
     const response = await this.client.get("/orders", { params: filters });
+    return response.data;
+  }
+
+  async getOrder(id: string) {
+    const response = await this.client.get(`/orders/${id}`);
     return response.data;
   }
 

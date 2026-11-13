@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -78,7 +78,7 @@ import {
   ERROR_MESSAGES,
   SUCCESS_MESSAGES,
 } from "@/lib/toast-utils";
-import { format, startOfDay } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
 function todayRange(): DateRange {
@@ -106,16 +106,15 @@ function getOrderPaymentMethods(order: any) {
   return [...new Set(methods)].join(" + ");
 }
 
-function getOrderTimestamp(order: any) {
-  return getOrderDate(order).getTime();
-}
-
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
+  const [totalOrders, setTotalOrders] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showVoidConfirm, setShowVoidConfirm] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
@@ -127,9 +126,71 @@ export default function OrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [timeSort, setTimeSort] = useState<"asc" | "desc">("desc");
   const itemsPerPage = 20;
+  const requestSeq = useRef(0);
+  const detailSeq = useRef(0);
+  const hasLoaded = useRef(false);
+
+  const loadOrders = useCallback(
+    async (page: number) => {
+      const seq = ++requestSeq.current;
+      if (!hasLoaded.current) setLoading(true);
+      else setRefreshing(true);
+      try {
+        const params: {
+          page: number;
+          limit: number;
+          sort: "asc" | "desc";
+          status?: string;
+          startDate?: string;
+          endDate?: string;
+          search?: string;
+        } = {
+          page,
+          limit: itemsPerPage,
+          sort: timeSort,
+        };
+        if (statusFilter !== "ALL") params.status = statusFilter;
+        if (dateRange?.from) {
+          params.startDate = startOfDay(dateRange.from).toISOString();
+          params.endDate = endOfDay(dateRange.to ?? dateRange.from).toISOString();
+        }
+        const query = searchQuery.trim();
+        if (query) params.search = query;
+
+        const result = await apiClient.getOrders(params);
+        if (seq !== requestSeq.current) return;
+
+        const rows = Array.isArray(result)
+          ? result.slice((page - 1) * itemsPerPage, page * itemsPerPage)
+          : Array.isArray(result?.data)
+            ? result.data
+            : [];
+        const total = Array.isArray(result)
+          ? result.length
+          : Number(result?.total ?? 0);
+        setOrders(rows);
+        setTotalOrders(Number.isFinite(total) ? total : 0);
+        hasLoaded.current = true;
+
+        const pages = Math.max(
+          1,
+          Math.ceil((Number.isFinite(total) ? total : 0) / itemsPerPage),
+        );
+        if (page > pages) setCurrentPage(pages);
+      } catch (error) {
+        if (seq !== requestSeq.current) return;
+        showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("orders"));
+      } finally {
+        if (seq === requestSeq.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [dateRange, searchQuery, statusFilter, timeSort],
+  );
 
   useEffect(() => {
-    loadOrders();
     const cachedName = cachedOrganizationName();
     if (cachedName) setOrganization({ name: cachedName });
     apiClient
@@ -150,20 +211,50 @@ export default function OrdersPage() {
       });
   }, []);
 
-  const loadOrders = async () => {
+  const filterKey = [
+    searchQuery.trim(),
+    statusFilter,
+    timeSort,
+    dateRange?.from ? startOfDay(dateRange.from).toISOString() : "",
+    dateRange?.to ? startOfDay(dateRange.to).toISOString() : "",
+  ].join("|");
+  const prevFilterKey = useRef(filterKey);
+
+  useEffect(() => {
+    const filtersChanged = prevFilterKey.current !== filterKey;
+    prevFilterKey.current = filterKey;
+    if (filtersChanged && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+    const delay = searchQuery.trim() ? 300 : 0;
+    const timer = setTimeout(() => {
+      loadOrders(filtersChanged ? 1 : currentPage);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [filterKey, currentPage, loadOrders, searchQuery]);
+
+  const openOrder = async (orderId: string) => {
+    const seq = ++detailSeq.current;
+    setShowDetailsModal(true);
+    setDetailLoading(true);
     try {
-      const data = await apiClient.getOrders();
-      setOrders(data);
+      const full = await apiClient.getOrder(orderId);
+      if (seq !== detailSeq.current) return;
+      setSelectedOrder(full);
     } catch (error) {
-      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("orders"));
+      if (seq !== detailSeq.current) return;
+      showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("order"));
+      setShowDetailsModal(false);
+      setSelectedOrder(null);
     } finally {
-      setLoading(false);
+      if (seq === detailSeq.current) setDetailLoading(false);
     }
   };
 
   const viewOrderDetails = (order: any) => {
-    setSelectedOrder(order);
-    setShowDetailsModal(true);
+    setSelectedOrder(null);
+    openOrder(order.id);
   };
 
   const handleVoidOrder = async () => {
@@ -178,7 +269,7 @@ export default function OrdersPage() {
       });
 
       // Refresh orders list
-      await loadOrders();
+      await loadOrders(currentPage);
       
       // Close dialogs
       setShowVoidConfirm(false);
@@ -194,29 +285,6 @@ export default function OrdersPage() {
     }
   };
 
-  // Find the exchange order for a given original order
-  const findExchangeOrder = (original: any) => {
-    return (
-      orders.find(
-        (o) =>
-          o.exchangeRef === original.orderNumber ||
-          o.exchangeRef === original.posLocalId,
-      ) ?? null
-    );
-  };
-
-  // Find the original order for a given exchange order
-  const findOriginalOrder = (exchange: any) => {
-    if (!exchange.exchangeRef) return null;
-    return (
-      orders.find(
-        (o) =>
-          o.orderNumber === exchange.exchangeRef ||
-          o.posLocalId === exchange.exchangeRef,
-      ) ?? null
-    );
-  };
-
   const canVoidOrder = (order: any) => {
     if (!order) return false;
     // Can only void SYNCED orders (COMPLETED orders haven't reached here yet)
@@ -224,47 +292,7 @@ export default function OrdersPage() {
     return order.status === "SYNCED" && order.status !== "VOID";
   };
 
-  const filteredOrders = orders.filter((order) => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      !query ||
-      order.id?.toString().includes(searchQuery) ||
-      order.orderNumber?.toLowerCase().includes(query) ||
-      order.terminal?.name?.toLowerCase().includes(query) ||
-      order.cashier?.name?.toLowerCase().includes(query) ||
-      order.cashierName?.toLowerCase().includes(query) ||
-      order.customerName?.toLowerCase().includes(query);
-
-    const matchesStatus =
-      statusFilter === "ALL" || order.status === statusFilter;
-
-    const matchesDateRange =
-      !dateRange?.from ||
-      (() => {
-        const orderDate = getOrderDate(order);
-        const from = startOfDay(dateRange.from);
-        const to = new Date(dateRange.to ?? dateRange.from);
-        to.setHours(23, 59, 59, 999);
-        return orderDate >= from && orderDate <= to;
-      })();
-
-    return matchesSearch && matchesStatus && matchesDateRange;
-  });
-
-  const sortedOrders = [...filteredOrders].sort((a, b) => {
-    const diff = getOrderTimestamp(a) - getOrderTimestamp(b);
-    return timeSort === "asc" ? diff : -diff;
-  });
-
-  const totalPages = Math.ceil(sortedOrders.length / itemsPerPage);
-  const paginatedOrders = sortedOrders.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
-  );
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, statusFilter, dateRange, timeSort]);
+  const totalPages = Math.max(1, Math.ceil(totalOrders / itemsPerPage));
 
   return (
     <div className="px-4 lg:px-6 space-y-6">
@@ -274,12 +302,16 @@ export default function OrdersPage() {
             <div>
               <CardTitle>All Orders</CardTitle>
               <CardDescription>
-                Complete list of orders from all terminals
+                Orders from all terminals
               </CardDescription>
             </div>
-            <Button variant="outline" onClick={loadOrders}>
+            <Button
+              variant="outline"
+              onClick={() => loadOrders(currentPage)}
+              disabled={loading || refreshing}
+            >
               <Filter className="mr-2 h-4 w-4" />
-              Refresh
+              {refreshing ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-4">
@@ -353,12 +385,14 @@ export default function OrdersPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="max-h-[600px] overflow-auto">
+          <div
+            className={`max-h-[600px] overflow-auto ${refreshing ? "opacity-60" : ""}`}
+          >
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-muted-foreground">Loading orders...</div>
               </div>
-            ) : filteredOrders.length === 0 ? (
+            ) : orders.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
                 <div className="text-muted-foreground">No orders found</div>
@@ -397,7 +431,7 @@ export default function OrdersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedOrders.map((order) => (
+                  {orders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>{order.terminal?.name || "N/A"}</TableCell>
                       <TableCell>
@@ -405,7 +439,9 @@ export default function OrdersPage() {
                       </TableCell>
                       <TableCell>{order.customerName || "N/A"}</TableCell>
                       <TableCell>{getOrderPaymentMethods(order)}</TableCell>
-                      <TableCell>{order.items?.length || 0}</TableCell>
+                      <TableCell>
+                        {order.itemCount ?? order.items?.length ?? 0}
+                      </TableCell>
                       <TableCell className="font-semibold">
                         ₱{Number(order.totalAmount || 0).toFixed(2)}
                       </TableCell>
@@ -454,12 +490,12 @@ export default function OrdersPage() {
             )}
           </div>
           {/* Pagination */}
-          {!loading && totalPages > 1 && (
+          {!loading && totalOrders > 0 && (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
               <p className="text-sm text-muted-foreground">
                 Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-                {Math.min(currentPage * itemsPerPage, sortedOrders.length)} of{" "}
-                {sortedOrders.length} results
+                {Math.min(currentPage * itemsPerPage, totalOrders)} of{" "}
+                {totalOrders} results
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -523,7 +559,11 @@ export default function OrdersPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {selectedOrder && (
+          {detailLoading || !selectedOrder ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              Loading order...
+            </div>
+          ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -579,57 +619,47 @@ export default function OrdersPage() {
               </div>
 
               {/* Exchange Info Section */}
-              {selectedOrder.exchangeRef && (() => {
-                const origOrder = findOriginalOrder(selectedOrder);
-                return (
-                  <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
-                    <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-orange-800">
-                        Exchange of order{" "}
-                        <strong>{selectedOrder.exchangeRef}</strong>
-                      </p>
-                      {origOrder && (
-                        <button
-                          className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
-                          onClick={() => {
-                            setSelectedOrder(origOrder);
-                          }}
-                        >
-                          View original order →
-                        </button>
-                      )}
-                    </div>
+              {selectedOrder.exchangeRef && (
+                <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
+                  <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-orange-800">
+                      Exchange of order{" "}
+                      <strong>{selectedOrder.exchangeRef}</strong>
+                    </p>
+                    {selectedOrder.originalOrderId && (
+                      <button
+                        className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
+                        onClick={() => openOrder(selectedOrder.originalOrderId)}
+                      >
+                        View original order →
+                      </button>
+                    )}
                   </div>
-                );
-              })()}
+                </div>
+              )}
 
-              {selectedOrder.exchangedAt && (() => {
-                const exchangeOrder = findExchangeOrder(selectedOrder);
-                return (
-                  <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
-                    <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-orange-800">
-                        This order was exchanged on{" "}
-                        <strong>
-                          {new Date(selectedOrder.exchangedAt).toLocaleString()}
-                        </strong>
-                      </p>
-                      {exchangeOrder && (
-                        <button
-                          className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
-                          onClick={() => {
-                            setSelectedOrder(exchangeOrder);
-                          }}
-                        >
-                          View exchange order →
-                        </button>
-                      )}
-                    </div>
+              {selectedOrder.exchangedAt && (
+                <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 flex items-start gap-3">
+                  <ArrowLeftRight className="h-4 w-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-orange-800">
+                      This order was exchanged on{" "}
+                      <strong>
+                        {new Date(selectedOrder.exchangedAt).toLocaleString()}
+                      </strong>
+                    </p>
+                    {selectedOrder.exchangeChild && (
+                      <button
+                        className="mt-1 text-xs text-orange-700 underline hover:text-orange-900"
+                        onClick={() => openOrder(selectedOrder.exchangeChild.id)}
+                      >
+                        View exchange order →
+                      </button>
+                    )}
                   </div>
-                );
-              })()}
+                </div>
+              )}
 
               {/* Customer Details Section */}
               {(selectedOrder.customerName || selectedOrder.customerAddress) && (
@@ -679,10 +709,9 @@ export default function OrdersPage() {
 
               <div>
                 {(() => {
-                  const returnedItems =
-                    selectedOrder.returnedItems?.length
-                      ? selectedOrder.returnedItems
-                      : findExchangeOrder(selectedOrder)?.returnedItems ?? [];
+                  const returnedItems = selectedOrder.returnedItems?.length
+                    ? selectedOrder.returnedItems
+                    : (selectedOrder.exchangeChild?.returnedItems ?? []);
                   if (!returnedItems.length) return null;
                   return (
                     <div className="mb-6">

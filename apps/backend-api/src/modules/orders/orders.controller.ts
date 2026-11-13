@@ -40,12 +40,20 @@ export class OrdersController {
     @Query('terminalId') terminalId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
   ) {
     return this.ordersService.findAll(user, {
       status,
       terminalId,
       startDate,
       endDate,
+      search,
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      sort: sort === 'asc' ? 'asc' : sort === 'desc' ? 'desc' : undefined,
     });
   }
 
@@ -83,7 +91,7 @@ export class OrdersController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.ordersService.findOne(id, user);
+    return this.ordersService.findDetail(id, user);
   }
 
   @Put(':id')
