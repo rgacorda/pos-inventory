@@ -215,6 +215,7 @@ export interface TrendPoint {
   label: string;
   revenue: number;
   purchases: number;
+  cogs: number;
   profit: number;
 }
 
@@ -330,15 +331,21 @@ export function assembleTrend(
   end: Date,
   revenueByDay: Record<string, number>,
   purchasesByDay: Record<string, number>,
+  cogsByDay: Record<string, number> = {},
   timeZone = businessTimeZone(),
 ): { bucket: TrendBucket; points: TrendPoint[] } {
   const bucket = chooseTrendBucket(start, end, timeZone);
   const slots = listTrendSlots(start, end, bucket, timeZone);
   const revenue = rollupDays(revenueByDay, bucket);
   const purchases = rollupDays(purchasesByDay, bucket);
+  const cogs = rollupDays(cogsByDay, bucket);
   const known = new Set(slots.map((slot) => slot.date));
 
-  for (const key of [...Object.keys(revenue), ...Object.keys(purchases)]) {
+  for (const key of [
+    ...Object.keys(revenue),
+    ...Object.keys(purchases),
+    ...Object.keys(cogs),
+  ]) {
     if (known.has(key)) continue;
     known.add(key);
     slots.push({ date: key, label: slotLabel(key, bucket, timeZone) });
@@ -349,12 +356,14 @@ export function assembleTrend(
   const points = slots.map((slot) => {
     const revenueAmount = round(revenue[slot.date] ?? 0);
     const purchaseAmount = round(purchases[slot.date] ?? 0);
+    const cogsAmount = round(cogs[slot.date] ?? 0);
     return {
       date: slot.date,
       label: slot.label,
       revenue: revenueAmount,
       purchases: purchaseAmount,
-      profit: round(revenueAmount - purchaseAmount),
+      cogs: cogsAmount,
+      profit: round(revenueAmount - cogsAmount),
     };
   });
 

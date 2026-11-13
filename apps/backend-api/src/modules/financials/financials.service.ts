@@ -86,6 +86,7 @@ export class FinancialsService {
       monthDeliveryResult,
       revenueDays,
       purchaseDays,
+      cogsActivity,
     ] = await Promise.all([
       this.orderRepository
         .createQueryBuilder('order')
@@ -123,6 +124,8 @@ export class FinancialsService {
       this.dailyRevenue(organizationId, period.startDate, period.endDate),
 
       this.dailyPurchases(organizationId, period.startDate, period.endDate),
+
+      this.cogsActivity(organizationId, period.startDate, period.endDate),
     ]);
 
     const revenue = this.money(revenueResult?.total);
@@ -138,7 +141,8 @@ export class FinancialsService {
       operatingExpenses = this.money(operatingExpenses + amount);
     }
 
-    const grossProfit = this.money(revenue - deliveredGoods.total);
+    const cogs = this.readCostOfGoodsSold(cogsActivity);
+    const grossProfit = this.money(revenue - cogs.total);
     const netProfit = this.money(grossProfit - operatingExpenses);
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
     const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
@@ -147,6 +151,7 @@ export class FinancialsService {
       new Date(period.endDate),
       this.readDayMap(revenueDays),
       this.readDayMap(purchaseDays),
+      cogs.byDay,
     );
 
     return {
@@ -156,8 +161,12 @@ export class FinancialsService {
         ordersCount: totalOrders,
       },
       cogs: {
-        total: deliveredGoods.total,
-        deliveriesCount: deliveredGoods.deliveriesCount,
+        total: cogs.total,
+        soldCost: cogs.soldCost,
+        returnedCost: cogs.returnedCost,
+        unitsSold: cogs.unitsSold,
+        unitsReturned: cogs.unitsReturned,
+        missingCostCount: cogs.missingCostCount,
       },
       deliveredGoods,
       currentMonthDeliveries: {
@@ -216,6 +225,136 @@ export class FinancialsService {
       .setParameter('storedAsTz', this.storedTimeZone())
       .setParameter('displayTz', businessTimeZone())
       .getRawMany();
+  }
+
+  /**
+   * Cost of goods sold is units sold times each product's current unit cost.
+   * Exchanges reduce it by the returned units, dated on the day they were
+   * exchanged, so a returned item is not still treated as sold.
+   * Manual lines have no product cost and are left out.
+   */
+  private async cogsActivity(
+    organizationId: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    const params = [
+      this.storedTimeZone(),
+      businessTimeZone(),
+      organizationId,
+      startDate,
+      endDate,
+    ];
+    const soldSql = `
+      SELECT TO_CHAR(
+               (COALESCE(o."completedAt", o."createdAt") AT TIME ZONE $1) AT TIME ZONE $2,
+               'YYYY-MM-DD'
+             ) AS bucket,
+             COALESCE(SUM(i."quantity" * COALESCE(p."cost", 0)), 0) AS total,
+             COALESCE(SUM(i."quantity"), 0) AS units,
+             COALESCE(SUM(
+               CASE
+                 WHEN p."id" IS NULL OR p."cost" IS NULL OR p."cost" = 0 THEN 1
+                 ELSE 0
+               END
+             ), 0) AS missing
+      FROM "order_items" i
+      INNER JOIN "orders" o ON o."id" = i."orderId"
+      LEFT JOIN "products" p
+        ON p."id"::text = i."productId"
+       AND p."organizationId" = o."organizationId"
+      WHERE o."organizationId" = $3
+        AND o."status"::text IN ('COMPLETED', 'SYNCED', 'EXCHANGE')
+        AND COALESCE(o."completedAt", o."createdAt") BETWEEN $4 AND $5
+        AND i."productId" IS NOT NULL
+        AND i."productId" <> ''
+        AND i."productId" NOT LIKE 'manual-%'
+      GROUP BY 1
+    `;
+    const returnedSql = `
+      SELECT TO_CHAR(
+               (o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2,
+               'YYYY-MM-DD'
+             ) AS bucket,
+             COALESCE(SUM(
+               CASE
+                 WHEN elem->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                 THEN (elem->>'quantity')::numeric
+                 ELSE 0
+               END * COALESCE(p."cost", 0)
+             ), 0) AS total,
+             COALESCE(SUM(
+               CASE
+                 WHEN elem->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                 THEN (elem->>'quantity')::numeric
+                 ELSE 0
+               END
+             ), 0) AS units,
+             0 AS missing
+      FROM "orders" o
+      CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(o."returnedItems", '[]'::jsonb)
+      ) AS elem
+      LEFT JOIN "products" p
+        ON p."id"::text = elem->>'productId'
+       AND p."organizationId" = o."organizationId"
+      WHERE o."organizationId" = $3
+        AND o."exchangedAt" BETWEEN $4 AND $5
+        AND COALESCE(elem->>'productId', '') <> ''
+        AND elem->>'productId' NOT LIKE 'manual-%'
+      GROUP BY 1
+    `;
+    const [soldRows, returnedRows] = await Promise.all([
+      this.orderRepository.query(soldSql, params),
+      this.orderRepository.query(returnedSql, params),
+    ]);
+    return {
+      soldRows: soldRows as Array<Record<string, unknown>>,
+      returnedRows: returnedRows as Array<Record<string, unknown>>,
+    };
+  }
+
+  private readCostOfGoodsSold(activity: {
+    soldRows: Array<Record<string, unknown>>;
+    returnedRows: Array<Record<string, unknown>>;
+  }) {
+    const sold = this.readCogsRows(activity.soldRows);
+    const returned = this.readCogsRows(activity.returnedRows);
+    const days = new Set([
+      ...Object.keys(sold.byDay),
+      ...Object.keys(returned.byDay),
+    ]);
+    const byDay: Record<string, number> = {};
+    for (const day of days) {
+      byDay[day] = this.money((sold.byDay[day] ?? 0) - (returned.byDay[day] ?? 0));
+    }
+    return {
+      total: this.money(sold.total - returned.total),
+      soldCost: sold.total,
+      returnedCost: returned.total,
+      unitsSold: sold.units,
+      unitsReturned: returned.units,
+      missingCostCount: sold.missingCostCount,
+      byDay,
+    };
+  }
+
+  private readCogsRows(rows: Array<Record<string, unknown>>) {
+    const byDay: Record<string, number> = {};
+    let total = 0;
+    let units = 0;
+    let missingCostCount = 0;
+    for (const row of rows) {
+      const amount = this.money(row?.total);
+      const bucket = String(row?.bucket ?? '');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(bucket)) {
+        byDay[bucket] = this.money((byDay[bucket] ?? 0) + amount);
+      }
+      total = this.money(total + amount);
+      units += this.count(row?.units);
+      missingCostCount += this.count(row?.missing);
+    }
+    return { byDay, total, units, missingCostCount };
   }
 
   /** Daily cost of received, non-archived deliveries in the shop timezone. */

@@ -74,6 +74,10 @@ describe('financials date range', () => {
         '2026-08-20': 70,
         '2026-11-02': 20,
       },
+      {
+        '2026-08-16': 40,
+        '2026-09-02': 10,
+      },
       MANILA,
     );
 
@@ -86,7 +90,8 @@ describe('financials date range', () => {
     ]);
     expect(trend.points.map((point) => point.revenue)).toEqual([100, 50, 0, 0]);
     expect(trend.points.map((point) => point.purchases)).toEqual([70, 0, 0, 20]);
-    expect(trend.points.map((point) => point.profit)).toEqual([30, 50, 0, -20]);
+    expect(trend.points.map((point) => point.cogs)).toEqual([40, 10, 0, 0]);
+    expect(trend.points.map((point) => point.profit)).toEqual([60, 40, 0, 0]);
     expect(trend.points[0].label).toBe('Aug 2026');
   });
 
@@ -95,6 +100,7 @@ describe('financials date range', () => {
       new Date('2026-10-31T16:00:00.000Z'),
       new Date('2026-11-03T15:59:59.999Z'),
       { '2026-11-01': 25 },
+      { '2026-11-03': 10 },
       { '2026-11-03': 10 },
       MANILA,
     );

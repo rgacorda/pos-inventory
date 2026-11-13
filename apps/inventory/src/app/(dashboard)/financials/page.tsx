@@ -79,7 +79,11 @@ interface ProfitLossData {
   };
   cogs: {
     total: number;
-    deliveriesCount: number;
+    soldCost: number;
+    returnedCost: number;
+    unitsSold: number;
+    unitsReturned: number;
+    missingCostCount: number;
   };
   deliveredGoods?: DeliveredGoods;
   currentMonthDeliveries?: DeliveredGoods & {
@@ -107,6 +111,7 @@ interface ProfitLossData {
       label: string;
       revenue: number;
       purchases: number;
+      cogs: number;
       profit: number;
     }>;
   };
@@ -115,6 +120,7 @@ interface ProfitLossData {
 const trendChartConfig = {
   revenue: { label: "Revenue", color: "var(--chart-2)" },
   purchases: { label: "Purchases", color: "var(--chart-1)" },
+  cogs: { label: "Cost of goods sold", color: "var(--chart-3)" },
   profit: { label: "Profit", color: "var(--chart-4)" },
 } satisfies ChartConfig;
 
@@ -166,7 +172,14 @@ function formatAxisCurrency(value: number) {
 function profitHeadline(profit: number) {
   if (profit > 0) return `Profitable by ${formatCurrency(profit)}`;
   if (profit < 0) return `Loss of ${formatCurrency(Math.abs(profit))}`;
-  return "Revenue matches purchases";
+  return "Revenue matches the cost of goods sold";
+}
+
+function seriesLabel(name: string) {
+  if (name === "purchases") return "Purchases";
+  if (name === "cogs") return "Cost of goods sold";
+  if (name === "profit") return "Profit";
+  return "Revenue";
 }
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`) {
@@ -260,21 +273,26 @@ export default function FinancialsPage() {
     setEndDate(endOfDay(new Date()));
   }
 
-  const delivered = data?.deliveredGoods ?? (data
-    ? {
-        total: Number(data.cogs.total) || 0,
-        goodsValue: Number(data.cogs.total) || 0,
-        discount: 0,
-        returnCredit: 0,
-        deliveriesCount: data.cogs.deliveriesCount,
-      }
-    : null);
+  const delivered = data?.deliveredGoods ?? {
+    total: 0,
+    goodsValue: 0,
+    discount: 0,
+    returnCredit: 0,
+    deliveriesCount: 0,
+  };
+  const cogs = data?.cogs ?? {
+    total: 0,
+    soldCost: 0,
+    returnedCost: 0,
+    unitsSold: 0,
+    unitsReturned: 0,
+    missingCostCount: 0,
+  };
   const inventory = data?.inventory;
   const monthDeliveries = data?.currentMonthDeliveries;
-  const expenseTotal =
-    delivered && data
-      ? Number(delivered.total) + Number(data.operatingExpenses.total)
-      : 0;
+  const expenseTotal = data
+    ? Number(cogs.total) + Number(data.operatingExpenses.total)
+    : 0;
 
   return (
     <div className="px-4 lg:px-6 space-y-6" aria-busy={loading}>
@@ -485,11 +503,11 @@ export default function FinancialsPage() {
               <CardHeader>
                 <CardTitle>Purchases and revenue</CardTitle>
                 <CardDescription>
-                  Goods purchased to sell, compared with revenue.{" "}
+                  Purchases, cost of goods sold, and revenue.{" "}
                   {data.trend.bucket === "month"
                     ? "Each point is a month."
                     : "Each point is a day."}{" "}
-                  Profit is revenue minus those purchases.
+                  Profit is revenue minus the cost of goods sold.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -500,7 +518,8 @@ export default function FinancialsPage() {
                     {profitHeadline(data.grossProfit)}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Revenue {formatCurrency(data.revenue.total)} · Purchases{" "}
+                    Revenue {formatCurrency(data.revenue.total)} · Cost of goods
+                    sold {formatCurrency(cogs.total)} · Purchases{" "}
                     {formatCurrency(delivered.total)}
                   </p>
                 </div>
@@ -531,25 +550,16 @@ export default function FinancialsPage() {
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
-                          formatter={(value, name) => {
-                            const key = String(name);
-                            const seriesLabel =
-                              key === "purchases"
-                                ? "Purchases"
-                                : key === "profit"
-                                  ? "Profit"
-                                  : "Revenue";
-                            return (
-                              <div className="flex w-full items-center justify-between gap-4">
-                                <span className="text-muted-foreground">
-                                  {seriesLabel}
-                                </span>
-                                <span className="font-mono font-medium tabular-nums">
-                                  {formatCurrency(Number(value))}
-                                </span>
-                              </div>
-                            );
-                          }}
+                          formatter={(value, name) => (
+                            <div className="flex w-full items-center justify-between gap-4">
+                              <span className="text-muted-foreground">
+                                {seriesLabel(String(name))}
+                              </span>
+                              <span className="font-mono font-medium tabular-nums">
+                                {formatCurrency(Number(value))}
+                              </span>
+                            </div>
+                          )}
                         />
                       }
                     />
@@ -568,6 +578,13 @@ export default function FinancialsPage() {
                       fillOpacity={0.15}
                       stroke="var(--color-purchases)"
                       strokeWidth={2}
+                    />
+                    <Line
+                      dataKey="cogs"
+                      type="monotone"
+                      stroke="var(--color-cogs)"
+                      strokeWidth={2}
+                      dot={data.trend.points.length < 8}
                     />
                     <Line
                       dataKey="profit"
@@ -649,7 +666,7 @@ export default function FinancialsPage() {
                   {formatCurrency(expenseTotal)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Deliveries + operating
+                  Cost of goods sold + operating
                 </p>
               </CardContent>
             </Card>
@@ -661,7 +678,7 @@ export default function FinancialsPage() {
               <CardDescription>
                 {format(new Date(data.period.startDate), "MMM d, yyyy")} -{" "}
                 {format(new Date(data.period.endDate), "MMM d, yyyy")}. Gross
-                profit is revenue minus delivered goods in this period.
+                profit is revenue minus the cost of goods sold.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -680,22 +697,35 @@ export default function FinancialsPage() {
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-lg font-semibold">
-                  <span>Delivered goods</span>
+                  <span>Cost of goods sold</span>
                   <span className="text-red-600">
-                    ({formatCurrency(delivered.total)})
+                    {cogs.total < 0
+                      ? formatCurrency(cogs.total)
+                      : `(${formatCurrency(cogs.total)})`}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm text-muted-foreground pl-4">
-                  <span>
-                    Received deliveries ({delivered.deliveriesCount})
-                  </span>
-                  <span>({formatCurrency(delivered.total)})</span>
+                  <span>Sold ({plural(cogs.unitsSold, "unit")})</span>
+                  <span>({formatCurrency(cogs.soldCost)})</span>
                 </div>
-                {delivered.goodsValue !== delivered.total ? (
+                {cogs.unitsReturned > 0 ? (
                   <div className="flex justify-between items-center text-sm text-muted-foreground pl-4">
-                    <span>Goods value before discounts and credits</span>
-                    <span>{formatCurrency(delivered.goodsValue)}</span>
+                    <span>
+                      Returned ({plural(cogs.unitsReturned, "unit")})
+                    </span>
+                    <span>{formatCurrency(cogs.returnedCost)}</span>
                   </div>
+                ) : null}
+                <p className="text-xs text-muted-foreground pl-4">
+                  Valued at each product&apos;s current unit cost.
+                </p>
+                {cogs.missingCostCount > 0 ? (
+                  <p className="text-xs text-amber-600 pl-4">
+                    {plural(cogs.missingCostCount, "sold line")}{" "}
+                    {cogs.missingCostCount === 1 ? "has" : "have"} no unit
+                    cost, so {cogs.missingCostCount === 1 ? "it adds" : "they add"}{" "}
+                    {formatCurrency(0)}.
+                  </p>
                 ) : null}
               </div>
 
@@ -739,6 +769,25 @@ export default function FinancialsPage() {
                 </span>
               </div>
 
+              <Separator />
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-lg font-semibold">
+                  <span>Purchases</span>
+                  <span>{formatCurrency(delivered.total)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm text-muted-foreground pl-4">
+                  <span>
+                    Received deliveries ({delivered.deliveriesCount})
+                  </span>
+                  <span>{formatCurrency(delivered.total)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground pl-4">
+                  Cost of goods received in this period. These stay in
+                  inventory until they are sold.
+                </p>
+              </div>
+
               <div className="flex gap-4 pt-4">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">
@@ -769,14 +818,14 @@ export default function FinancialsPage() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="font-medium">Delivered goods</span>
-                    <span>{formatCurrency(delivered.total)}</span>
+                    <span className="font-medium">Cost of goods sold</span>
+                    <span>{formatCurrency(cogs.total)}</span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500"
                       style={{
-                        width: `${percentWidth(delivered.total, expenseTotal)}%`,
+                        width: `${percentWidth(cogs.total, expenseTotal)}%`,
                       }}
                     />
                   </div>
