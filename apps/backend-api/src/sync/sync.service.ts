@@ -25,6 +25,10 @@ import {
   PointTransactionType,
 } from '../entities/customer-point-transaction.entity';
 import { OrganizationEntity } from '../entities/organization.entity';
+import {
+  adjustTrackedStock,
+  sumStockByProduct,
+} from '../common/stock-quantity';
 
 @Injectable()
 export class SyncService {
@@ -306,20 +310,28 @@ export class SyncService {
         // The `!originalOrder.exchangedAt` guard prevents double-restoring stock
         // if the direct exchange call already handled it.
         if (isExchangeOrder) {
-          if (originalOrder && !originalOrder.exchangedAt) {
-            originalOrder.exchangedAt = completedAt;
-            originalOrder.returnedItems =
+          // Lock the original sale so a direct exchange call and this sync
+          // fallback cannot both put the returned units back.
+          const lockedOriginal = originalOrder
+            ? await queryRunner.manager.findOne(OrderEntity, {
+                where: { id: originalOrder.id },
+                lock: { mode: 'pessimistic_write' },
+              })
+            : null;
+          if (lockedOriginal && !lockedOriginal.exchangedAt) {
+            lockedOriginal.exchangedAt = completedAt;
+            lockedOriginal.returnedItems =
               returnedItems.length > 0
                 ? returnedItems
-                : originalOrder.returnedItems;
-            await queryRunner.manager.save(OrderEntity, originalOrder);
+                : lockedOriginal.returnedItems;
+            await queryRunner.manager.save(OrderEntity, lockedOriginal);
 
             await this.restoreReturnedStock(
               queryRunner,
               returnedItems,
-              `from exchange of order ${originalOrder.orderNumber} (via sync fallback)`,
+              `from exchange of order ${lockedOriginal.orderNumber} (via sync fallback)`,
             );
-          } else if (!originalOrder) {
+          } else if (!lockedOriginal) {
             this.logger.warn(
               `Original order not found for exchange ${orderDto.posLocalId} (exchangeRef=${orderDto.exchangeRef}, originalPosLocalId=${orderDto.originalPosLocalId}). Returned stock was not restored.`,
             );
@@ -357,42 +369,36 @@ export class SyncService {
         // Skip manual items (they have IDs starting with 'manual-').
         // Sort by product id so parallel orders lock rows in the same order
         // and don't deadlock each other.
-        const stockItems = [...(orderDto.items ?? [])]
-          .map((item) => ({
-            ...item,
-            productId: item.productId ? String(item.productId) : '',
-            quantity: Math.max(0, Math.round(Number(item.quantity) || 0)),
-          }))
-          .filter((item) => item.productId && item.quantity > 0)
-          .sort((a, b) => a.productId.localeCompare(b.productId));
+        const stockTotals = sumStockByProduct(
+          (orderDto.items ?? [])
+            .map((item) => ({
+              productId: item.productId ? String(item.productId) : '',
+              quantity: item.quantity,
+            }))
+            .filter(
+              (item) => item.productId && !item.productId.startsWith('manual-'),
+            ),
+        );
 
-        for (const item of stockItems) {
-          if (item.productId.startsWith('manual-')) {
-            this.logger.log(
-              `Skipping inventory update for manual item: ${item.name}`,
-            );
-            continue;
-          }
+        for (const productId of [...stockTotals.keys()].sort()) {
+          const quantity = stockTotals.get(productId) || 0;
+          const affected = await adjustTrackedStock(
+            queryRunner.manager,
+            productId,
+            -quantity,
+          );
+          if (affected > 0) continue;
 
-          // Check if product exists before decrementing
           const product = await queryRunner.manager.findOne(ProductEntity, {
-            where: { id: item.productId },
+            where: { id: productId },
           });
-
           if (product?.infiniteStock) {
             this.logger.log(
-              `Skipping inventory update for unlimited stock product: ${item.name}`,
-            );
-          } else if (product) {
-            await queryRunner.manager.decrement(
-              ProductEntity,
-              { id: item.productId },
-              'stockQuantity',
-              item.quantity,
+              `Skipping inventory update for unlimited stock product: ${product.name}`,
             );
           } else {
             this.logger.warn(
-              `Product not found for inventory update: ${item.productId} (${item.name})`,
+              `Product not found for inventory update: ${productId}`,
             );
           }
         }
@@ -811,7 +817,10 @@ export class SyncService {
   ): Promise<number> {
     let restoredCount = 0;
 
-    for (const returnedItem of returnedItems) {
+    const ordered = [...returnedItems].sort((a, b) =>
+      (a.productId || '').localeCompare(b.productId || ''),
+    );
+    for (const returnedItem of ordered) {
       if (
         !returnedItem.productId ||
         returnedItem.productId.startsWith('manual-')
@@ -824,25 +833,26 @@ export class SyncService {
         continue;
       }
 
+      const affected = await adjustTrackedStock(
+        queryRunner.manager,
+        returnedItem.productId,
+        quantity,
+      );
+      if (affected > 0) {
+        this.logger.log(
+          `Restored ${quantity} units of ${returnedItem.name || returnedItem.productId} (${returnedItem.productId}) ${contextLabel}`,
+        );
+        restoredCount++;
+        continue;
+      }
+
       const returnedProduct = await queryRunner.manager.findOne(ProductEntity, {
         where: { id: returnedItem.productId },
       });
-
       if (returnedProduct?.infiniteStock) {
         this.logger.log(
           `Skipping stock restoration for unlimited stock product: ${returnedItem.name || returnedProduct.name}`,
         );
-      } else if (returnedProduct) {
-        await queryRunner.manager.increment(
-          ProductEntity,
-          { id: returnedItem.productId },
-          'stockQuantity',
-          quantity,
-        );
-        this.logger.log(
-          `Restored ${quantity} units of ${returnedItem.name || returnedProduct.name} (${returnedItem.productId}) ${contextLabel}`,
-        );
-        restoredCount++;
       } else {
         this.logger.warn(
           `Product not found for exchange stock restoration: ${returnedItem.productId}`,

@@ -5,12 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
+import { InventoryReturn } from '../../entities/inventory-return.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { Supplier } from '../../entities/supplier.entity';
 import { InventoryReturnsService } from '../inventory-returns/inventory-returns.service';
 import { UserRole } from '@pos/shared-types';
+import {
+  adjustTrackedStock,
+  sumStockByProduct,
+} from '../../common/stock-quantity';
 
 @Injectable()
 export class InventoryDeliveriesService {
@@ -134,29 +139,36 @@ export class InventoryDeliveriesService {
     this.applyReturnTotals(createDto, preparedResolutions);
 
     const delivery = this.deliveryRepository.create(createDto);
-    const savedDelivery = (await this.deliveryRepository.save(
-      delivery,
-    )) as unknown as InventoryDelivery;
+    return this.deliveryRepository.manager.transaction(async (manager) => {
+      const savedDelivery = (await manager.save(
+        delivery,
+      )) as unknown as InventoryDelivery;
 
-    if (
-      savedDelivery.status === 'RECEIVED' &&
-      savedDelivery.items?.length > 0
-    ) {
-      await this.updateProductStock(
-        savedDelivery.items,
+      await this.lockProductsInOrder(manager, savedDelivery.organizationId, [
+        ...(savedDelivery.items || []).map((item) => item.productId),
+        ...this.resolutionProductIds(preparedResolutions),
+      ]);
+
+      if (savedDelivery.status === 'RECEIVED') {
+        await this.applyStockChange(
+          manager,
+          [],
+          savedDelivery.items || [],
+          savedDelivery.organizationId,
+          savedDelivery.supplierId,
+        );
+      }
+
+      await this.inventoryReturnsService.syncDeliveryResolutions(
         savedDelivery.organizationId,
-        savedDelivery.supplierId,
+        savedDelivery.id,
+        preparedResolutions,
+        savedDelivery.status === 'RECEIVED',
+        manager,
       );
-    }
 
-    await this.inventoryReturnsService.syncDeliveryResolutions(
-      savedDelivery.organizationId,
-      savedDelivery.id,
-      preparedResolutions,
-      savedDelivery.status === 'RECEIVED',
-    );
-
-    return savedDelivery;
+      return savedDelivery;
+    });
   }
 
   async update(
@@ -230,102 +242,101 @@ export class InventoryDeliveriesService {
     }
 
     Object.assign(delivery, updateDto);
-    const updatedDelivery = (await this.deliveryRepository.save(
-      delivery,
-    )) as unknown as InventoryDelivery;
 
-    const wasReceived = oldStatus === 'RECEIVED';
-    const isReceived = updatedDelivery.status === 'RECEIVED';
-    const newItems = updatedDelivery.items || [];
+    return this.deliveryRepository.manager.transaction(async (manager) => {
+      const updatedDelivery = (await manager.save(
+        delivery,
+      )) as unknown as InventoryDelivery;
 
-    if (wasReceived && isReceived) {
-      // Delivery was already RECEIVED and still is: only the difference
-      // between the old and new item quantities should move stock, so
-      // adding, removing, or changing the quantity of an item correctly
-      // increases/decreases the product's stock instead of double-applying
-      // or ignoring the change.
-      await this.reconcileProductStock(
-        oldItems,
-        newItems,
-        updatedDelivery.organizationId,
-        updatedDelivery.supplierId,
-      );
-    } else if (!wasReceived && isReceived) {
-      // Transitioning into RECEIVED: nothing was applied to stock before,
-      // so apply the full current item list now.
-      if (newItems.length > 0) {
-        await this.updateProductStock(
+      const linkedReturns = await manager.find(InventoryReturn, {
+        where: { organizationId, resolvedDeliveryId: updatedDelivery.id },
+      });
+      await this.lockProductsInOrder(manager, organizationId, [
+        ...oldItems.map((item) => item.productId),
+        ...(updatedDelivery.items || []).map((item) => item.productId),
+        ...this.resolutionProductIds(preparedResolutions),
+        ...linkedReturns.flatMap((record) =>
+          (record.replacementItems || []).map((item) => item.productId),
+        ),
+      ]);
+
+      const wasReceived = oldStatus === 'RECEIVED';
+      const isReceived = updatedDelivery.status === 'RECEIVED';
+      const newItems = updatedDelivery.items || [];
+
+      if (wasReceived && isReceived) {
+        // Already received: move stock by the quantity difference only.
+        await this.applyStockChange(
+          manager,
+          oldItems,
           newItems,
           updatedDelivery.organizationId,
           updatedDelivery.supplierId,
         );
+      } else if (!wasReceived && isReceived) {
+        await this.applyStockChange(
+          manager,
+          [],
+          newItems,
+          updatedDelivery.organizationId,
+          updatedDelivery.supplierId,
+        );
+      } else if (wasReceived && !isReceived) {
+        await this.applyStockChange(
+          manager,
+          oldItems,
+          [],
+          updatedDelivery.organizationId,
+          null,
+        );
       }
-    } else if (wasReceived && !isReceived) {
-      // Transitioning out of RECEIVED (e.g. cancelled): reverse whatever
-      // stock was previously added for the old items.
-      if (oldItems.length > 0) {
-        await this.reverseProductStock(oldItems, updatedDelivery.organizationId);
-      }
-    }
-    // If it was never RECEIVED and still isn't, items may have changed but
-    // stock was never touched for them, so there's nothing to reconcile.
 
-    await this.inventoryReturnsService.syncDeliveryResolutions(
-      organizationId,
-      updatedDelivery.id,
-      preparedResolutions,
-      isReceived,
-    );
+      await this.inventoryReturnsService.syncDeliveryResolutions(
+        organizationId,
+        updatedDelivery.id,
+        preparedResolutions,
+        isReceived,
+        manager,
+      );
 
-    return updatedDelivery;
-  }
-
-  private async updateProductStock(
-    items: Array<{
-      productId: string;
-      quantity: number;
-      unitCost?: number;
-      isFree?: boolean;
-      updateProductCost?: boolean;
-      priceOverride?: number;
-      packPriceOverride?: number;
-      packQuantityOverride?: number;
-      halfPackPriceOverride?: number;
-      halfPackQuantityOverride?: number;
-    }>,
-    organizationId: string,
-    supplierId?: string | null,
-  ) {
-    for (const item of items) {
-      const product = await this.productRepository.findOne({
-        where: { id: item.productId, organizationId },
-      });
-
-      if (product) {
-        if (!product.infiniteStock) {
-          product.stockQuantity += item.quantity;
-        }
-        // Tag the product with its most recent supplier so it can be
-        // filtered by supplier later on.
-        if (supplierId) {
-          product.supplierId = supplierId;
-        }
-
-        this.applyCostSync(product, item);
-
-        await this.productRepository.save(product);
-      }
-    }
+      return updatedDelivery;
+    });
   }
 
   /**
-   * Reconciles product stock between an old and new set of delivery items,
-   * applying only the net quantity difference per product (positive when
-   * items/quantities were added, negative when removed or decreased), so
-   * editing an already-RECEIVED delivery's items keeps stock accurate
-   * instead of only ever adding.
+   * Locks every product this delivery will touch, in id order, before any
+   * stock update. Sales lock in the same order, so the two cannot deadlock.
    */
-  private async reconcileProductStock(
+  private async lockProductsInOrder(
+    manager: EntityManager,
+    organizationId: string,
+    productIds: Array<string | null | undefined>,
+  ) {
+    const ids = [...new Set(productIds.filter((id): id is string => !!id))].sort();
+    for (const id of ids) {
+      await manager.findOne(ProductEntity, {
+        where: { id, organizationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
+  }
+
+  private resolutionProductIds(
+    resolutions: Array<{ replacementItems?: Array<{ productId?: string }> }>,
+  ) {
+    return resolutions.flatMap((resolution) =>
+      (resolution.replacementItems || []).map((item) => item.productId),
+    );
+  }
+
+  /**
+   * Moves stock by the net unit difference and updates cost/supplier
+   * without writing stockQuantity from a previously loaded row. Product
+   * ids are sorted so this cannot deadlock with a sale, which locks in
+   * the same order.
+   */
+  private async applyStockChange(
+    manager: EntityManager,
     oldItems: Array<{ productId: string; quantity: number }>,
     newItems: Array<{
       productId: string;
@@ -342,67 +353,90 @@ export class InventoryDeliveriesService {
     organizationId: string,
     supplierId?: string | null,
   ) {
-    const oldQuantityByProduct = this.sumQuantitiesByProduct(oldItems);
-    const newQuantityByProduct = this.sumQuantitiesByProduct(newItems);
-    const productIds = new Set([
-      ...oldQuantityByProduct.keys(),
-      ...newQuantityByProduct.keys(),
-    ]);
+    const oldTotals = sumStockByProduct(oldItems);
+    const newTotals = sumStockByProduct(newItems);
+    const deltas = new Map<string, number>();
+    for (const productId of new Set([...oldTotals.keys(), ...newTotals.keys()])) {
+      const delta = (newTotals.get(productId) || 0) - (oldTotals.get(productId) || 0);
+      if (delta !== 0) deltas.set(productId, delta);
+    }
 
+    const pricingIds = new Set<string>();
+    for (const item of newItems || []) {
+      if (!item?.productId) continue;
+      if (supplierId) pricingIds.add(item.productId);
+      if (item.updateProductCost && !item.isFree && item.unitCost != null) {
+        pricingIds.add(item.productId);
+      }
+    }
+
+    const productIds = [...new Set([...deltas.keys(), ...pricingIds])].sort();
     for (const productId of productIds) {
-      const oldQuantity = oldQuantityByProduct.get(productId) || 0;
-      const newQuantity = newQuantityByProduct.get(productId) || 0;
-      const delta = newQuantity - oldQuantity;
-
-      const product = await this.productRepository.findOne({
-        where: { id: productId, organizationId },
-      });
-      if (!product) continue;
-
-      if (delta !== 0 && !product.infiniteStock) {
-        product.stockQuantity += delta;
+      const delta = deltas.get(productId) || 0;
+      if (delta !== 0) {
+        await adjustTrackedStock(manager, productId, delta, organizationId);
       }
-      if (supplierId) {
-        product.supplierId = supplierId;
+      if (pricingIds.has(productId)) {
+        await this.syncPricing(
+          manager,
+          organizationId,
+          productId,
+          supplierId,
+          newItems,
+        );
       }
-
-      // Sync cost from whichever current item(s) for this product request
-      // it, regardless of whether the quantity itself changed.
-      for (const item of newItems) {
-        if (item.productId === productId) {
-          this.applyCostSync(product, item);
-        }
-      }
-
-      await this.productRepository.save(product);
     }
   }
 
-  /** Reverses stock previously added for a set of items (e.g. a RECEIVED delivery was cancelled or deleted). */
-  private async reverseProductStock(
-    items: Array<{ productId: string; quantity: number }>,
+  /**
+   * Writes cost, price, and supplier only. stockQuantity is left to
+   * adjustTrackedStock so a sale during this delivery is not overwritten.
+   */
+  private async syncPricing(
+    manager: EntityManager,
     organizationId: string,
+    productId: string,
+    supplierId: string | null | undefined,
+    items: Array<{
+      productId: string;
+      unitCost?: number;
+      isFree?: boolean;
+      updateProductCost?: boolean;
+      priceOverride?: number;
+      packPriceOverride?: number;
+      packQuantityOverride?: number;
+      halfPackPriceOverride?: number;
+      halfPackQuantityOverride?: number;
+    }>,
   ) {
-    const quantityByProduct = this.sumQuantitiesByProduct(items);
-    for (const [productId, quantity] of quantityByProduct) {
-      const product = await this.productRepository.findOne({
-        where: { id: productId, organizationId },
-      });
-      if (product && !product.infiniteStock) {
-        product.stockQuantity -= quantity;
-        await this.productRepository.save(product);
+    const product = await manager.findOne(ProductEntity, {
+      where: { id: productId, organizationId },
+    });
+    if (!product) return;
+
+    const patch: Partial<ProductEntity> = {};
+    if (supplierId) patch.supplierId = supplierId;
+
+    let costTouched = false;
+    for (const item of items) {
+      if (item.productId !== productId) continue;
+      if (item.updateProductCost && !item.isFree && item.unitCost != null) {
+        this.applyCostSync(product, item);
+        costTouched = true;
       }
     }
-  }
 
-  private sumQuantitiesByProduct(
-    items: Array<{ productId: string; quantity: number }> = [],
-  ) {
-    const map = new Map<string, number>();
-    for (const item of items) {
-      map.set(item.productId, (map.get(item.productId) || 0) + item.quantity);
+    if (costTouched) {
+      patch.cost = product.cost;
+      patch.price = product.price;
+      patch.packQuantity = product.packQuantity;
+      patch.packPrice = product.packPrice;
+      patch.halfPackQuantity = product.halfPackQuantity;
+      patch.halfPackPrice = product.halfPackPrice;
     }
-    return map;
+
+    if (Object.keys(patch).length === 0) return;
+    await manager.update(ProductEntity, { id: productId, organizationId }, patch);
   }
 
   /**
@@ -523,18 +557,37 @@ export class InventoryDeliveriesService {
       );
     }
 
-    // Deleting a delivery that already added stock should reverse it,
-    // otherwise the stock it contributed would be left behind permanently.
-    if (delivery.status === 'RECEIVED' && delivery.items?.length > 0) {
-      await this.reverseProductStock(delivery.items, organizationId);
-    }
+    await this.deliveryRepository.manager.transaction(async (manager) => {
+      const linkedReturns = await manager.find(InventoryReturn, {
+        where: { organizationId, resolvedDeliveryId: delivery.id },
+      });
+      await this.lockProductsInOrder(manager, organizationId, [
+        ...(delivery.items || []).map((item) => item.productId),
+        ...linkedReturns.flatMap((record) =>
+          (record.replacementItems || []).map((item) => item.productId),
+        ),
+      ]);
 
-    await this.inventoryReturnsService.unlinkDeliveryResolutions(
-      organizationId,
-      delivery.id,
-    );
+      // Deleting a delivery that already added stock should reverse it,
+      // otherwise the stock it contributed would be left behind permanently.
+      if (delivery.status === 'RECEIVED' && delivery.items?.length > 0) {
+        await this.applyStockChange(
+          manager,
+          delivery.items,
+          [],
+          organizationId,
+          null,
+        );
+      }
 
-    await this.deliveryRepository.remove(delivery);
+      await this.inventoryReturnsService.unlinkDeliveryResolutions(
+        organizationId,
+        delivery.id,
+        manager,
+      );
+
+      await manager.remove(delivery);
+    });
     return { message: 'Delivery deleted successfully' };
   }
 

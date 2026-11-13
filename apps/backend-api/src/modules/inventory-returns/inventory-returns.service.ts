@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import {
   InventoryReturn,
   InventoryReturnItem,
@@ -20,6 +20,10 @@ import {
   ReturnItemDto,
 } from './dto/inventory-return.dto';
 import { UserRole } from '@pos/shared-types';
+import {
+  adjustTrackedStock,
+  sumStockByProduct,
+} from '../../common/stock-quantity';
 
 @Injectable()
 export class InventoryReturnsService {
@@ -91,8 +95,15 @@ export class InventoryReturnsService {
     return queryBuilder.getMany();
   }
 
-  async findOne(id: string, organizationId: string) {
-    const inventoryReturn = await this.returnRepository.findOne({
+  async findOne(
+    id: string,
+    organizationId: string,
+    manager?: EntityManager,
+  ) {
+    const repo = manager
+      ? manager.getRepository(InventoryReturn)
+      : this.returnRepository;
+    const inventoryReturn = await repo.findOne({
       where: { id, organizationId },
     });
 
@@ -143,14 +154,15 @@ export class InventoryReturnsService {
       resolvedAt: null,
     });
 
-    const saved = await this.returnRepository.save(inventoryReturn);
+    return this.inTransaction(undefined, async (manager) => {
+      const saved = await manager.save(inventoryReturn);
 
-    // Not-yet-resolved returns pull the returned items out of sellable
-    // stock immediately (they've physically been set aside for the
-    // supplier), regardless of when/if the return is ever resolved.
-    await this.adjustStock(returnedItems, organizationId, -1);
-
-    return saved;
+      // Not-yet-resolved returns pull the returned items out of sellable
+      // stock immediately (they've physically been set aside for the
+      // supplier), regardless of when/if the return is ever resolved.
+      await this.adjustStock(returnedItems, organizationId, -1, manager);
+      return saved;
+    });
   }
 
   async update(
@@ -205,18 +217,40 @@ export class InventoryReturnsService {
     }
 
     if (updateDto.returnedItems) {
-      const oldItems = inventoryReturn.returnedItems || [];
       const newItems = this.normalizeItems(updateDto.returnedItems);
 
-      // Only the net quantity difference per product should move stock, so
-      // adding, removing, or changing the quantity of a returned item
-      // correctly adjusts the product's stock instead of double-applying
-      // or ignoring the change.
-      const deltaItems = this.computeDeltaItems(oldItems, newItems);
-      await this.adjustStock(deltaItems, organizationId, -1);
+      return this.inTransaction(undefined, async (manager) => {
+        const locked = await manager.findOne(InventoryReturn, {
+          where: { id, organizationId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!locked) {
+          throw new NotFoundException('Return not found');
+        }
+        this.ensureNotArchived(locked);
+        if (locked.status !== 'NOT_RESOLVED') {
+          throw new BadRequestException(
+            'Resolved returns cannot be edited. Unresolve it first to make changes.',
+          );
+        }
 
-      inventoryReturn.returnedItems = newItems;
-      inventoryReturn.returnedTotalCost = this.sumTotalCost(newItems);
+        locked.supplierId = inventoryReturn.supplierId;
+        locked.supplier = inventoryReturn.supplier;
+        locked.deliveryId = inventoryReturn.deliveryId;
+        locked.reason = inventoryReturn.reason;
+        locked.notes = inventoryReturn.notes;
+
+        // Only the net quantity difference per product should move stock.
+        const deltaItems = this.computeDeltaItems(
+          locked.returnedItems || [],
+          newItems,
+        );
+        locked.returnedItems = newItems;
+        locked.returnedTotalCost = this.sumTotalCost(newItems);
+        const saved = await manager.save(locked);
+        await this.adjustStock(deltaItems, organizationId, -1, manager);
+        return saved;
+      });
     }
 
     return this.returnRepository.save(inventoryReturn);
@@ -269,29 +303,32 @@ export class InventoryReturnsService {
   async unresolve(
     id: string,
     organizationId: string,
+    manager?: EntityManager,
   ): Promise<InventoryReturn> {
-    const inventoryReturn = await this.findOne(id, organizationId);
-    this.ensureNotArchived(inventoryReturn);
+    return this.inTransaction(manager, async (tx) => {
+      const inventoryReturn = await this.findOne(id, organizationId, tx);
+      this.ensureNotArchived(inventoryReturn);
 
-    if (inventoryReturn.status !== 'RESOLVED') {
-      throw new BadRequestException('This return is not resolved.');
-    }
+      if (inventoryReturn.status !== 'RESOLVED') {
+        throw new BadRequestException('This return is not resolved.');
+      }
 
-    const replacementItems = inventoryReturn.replacementItems || [];
+      const replacementItems = inventoryReturn.replacementItems || [];
 
-    // Reverse the replacement stock previously added, since the resolution
-    // is being undone (e.g. to correct the replacement items before
-    // re-resolving).
-    await this.adjustStock(replacementItems, organizationId, -1);
+      // Reverse the replacement stock previously added, since the resolution
+      // is being undone (e.g. to correct the replacement items before
+      // re-resolving).
+      await this.adjustStock(replacementItems, organizationId, -1, tx);
 
-    inventoryReturn.replacementItems = null;
-    inventoryReturn.replacementTotalCost = null;
-    inventoryReturn.resolvedAt = null;
-    inventoryReturn.resolutionType = null;
-    inventoryReturn.resolvedDeliveryId = null;
-    inventoryReturn.status = 'NOT_RESOLVED';
+      inventoryReturn.replacementItems = null;
+      inventoryReturn.replacementTotalCost = null;
+      inventoryReturn.resolvedAt = null;
+      inventoryReturn.resolutionType = null;
+      inventoryReturn.resolvedDeliveryId = null;
+      inventoryReturn.status = 'NOT_RESOLVED';
 
-    return this.returnRepository.save(inventoryReturn);
+      return tx.save(inventoryReturn);
+    });
   }
 
   /**
@@ -410,8 +447,11 @@ export class InventoryReturnsService {
       replacementItems?: InventoryReturnItem[];
     }>,
     apply: boolean,
+    manager?: EntityManager,
   ): Promise<void> {
-    const previouslyLinked = await this.returnRepository.find({
+    await this.inTransaction(manager, async (tx) => {
+    const returns = tx.getRepository(InventoryReturn);
+    const previouslyLinked = await returns.find({
       where: { organizationId, resolvedDeliveryId: deliveryId },
     });
     const requestedIds = new Set(resolutions.map((r) => r.returnId));
@@ -419,10 +459,10 @@ export class InventoryReturnsService {
     for (const prev of previouslyLinked) {
       if (requestedIds.has(prev.id)) continue;
       if (prev.status === 'RESOLVED') {
-        await this.unresolve(prev.id, organizationId);
+        await this.unresolve(prev.id, organizationId, tx);
       } else if (prev.resolvedDeliveryId === deliveryId) {
         prev.resolvedDeliveryId = null;
-        await this.returnRepository.save(prev);
+        await tx.save(prev);
       }
     }
 
@@ -430,6 +470,7 @@ export class InventoryReturnsService {
       const inventoryReturn = await this.findOne(
         resolution.returnId,
         organizationId,
+        tx,
       );
 
       if (!apply) {
@@ -437,7 +478,7 @@ export class InventoryReturnsService {
           inventoryReturn.status === 'RESOLVED' &&
           inventoryReturn.resolvedDeliveryId === deliveryId
         ) {
-          await this.unresolve(inventoryReturn.id, organizationId);
+          await this.unresolve(inventoryReturn.id, organizationId, tx);
         }
         continue;
       }
@@ -460,7 +501,7 @@ export class InventoryReturnsService {
           continue;
         }
         if (inventoryReturn.resolvedDeliveryId === deliveryId) {
-          await this.unresolve(inventoryReturn.id, organizationId);
+          await this.unresolve(inventoryReturn.id, organizationId, tx);
         } else {
           throw new BadRequestException(
             'This return is already resolved and cannot be applied to this delivery.',
@@ -468,7 +509,7 @@ export class InventoryReturnsService {
         }
       }
 
-      const fresh = await this.findOne(resolution.returnId, organizationId);
+      const fresh = await this.findOne(resolution.returnId, organizationId, tx);
       if (resolution.action === 'CREDIT') {
         await this.markResolved(fresh, {
           resolutionType: 'CREDIT',
@@ -476,6 +517,7 @@ export class InventoryReturnsService {
           resolvedDeliveryId: deliveryId,
           addReplacementStock: false,
           organizationId,
+          manager: tx,
         });
       } else {
         const replacementItems = this.normalizeItems(
@@ -489,16 +531,25 @@ export class InventoryReturnsService {
           resolvedDeliveryId: deliveryId,
           addReplacementStock: true,
           organizationId,
+          manager: tx,
         });
       }
     }
+    });
   }
 
   async unlinkDeliveryResolutions(
     organizationId: string,
     deliveryId: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    await this.syncDeliveryResolutions(organizationId, deliveryId, [], false);
+    await this.syncDeliveryResolutions(
+      organizationId,
+      deliveryId,
+      [],
+      false,
+      manager,
+    );
   }
 
   private async markResolved(
@@ -509,28 +560,32 @@ export class InventoryReturnsService {
       resolvedDeliveryId: string | null;
       addReplacementStock: boolean;
       organizationId: string;
+      manager?: EntityManager;
     },
   ): Promise<InventoryReturn> {
-    inventoryReturn.replacementItems = options.replacementItems;
-    inventoryReturn.replacementTotalCost = this.sumTotalCost(
-      options.replacementItems,
-    );
-    inventoryReturn.status = 'RESOLVED';
-    inventoryReturn.resolutionType = options.resolutionType;
-    inventoryReturn.resolvedDeliveryId = options.resolvedDeliveryId;
-    inventoryReturn.resolvedAt = new Date();
-
-    const saved = await this.returnRepository.save(inventoryReturn);
-
-    if (options.addReplacementStock && options.replacementItems.length > 0) {
-      await this.adjustStock(
+    return this.inTransaction(options.manager, async (tx) => {
+      inventoryReturn.replacementItems = options.replacementItems;
+      inventoryReturn.replacementTotalCost = this.sumTotalCost(
         options.replacementItems,
-        options.organizationId,
-        1,
       );
-    }
+      inventoryReturn.status = 'RESOLVED';
+      inventoryReturn.resolutionType = options.resolutionType;
+      inventoryReturn.resolvedDeliveryId = options.resolvedDeliveryId;
+      inventoryReturn.resolvedAt = new Date();
 
-    return saved;
+      const saved = await tx.save(inventoryReturn);
+
+      if (options.addReplacementStock && options.replacementItems.length > 0) {
+        await this.adjustStock(
+          options.replacementItems,
+          options.organizationId,
+          1,
+          tx,
+        );
+      }
+
+      return saved;
+    });
   }
 
   private sameReplacementItems(
@@ -643,23 +698,35 @@ export class InventoryReturnsService {
       );
     }
 
-    // Deleting a return should leave stock exactly as if it never existed:
-    // give back whatever was deducted for the returned items, and reverse
-    // any replacement stock that was added if it had been resolved.
-    await this.adjustStock(
-      inventoryReturn.returnedItems || [],
-      organizationId,
-      1,
-    );
-    if (inventoryReturn.status === 'RESOLVED') {
-      await this.adjustStock(
-        inventoryReturn.replacementItems || [],
-        organizationId,
-        -1,
-      );
-    }
+    await this.inTransaction(undefined, async (tx) => {
+      const locked = await tx.findOne(InventoryReturn, {
+        where: { id, organizationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) {
+        throw new NotFoundException('Return not found');
+      }
+      if (!locked.deletedAt) {
+        throw new BadRequestException(
+          'Archive the return before permanently deleting it',
+        );
+      }
 
-    await this.returnRepository.remove(inventoryReturn);
+      // Deleting a return should leave stock exactly as if it never existed:
+      // give back whatever was deducted for the returned items, and reverse
+      // any replacement stock that was added if it had been resolved.
+      await this.adjustStock(locked.returnedItems || [], organizationId, 1, tx);
+      if (locked.status === 'RESOLVED') {
+        await this.adjustStock(
+          locked.replacementItems || [],
+          organizationId,
+          -1,
+          tx,
+        );
+      }
+
+      await tx.remove(locked);
+    });
     return { message: 'Return deleted successfully' };
   }
 
@@ -768,16 +835,6 @@ export class InventoryReturnsService {
     );
   }
 
-  private sumQuantitiesByProduct(
-    items: Array<{ productId: string; quantity: number }> = [],
-  ) {
-    const map = new Map<string, number>();
-    for (const item of items) {
-      map.set(item.productId, (map.get(item.productId) || 0) + item.quantity);
-    }
-    return map;
-  }
-
   /**
    * Computes the net per-product quantity difference between an old and
    * new set of items, so editing an item list only ever moves stock by the
@@ -787,8 +844,8 @@ export class InventoryReturnsService {
     oldItems: Array<{ productId: string; quantity: number }>,
     newItems: Array<{ productId: string; quantity: number }>,
   ): Array<{ productId: string; quantity: number }> {
-    const oldQuantityByProduct = this.sumQuantitiesByProduct(oldItems);
-    const newQuantityByProduct = this.sumQuantitiesByProduct(newItems);
+    const oldQuantityByProduct = sumStockByProduct(oldItems);
+    const newQuantityByProduct = sumStockByProduct(newItems);
     const productIds = new Set([
       ...oldQuantityByProduct.keys(),
       ...newQuantityByProduct.keys(),
@@ -816,21 +873,27 @@ export class InventoryReturnsService {
     items: Array<{ productId: string; quantity: number }>,
     organizationId: string,
     multiplier: 1 | -1,
+    manager?: EntityManager,
   ) {
-    const quantityByProduct = this.sumQuantitiesByProduct(items);
-    for (const [productId, quantity] of quantityByProduct) {
-      if (quantity === 0) continue;
+    await this.inTransaction(manager, async (tx) => {
+      const quantityByProduct = sumStockByProduct(items);
+      for (const productId of [...quantityByProduct.keys()].sort()) {
+        const quantity = quantityByProduct.get(productId) || 0;
+        await adjustTrackedStock(
+          tx,
+          productId,
+          multiplier * quantity,
+          organizationId,
+        );
+      }
+    });
+  }
 
-      const product = await this.productRepository.findOne({
-        where: { id: productId, organizationId },
-      });
-      if (product?.infiniteStock) {
-        continue;
-      }
-      if (product) {
-        product.stockQuantity += multiplier * quantity;
-        await this.productRepository.save(product);
-      }
-    }
+  private inTransaction<T>(
+    manager: EntityManager | undefined,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    if (manager) return work(manager);
+    return this.returnRepository.manager.transaction(work);
   }
 }

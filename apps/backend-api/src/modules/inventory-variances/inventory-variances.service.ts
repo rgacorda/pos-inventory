@@ -9,6 +9,10 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { InventoryVarianceCount } from '../../entities/inventory-variance-count.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { UserEntity } from '../../entities/user.entity';
+import {
+  adjustTrackedStock,
+  toStockUnits,
+} from '../../common/stock-quantity';
 
 @Injectable()
 export class InventoryVariancesService {
@@ -290,13 +294,23 @@ export class InventoryVariancesService {
           );
         }
 
-        const previousQuantity = Number(product.stockQuantity) || 0;
-        const snapshot = Number(count.systemQuantity) || 0;
-        const adjustment = count.countedQuantity - snapshot;
+        const liveQuantity = Number(product.stockQuantity);
+        const previousQuantity = Number.isFinite(liveQuantity) ? liveQuantity : 0;
+        // systemQuantity is the stock when the shelf was counted. Sales and
+        // deliveries after that stay in the live quantity; only the original
+        // difference (counted - snapshot) is applied. A negative difference
+        // subtracts, a positive one adds.
+        const snapshot = toStockUnits(count.systemQuantity);
+        const counted = toStockUnits(count.countedQuantity);
+        const adjustment = counted - snapshot;
         const nextQuantity = previousQuantity + adjustment;
-        if (nextQuantity !== previousQuantity) {
-          product.stockQuantity = nextQuantity;
-          await queryRunner.manager.save(product);
+        if (adjustment !== 0) {
+          await adjustTrackedStock(
+            queryRunner.manager,
+            product.id,
+            adjustment,
+            organizationId,
+          );
         }
 
         count.status = 'APPLIED';

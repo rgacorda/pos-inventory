@@ -177,29 +177,10 @@ export class ProductsService {
       }
     }
 
-    const willBeUnlimited =
-      updateProductDto.infiniteStock !== undefined
-        ? Boolean(updateProductDto.infiniteStock)
-        : Boolean(product.infiniteStock);
-
-    // Unlimited products have no quantity. Ignore a stock number so a save
-    // cannot turn tracking back on by accident, and so managers cannot
-    // change a quantity that is not in use.
-    if (willBeUnlimited) {
-      delete updateProductDto.stockQuantity;
-    } else if (
-      requestingUser.role === UserRole.MANAGER &&
-      updateProductDto.stockQuantity !== undefined
-    ) {
-      // Stock changes on the product form are admin-only. Managers submit a
-      // physical count on Variance Inventory, and an admin applies it.
-      const nextStock = Number(updateProductDto.stockQuantity);
-      const currentStock = Number(product.stockQuantity) || 0;
-      if (nextStock !== currentStock) {
-        throw new ForbiddenException('Only an admin can change stock quantity');
-      }
-      delete updateProductDto.stockQuantity;
-    }
+    // Product edits update name, price, and the other fields. They never
+    // write stockQuantity. A number sent with the form is the quantity from
+    // when the dialog opened, and storing it would erase sales and deliveries.
+    delete updateProductDto.stockQuantity;
 
     const before = this.snapshotProduct(product);
 
@@ -220,7 +201,7 @@ export class ProductsService {
     this.assertNonNegativeProfit(product);
     await this.recordProductEdits(product, before, requestingUser);
     const enablingUnlimited = Boolean(product.infiniteStock) && !before.infiniteStock;
-    await this.productsRepository.save(product);
+    await this.saveProductKeepingStock(product);
     if (enablingUnlimited) {
       await this.productsRepository.manager.delete(InventoryVarianceCount, {
         productId: product.id,
@@ -247,7 +228,7 @@ export class ProductsService {
     // A second past the latest edit, so timestamp rounding cannot leave
     // that edit visible. A later save is still newer than this.
     product.editHistoryDismissedAt = new Date(new Date(latest).getTime() + 1000);
-    await this.productsRepository.save(product);
+    await this.saveProductKeepingStock(product);
     return this.findOne(id, requestingUser);
   }
 
@@ -261,7 +242,7 @@ export class ProductsService {
 
     delete (product as any).supplier;
     this.stampArchived(product, requestingUser);
-    await this.productsRepository.save(product);
+    await this.saveProductKeepingStock(product);
   }
 
   async restore(id: string, requestingUser: any) {
@@ -276,7 +257,7 @@ export class ProductsService {
     product.deletedAt = null;
     product.deletedByUserId = null;
     product.deletedByName = null;
-    await this.productsRepository.save(product);
+    await this.saveProductKeepingStock(product);
     return this.findOne(id, requestingUser);
   }
 
@@ -340,6 +321,37 @@ export class ProductsService {
       .addOrderBy('product.stockQuantity', 'DESC')
       .addOrderBy('product.name', 'ASC')
       .getMany();
+  }
+
+  /**
+   * Writes the product without putting a stale stockQuantity back.
+   * The row is locked, then stock is either the admin's new absolute
+   * quantity or whatever is in the database at that moment (sales and
+   * deliveries included).
+   */
+  private async saveProductKeepingStock(
+    product: ProductEntity,
+    absoluteStock?: number,
+  ) {
+    await this.productsRepository.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(ProductEntity, {
+        where: { id: product.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) {
+        throw new NotFoundException('Product not found');
+      }
+      const live = Number(locked.stockQuantity);
+      product.stockQuantity =
+        absoluteStock !== undefined
+          ? absoluteStock
+          : Number.isFinite(live)
+            ? live
+            : 0;
+      delete (product as any).supplier;
+      delete (product as any).organization;
+      await manager.save(product);
+    });
   }
 
   private snapshotProduct(product: ProductEntity) {

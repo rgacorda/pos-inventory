@@ -589,7 +589,7 @@ export default function ProductsPage() {
     setShowDeleteDialog(true);
   };
 
-  const buildProductPayload = (includeStock = true) => {
+  const buildProductPayload = (editing = false) => {
     const payload: Record<string, unknown> = {
       sku: formData.sku,
       name: formData.name,
@@ -618,11 +618,17 @@ export default function ProductsPage() {
     };
     if (canEditStock) {
       payload.infiniteStock = formData.infiniteStock;
-      if (!formData.infiniteStock) {
-        payload.stockQuantity =
+      // Edits never send stock. The number on the form is the quantity from
+      // when the dialog opened, and writing it back would erase sales and
+      // deliveries since then. New products still send their starting quantity.
+      if (!editing && !formData.infiniteStock) {
+        const nextStock =
           formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10);
+        if (Number.isFinite(nextStock)) {
+          payload.stockQuantity = nextStock;
+        }
       }
-    } else if (includeStock) {
+    } else if (!editing) {
       payload.stockQuantity =
         formData.stockQuantity === "" ? 0 : parseInt(formData.stockQuantity, 10);
     }
@@ -663,7 +669,7 @@ export default function ProductsPage() {
     setIsSaving(true);
 
     try {
-      await apiClient.updateProduct(selectedProduct.id, buildProductPayload(canEditStock));
+      await apiClient.updateProduct(selectedProduct.id, buildProductPayload(true));
       showSuccessToast(SUCCESS_MESSAGES.UPDATED("Product"));
       setShowEditDialog(false);
       setSelectedProduct(null);
@@ -2388,25 +2394,19 @@ export default function ProductsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-stockQuantity">
-                      Stock Quantity{canEditStock && !formData.infiniteStock ? " *" : ""}
+                      Stock Quantity
                     </Label>
                     <Input
                       id="edit-stockQuantity"
                       type="number"
                       value={formData.infiniteStock ? "" : formData.stockQuantity}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          stockQuantity: e.target.value,
-                        })
-                      }
                       placeholder={formData.infiniteStock ? "Unlimited" : undefined}
-                      required={canEditStock && !formData.infiniteStock}
-                      disabled={!canEditStock || formData.infiniteStock}
+                      disabled
+                      readOnly
                     />
-                    {!canEditStock && !formData.infiniteStock && (
+                    {!formData.infiniteStock && (
                       <p className="text-xs text-muted-foreground">
-                        Only an admin can change stock. Enter a count on Variance Inventory.
+                        Shown for reference. Saving this product does not change stock. Sales, deliveries, and variance counts update the quantity.
                       </p>
                     )}
                     {!canEditStock && formData.infiniteStock && (
@@ -2416,7 +2416,7 @@ export default function ProductsPage() {
                     )}
                     {canEditStock && !formData.infiniteStock && selectedProduct?.infiniteStock && (
                       <p className="text-xs text-muted-foreground">
-                        Enter the quantity on hand to start tracking again.
+                        Turning this off keeps the quantity already stored. Use variance to set what is on the shelf.
                       </p>
                     )}
                   </div>

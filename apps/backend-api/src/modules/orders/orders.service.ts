@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, QueryFailedError, DataSource } from 'typeorm';
+import { In, Repository, QueryFailedError, DataSource, EntityManager } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { UserEntity } from '../../entities/user.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
@@ -16,6 +16,10 @@ import { PaymentEntity } from '../../entities/payment.entity';
 import { TerminalEntity } from '../../entities/terminal.entity';
 import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
 import { UserRole, OrderStatus } from '@pos/shared-types';
+import {
+  adjustTrackedStock,
+  sumStockByProduct,
+} from '../../common/stock-quantity';
 
 @Injectable()
 export class OrdersService {
@@ -920,64 +924,42 @@ export class OrdersService {
     await queryRunner.startTransaction();
 
     try {
-      // Load order items
-      const items = await queryRunner.manager.find(OrderItemEntity, {
-        where: { orderId: order.id },
+      const lockedOrder = await queryRunner.manager.findOne(OrderEntity, {
+        where: { id: order.id },
+        lock: { mode: 'pessimistic_write' },
       });
-
-      this.logger.log(`Voiding order ${order.orderNumber} with ${items.length} items`);
-
-      // Restore stock for each item (except manual items)
-      let restoredCount = 0;
-      for (const item of items) {
-        // Skip manual items (they don't affect stock)
-        if (item.productId.startsWith('manual-')) {
-          this.logger.log(`Skipping stock restoration for manual item: ${item.name}`);
-          continue;
-        }
-
-        // Check if product exists
-        const product = await queryRunner.manager.findOne(ProductEntity, {
-          where: { id: item.productId },
-        });
-
-        if (product?.infiniteStock) {
-          this.logger.log(
-            `Skipping stock restoration for unlimited stock product: ${item.name}`,
-          );
-        } else if (product) {
-          // Restore stock by adding back the quantity
-          await queryRunner.manager.increment(
-            ProductEntity,
-            { id: item.productId },
-            'stockQuantity',
-            item.quantity,
-          );
-          
-          this.logger.log(
-            `Restored ${item.quantity} units of ${item.name} (${item.sku}) - Stock: ${product.stockQuantity} → ${product.stockQuantity + item.quantity}`,
-          );
-          restoredCount++;
-        } else {
-          this.logger.warn(
-            `Product not found for stock restoration: ${item.productId} (${item.name})`,
-          );
-        }
+      if (!lockedOrder) {
+        throw new NotFoundException('Order not found');
+      }
+      if (lockedOrder.status === OrderStatus.VOID) {
+        throw new BadRequestException('Order is already voided');
       }
 
-      // Update order status and void info
-      order.status = OrderStatus.VOID;
-      order.voidedBy = requestingUser.id;
-      order.voidedAt = new Date();
+      // Load order items
+      const items = await queryRunner.manager.find(OrderItemEntity, {
+        where: { orderId: lockedOrder.id },
+      });
 
-      await queryRunner.manager.save(OrderEntity, order);
+      this.logger.log(`Voiding order ${lockedOrder.orderNumber} with ${items.length} items`);
+
+      const restoredCount = await this.restoreStock(
+        queryRunner.manager,
+        items,
+      );
+
+      // Update order status and void info
+      lockedOrder.status = OrderStatus.VOID;
+      lockedOrder.voidedBy = requestingUser.id;
+      lockedOrder.voidedAt = new Date();
+
+      await queryRunner.manager.save(OrderEntity, lockedOrder);
       await queryRunner.commitTransaction();
 
       this.logger.log(
-        `Order ${order.orderNumber} voided successfully. Stock restored for ${restoredCount} items.`,
+        `Order ${lockedOrder.orderNumber} voided successfully. Stock restored for ${restoredCount} items.`,
       );
 
-      return this.findOne(order.id, requestingUser);
+      return this.findOne(lockedOrder.id, requestingUser);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Failed to void order ${order.orderNumber}:`, error);
@@ -1114,51 +1096,33 @@ export class OrdersService {
     await queryRunner.startTransaction();
 
     try {
+      const lockedOrder = await queryRunner.manager.findOne(OrderEntity, {
+        where: { id: order.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedOrder) {
+        throw new NotFoundException('Order not found');
+      }
+      if (lockedOrder.exchangedAt) {
+        throw new BadRequestException('Order has already been exchanged');
+      }
+      if (lockedOrder.status === OrderStatus.VOID) {
+        throw new BadRequestException('Cannot exchange a voided order');
+      }
+
       const returnedItems = dto.returnedItems ?? [];
 
       this.logger.log(
-        `Exchanging order ${order.orderNumber} — restoring stock for ${returnedItems.length} returned item(s)`,
+        `Exchanging order ${lockedOrder.orderNumber} — restoring stock for ${returnedItems.length} returned item(s)`,
       );
 
-      let restoredCount = 0;
-      for (const item of returnedItems) {
-        // Skip manual items and items without a productId (nothing to restock)
-        if (!item.productId || item.productId.startsWith('manual-')) {
-          this.logger.log(
-            `Skipping stock restoration for returned item without productId: ${item.name}`,
-          );
-          continue;
-        }
+      const restoredCount = await this.restoreStock(
+        queryRunner.manager,
+        returnedItems,
+      );
 
-        const product = await queryRunner.manager.findOne(ProductEntity, {
-          where: { id: item.productId },
-        });
-
-        if (product?.infiniteStock) {
-          this.logger.log(
-            `Skipping stock restoration for unlimited stock product: ${item.name}`,
-          );
-        } else if (product) {
-          await queryRunner.manager.increment(
-            ProductEntity,
-            { id: item.productId },
-            'stockQuantity',
-            item.quantity,
-          );
-
-          this.logger.log(
-            `Restored ${item.quantity} units of ${item.name} - Stock: ${product.stockQuantity} → ${product.stockQuantity + item.quantity}`,
-          );
-          restoredCount++;
-        } else {
-          this.logger.warn(
-            `Product not found for stock restoration: ${item.productId} (${item.name})`,
-          );
-        }
-      }
-
-      order.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
-      order.returnedItems = returnedItems.map((item) => ({
+      lockedOrder.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
+      lockedOrder.returnedItems = returnedItems.map((item) => ({
         productId: item.productId,
         name: item.name,
         sku: item.sku,
@@ -1166,14 +1130,14 @@ export class OrdersService {
         unitPrice: item.unitPrice,
         total: item.total,
       }));
-      await queryRunner.manager.save(OrderEntity, order);
+      await queryRunner.manager.save(OrderEntity, lockedOrder);
       await queryRunner.commitTransaction();
 
       this.logger.log(
-        `Order ${order.orderNumber} exchanged successfully. Stock restored for ${restoredCount} returned item(s).`,
+        `Order ${lockedOrder.orderNumber} exchanged successfully. Stock restored for ${restoredCount} returned item(s).`,
       );
 
-      return this.findInOrganization(order.id, requestingUser);
+      return this.findInOrganization(lockedOrder.id, requestingUser);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Failed to exchange order ${order.orderNumber}:`, error);
@@ -1181,6 +1145,40 @@ export class OrdersService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private async restoreStock(
+    manager: EntityManager,
+    items: Array<{ productId?: string; quantity?: unknown; name?: string }>,
+  ) {
+    const totals = sumStockByProduct(
+      (items || []).filter(
+        (item) => item.productId && !item.productId.startsWith('manual-'),
+      ),
+    );
+    let restored = 0;
+    for (const productId of [...totals.keys()].sort()) {
+      const quantity = totals.get(productId) || 0;
+      const affected = await adjustTrackedStock(manager, productId, quantity);
+      if (affected > 0) {
+        this.logger.log(`Restored ${quantity} units of product ${productId}`);
+        restored += 1;
+        continue;
+      }
+      const product = await manager.findOne(ProductEntity, {
+        where: { id: productId },
+      });
+      if (product?.infiniteStock) {
+        this.logger.log(
+          `Skipping stock restoration for unlimited stock product: ${product.name}`,
+        );
+      } else {
+        this.logger.warn(
+          `Product not found for stock restoration: ${productId}`,
+        );
+      }
+    }
+    return restored;
   }
 
   async getOrderStats(requestingUser: any) {
