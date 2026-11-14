@@ -12,6 +12,7 @@ import { InventoryVarianceCount } from '../../entities/inventory-variance-count.
 import { Supplier } from '../../entities/supplier.entity';
 import { CreateProductDto, UpdateProductDto } from './dto';
 import { UserRole } from '@pos/shared-types';
+import { applyMarkup, belowCostPricingMessage, roundMoney } from '@pos/shared-utils';
 
 @Injectable()
 export class ProductsService {
@@ -27,26 +28,26 @@ export class ProductsService {
       // Use null (not undefined) so an update actually clears the column.
       dto.packPrice = null as any;
     } else if (dto.packPrice != null && Number(dto.packPrice) > 0) {
-      // Keep manually entered pack price (legacy or user override)
-      dto.packPrice = Number(dto.packPrice);
+      dto.packPrice = roundMoney(Number(dto.packPrice));
     } else {
-      const base = cost * Number(dto.packQuantity);
-      const pct = Number(dto.packMarkupPercentage) || 0;
-      const fixed = Number(dto.packMarkupFixed) || 0;
-      const computed = base + (base * pct) / 100 + fixed;
+      const computed = applyMarkup(
+        cost * Number(dto.packQuantity),
+        dto.packMarkupPercentage,
+        dto.packMarkupFixed,
+      );
       dto.packPrice = computed > 0 ? computed : (null as any);
     }
 
     if (!dto.halfPackQuantity) {
       dto.halfPackPrice = null as any;
     } else if (dto.halfPackPrice != null && Number(dto.halfPackPrice) > 0) {
-      // Keep manually entered half-pack price
-      dto.halfPackPrice = Number(dto.halfPackPrice);
+      dto.halfPackPrice = roundMoney(Number(dto.halfPackPrice));
     } else {
-      const base = cost * Number(dto.halfPackQuantity);
-      const pct = Number(dto.halfPackMarkupPercentage) || 0;
-      const fixed = Number(dto.halfPackMarkupFixed) || 0;
-      const computed = base + (base * pct) / 100 + fixed;
+      const computed = applyMarkup(
+        cost * Number(dto.halfPackQuantity),
+        dto.halfPackMarkupPercentage,
+        dto.halfPackMarkupFixed,
+      );
       dto.halfPackPrice = computed > 0 ? computed : (null as any);
     }
   }
@@ -367,8 +368,14 @@ export class ProductsService {
       infiniteStock: Boolean(product.infiniteStock),
       packQuantity: product.packQuantity,
       packPrice: product.packPrice,
+      packMarkupPercentage: product.packMarkupPercentage,
+      packMarkupFixed: product.packMarkupFixed,
       halfPackQuantity: product.halfPackQuantity,
       halfPackPrice: product.halfPackPrice,
+      halfPackMarkupPercentage: product.halfPackMarkupPercentage,
+      halfPackMarkupFixed: product.halfPackMarkupFixed,
+      markupPercentage: product.markupPercentage,
+      markupFixed: product.markupFixed,
       supplierId: product.supplierId,
       supplierName: product.supplier?.name || null,
     };
@@ -400,6 +407,8 @@ export class ProductsService {
     track('Status', this.displayText(before.status), this.displayText(product.status));
     track('Supplier', this.displayText(before.supplierName), this.displayText(supplierName));
     track('Cost', this.displayMoney(before.cost), this.displayMoney(product.cost));
+    track('Markup %', this.displayPercent(before.markupPercentage), this.displayPercent(product.markupPercentage));
+    track('Fixed markup', this.displayMoney(before.markupFixed), this.displayMoney(product.markupFixed));
     track('Selling price', this.displayMoney(before.price), this.displayMoney(product.price));
     track(
       'Stock',
@@ -407,11 +416,23 @@ export class ProductsService {
       product.infiniteStock ? 'Unlimited' : this.displayInt(product.stockQuantity),
     );
     track('Pack quantity', this.displayInt(before.packQuantity), this.displayInt(product.packQuantity));
+    track('Pack markup %', this.displayPercent(before.packMarkupPercentage), this.displayPercent(product.packMarkupPercentage));
+    track('Pack fixed markup', this.displayMoney(before.packMarkupFixed), this.displayMoney(product.packMarkupFixed));
     track('Pack price', this.displayMoney(before.packPrice), this.displayMoney(product.packPrice));
     track(
       'Half-pack quantity',
       this.displayInt(before.halfPackQuantity),
       this.displayInt(product.halfPackQuantity),
+    );
+    track(
+      'Half-pack markup %',
+      this.displayPercent(before.halfPackMarkupPercentage),
+      this.displayPercent(product.halfPackMarkupPercentage),
+    );
+    track(
+      'Half-pack fixed markup',
+      this.displayMoney(before.halfPackMarkupFixed),
+      this.displayMoney(product.halfPackMarkupFixed),
     );
     track(
       'Half-pack price',
@@ -454,6 +475,13 @@ export class ProductsService {
     return `₱${amount.toFixed(2)}`;
   }
 
+  private displayPercent(value: unknown) {
+    if (value == null || value === '') return '—';
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '—';
+    return `${amount}%`;
+  }
+
   private displayInt(value: unknown) {
     if (value == null || value === '') return '—';
     const amount = Number(value);
@@ -494,36 +522,31 @@ export class ProductsService {
     halfPackQuantity?: number | null;
     halfPackPrice?: number | null;
   }) {
-    const cost = Number(dto.cost) || 0;
-    const price = Number(dto.price);
-    if (!Number.isFinite(price) || Math.round((price - cost) * 100) < 0) {
-      throw new BadRequestException(
-        'Unit selling price cannot be below cost. A profit of zero is allowed.',
-      );
-    }
-
-    const packQty = Number(dto.packQuantity) || 0;
-    if (packQty > 0 && dto.packPrice != null && Number(dto.packPrice) > 0) {
-      const packPrice = Number(dto.packPrice);
-      if (Math.round((packPrice - cost * packQty) * 100) < 0) {
-        throw new BadRequestException(
-          'Pack price cannot be below the cost of that pack. A profit of zero is allowed.',
-        );
-      }
-    }
-
-    const halfQty = Number(dto.halfPackQuantity) || 0;
-    if (
-      halfQty > 0 &&
-      dto.halfPackPrice != null &&
-      Number(dto.halfPackPrice) > 0
-    ) {
-      const halfPrice = Number(dto.halfPackPrice);
-      if (Math.round((halfPrice - cost * halfQty) * 100) < 0) {
-        throw new BadRequestException(
-          'Half-pack price cannot be below the cost of that half-pack. A profit of zero is allowed.',
-        );
-      }
+    const message = belowCostPricingMessage(
+      {
+        cost: dto.cost == null ? '' : String(dto.cost),
+        price: dto.price == null ? '' : String(dto.price),
+        markupPercentage: '',
+        markupFixed: '',
+        packQuantity: dto.packQuantity ? String(dto.packQuantity) : '',
+        packMarkupPercentage: '',
+        packMarkupFixed: '',
+        packPrice:
+          dto.packPrice != null && Number(dto.packPrice) > 0
+            ? String(dto.packPrice)
+            : '',
+        halfPackQuantity: dto.halfPackQuantity ? String(dto.halfPackQuantity) : '',
+        halfPackMarkupPercentage: '',
+        halfPackMarkupFixed: '',
+        halfPackPrice:
+          dto.halfPackPrice != null && Number(dto.halfPackPrice) > 0
+            ? String(dto.halfPackPrice)
+            : '',
+      },
+      Number(dto.cost) || 0,
+    );
+    if (message) {
+      throw new BadRequestException(message);
     }
   }
 }

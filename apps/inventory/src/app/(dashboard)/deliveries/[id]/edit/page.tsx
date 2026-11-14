@@ -3,7 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
-import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
+import { TierMarkupSection } from "@/components/pricing/tier-markup-section";
+import {
+  applyDeliveryCostToPrices,
+  deliveryItemPricingFromFields,
+  deliveryItemPricingFromProduct,
+  deliveryPriceOverrides,
+  emptyDeliveryItemPricing,
+  fieldsFromDeliveryItemPricing,
+  tierPricingPayload,
+} from "@/lib/delivery-item-pricing";
+import {
+  belowCostPricingMessage,
+  formatStockQuantity,
+  isUnlimitedStock,
+  KEEP_SAVED_PRICES,
+  PriceManual,
+  TRACK_COST,
+} from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,10 +102,16 @@ interface DeliveryItem {
   // above (i.e. only once the delivery is RECEIVED) so pricing changes
   // never partially apply if the delivery itself is never saved.
   priceOverride?: number;
-  packPriceOverride?: number;
-  packQuantityOverride?: number;
-  halfPackPriceOverride?: number;
-  halfPackQuantityOverride?: number;
+  packPriceOverride?: number | null;
+  packQuantityOverride?: number | null;
+  halfPackPriceOverride?: number | null;
+  halfPackQuantityOverride?: number | null;
+  markupPercentage?: number | null;
+  markupFixed?: number | null;
+  packMarkupPercentage?: number | null;
+  packMarkupFixed?: number | null;
+  halfPackMarkupPercentage?: number | null;
+  halfPackMarkupFixed?: number | null;
   packInfo?: {
     type: "PACK" | "HALF_PACK";
     packs: number;
@@ -114,8 +137,12 @@ interface Product {
   markupFixed?: number;
   packPrice?: number;
   packQuantity?: number;
+  packMarkupPercentage?: number;
+  packMarkupFixed?: number;
   halfPackPrice?: number;
   halfPackQuantity?: number;
+  halfPackMarkupPercentage?: number;
+  halfPackMarkupFixed?: number;
   status: string;
   supplierId?: string | null;
   supplier?: { id: string; name: string } | null;
@@ -178,6 +205,12 @@ export default function EditDeliveryPage() {
     price: "",
     packPrice: "",
     packQuantity: "",
+    packMarkupPercentage: "",
+    packMarkupFixed: "",
+    halfPackPrice: "",
+    halfPackQuantity: "",
+    halfPackMarkupPercentage: "",
+    halfPackMarkupFixed: "",
     cost: "",
     markupPercentage: "",
     markupFixed: "",
@@ -196,12 +229,10 @@ export default function EditDeliveryPage() {
     quantity: "",
     unitCost: "",
     isFree: false,
-    sellingPrice: "",
-    packPrice: "",
-    packQuantity: "",
-    halfPackPrice: "",
-    halfPackQuantity: "",
+    ...emptyDeliveryItemPricing(),
   });
+  const [itemPriceManual, setItemPriceManual] = useState<PriceManual>(TRACK_COST);
+  const [productPriceManual, setProductPriceManual] = useState<PriceManual>(TRACK_COST);
 
   const currentSupplierName = suppliers.find((s) => s.id === formData.supplierId)?.name;
 
@@ -275,21 +306,6 @@ export default function EditDeliveryPage() {
     fetchSuppliers();
     fetchDelivery();
   }, [deliveryId]);
-
-  // Calculate selling price from cost and markups
-  useEffect(() => {
-    if (productFormData.cost || productFormData.markupPercentage || productFormData.markupFixed) {
-      const costNum = parseFloat(productFormData.cost) || 0;
-      const percentNum = parseFloat(productFormData.markupPercentage) || 0;
-      const fixedNum = parseFloat(productFormData.markupFixed) || 0;
-      const calculatedPrice = costNum + (costNum * percentNum / 100) + fixedNum;
-      
-      setProductFormData(prev => ({
-        ...prev,
-        price: calculatedPrice > 0 ? calculatedPrice.toFixed(2) : ""
-      }));
-    }
-  }, [productFormData.cost, productFormData.markupPercentage, productFormData.markupFixed]);
 
   async function fetchProducts() {
     try {
@@ -399,19 +415,12 @@ export default function EditDeliveryPage() {
       ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier
       : 0;
   const previewSellingPrice = parseFloat(itemFormData.sellingPrice) || 0;
-  const previewUnitProfit = previewSellingPrice - previewUnitCost;
-
-  const previewPackQuantity = parseInt(itemFormData.packQuantity) || 0;
-  const previewPackPrice = parseFloat(itemFormData.packPrice) || 0;
-  const previewPackCost = previewUnitCost * previewPackQuantity;
-  const previewPackProfit = previewPackPrice - previewPackCost;
-
-  const previewHalfPackQuantity = parseInt(itemFormData.halfPackQuantity) || 0;
-  const previewHalfPackPrice = parseFloat(itemFormData.halfPackPrice) || 0;
-  const previewHalfPackCost = previewUnitCost * previewHalfPackQuantity;
-  const previewHalfPackProfit = previewHalfPackPrice - previewHalfPackCost;
+  const itemPricingError = itemFormData.isFree
+    ? null
+    : belowCostPricingMessage(fieldsFromDeliveryItemPricing(itemFormData), previewUnitCost);
 
   function resetProductForm() {
+    setProductPriceManual(TRACK_COST);
     setProductFormData({
       name: "",
       sku: "",
@@ -420,6 +429,12 @@ export default function EditDeliveryPage() {
       price: "",
       packPrice: "",
       packQuantity: "",
+      packMarkupPercentage: "",
+      packMarkupFixed: "",
+      halfPackPrice: "",
+      halfPackQuantity: "",
+      halfPackMarkupPercentage: "",
+      halfPackMarkupFixed: "",
       cost: "",
       markupPercentage: "",
       markupFixed: "",
@@ -435,16 +450,13 @@ export default function EditDeliveryPage() {
   }
 
   function resetItemForm() {
+    setItemPriceManual(TRACK_COST);
     setItemFormData({
       quantityType: "UNIT",
       quantity: "",
       unitCost: "",
       isFree: false,
-      sellingPrice: "",
-      packPrice: "",
-      packQuantity: "",
-      halfPackPrice: "",
-      halfPackQuantity: "",
+      ...emptyDeliveryItemPricing(),
     });
   }
 
@@ -482,16 +494,13 @@ export default function EditDeliveryPage() {
     
     const product = products.find(p => p.id === selectedProductId);
     if (product) {
+      setItemPriceManual(KEEP_SAVED_PRICES);
       setItemFormData({
         quantityType: "UNIT",
         quantity: "",
-        unitCost: product.cost.toString(),
+        unitCost: product.cost?.toString() || "0",
         isFree: false,
-        sellingPrice: product.price?.toString() || "",
-        packPrice: product.packPrice?.toString() || "",
-        packQuantity: product.packQuantity?.toString() || "",
-        halfPackPrice: product.halfPackPrice?.toString() || "",
-        halfPackQuantity: product.halfPackQuantity?.toString() || "",
+        ...deliveryItemPricingFromProduct(product),
       });
     }
     setIsAddItemDialogOpen(true);
@@ -524,27 +533,16 @@ export default function EditDeliveryPage() {
     // delivery price (whether bought by unit, pack, or half-pack), unless
     // the item was free (free items carry no real purchase price).
     const updateProductCost = !isFree;
+    const pricingFields = fieldsFromDeliveryItemPricing(itemFormData);
+    if (!isFree) {
+      const pricingError = belowCostPricingMessage(pricingFields, unitCost);
+      if (pricingError) {
+        showErrorToast(pricingError);
+        return;
+      }
+    }
 
-    // Manual selling-price overrides entered in the Pricing & Profit section
-    // below. These are only sent when they differ from "unset" so a blank
-    // field never accidentally wipes out an existing price. They're applied
-    // by the backend at the same time as the cost sync above (i.e. only once
-    // the delivery is RECEIVED), never immediately, so nothing is left
-    // half-applied if this delivery is never saved (this used to update the
-    // product's pack pricing right away, regardless of delivery status -
-    // moved here so it's consistent with cost and doesn't apply prematurely
-    // for a still-PENDING delivery).
-    const sellingPriceNum = parseFloat(itemFormData.sellingPrice) || 0;
-    const packPriceNum = parseFloat(itemFormData.packPrice) || 0;
-    const packQuantityNum = parseInt(itemFormData.packQuantity) || 0;
-    const halfPackPriceNum = parseFloat(itemFormData.halfPackPrice) || 0;
-    const halfPackQuantityNum = parseInt(itemFormData.halfPackQuantity) || 0;
-
-    // Stock, cost, and pricing changes are NOT applied here. They are
-    // deferred until the delivery itself is saved (see handleSubmit), so
-    // adding an item to this form doesn't touch inventory until the
-    // delivery is actually created/updated - matching the create-delivery
-    // flow and avoiding premature stock changes.
+    // Stock, cost, and pricing changes are applied when the delivery is saved.
     const newItem: DeliveryItem = {
       productId: product.id,
       productName: product.name,
@@ -553,11 +551,7 @@ export default function EditDeliveryPage() {
       totalCost,
       isFree,
       updateProductCost,
-      ...(!isFree && sellingPriceNum > 0 && { priceOverride: sellingPriceNum }),
-      ...(!isFree && packQuantityNum > 0 && { packQuantityOverride: packQuantityNum }),
-      ...(!isFree && packPriceNum > 0 && { packPriceOverride: packPriceNum }),
-      ...(!isFree && halfPackQuantityNum > 0 && { halfPackQuantityOverride: halfPackQuantityNum }),
-      ...(!isFree && halfPackPriceNum > 0 && { halfPackPriceOverride: halfPackPriceNum }),
+      ...(!isFree ? deliveryPriceOverrides(pricingFields) : {}),
       ...(itemFormData.quantityType !== "UNIT" && {
         packInfo: {
           type: itemFormData.quantityType,
@@ -578,18 +572,23 @@ export default function EditDeliveryPage() {
   }
 
   async function handleCreateProduct() {
+    if (productFormData.price.trim() === "") {
+      showErrorToast("Selling price is required");
+      return;
+    }
+    const pricingError = belowCostPricingMessage(productFormData);
+    if (pricingError) {
+      showErrorToast(pricingError);
+      return;
+    }
     try {
+      const pricing = tierPricingPayload(productFormData);
       const productData = {
         sku: productFormData.sku,
         name: productFormData.name,
         description: productFormData.description,
         category: productFormData.category,
-        price: parseFloat(productFormData.price),
-        packPrice: productFormData.packPrice ? parseFloat(productFormData.packPrice) : null,
-        packQuantity: productFormData.packQuantity ? parseInt(productFormData.packQuantity) : null,
-        cost: parseFloat(productFormData.cost),
-        markupPercentage: productFormData.markupPercentage ? parseFloat(productFormData.markupPercentage) : null,
-        markupFixed: productFormData.markupFixed ? parseFloat(productFormData.markupFixed) : null,
+        ...pricing,
         addonPrice: productFormData.addonPrice ? parseFloat(productFormData.addonPrice) : 0,
         convenienceMarkupPercentage: productFormData.convenienceMarkupPercentage ? parseFloat(productFormData.convenienceMarkupPercentage) : null,
         convenienceMarkup: productFormData.convenienceMarkup ? parseFloat(productFormData.convenienceMarkup) : 0,
@@ -606,24 +605,20 @@ export default function EditDeliveryPage() {
       await fetchProducts();
       setIsCreateProductDialogOpen(false);
       setSelectedProductId(savedProduct.id);
-      
-      // Pre-populate item form with product details
+
+      const pricingForItem = deliveryItemPricingFromFields(productFormData);
+      const manualForItem = productPriceManual;
+      const unitCostForItem = productFormData.cost;
+      resetProductForm();
+      setItemPriceManual(manualForItem);
       setItemFormData({
         quantityType: "UNIT",
         quantity: "",
-        unitCost: productFormData.cost,
+        unitCost: unitCostForItem,
         isFree: false,
-        sellingPrice: productFormData.price || "",
-        packPrice: productFormData.packPrice || "",
-        packQuantity: productFormData.packQuantity || "",
-        halfPackPrice: "",
-        halfPackQuantity: "",
+        ...pricingForItem,
       });
-      
-      // Open the add item dialog
       setIsAddItemDialogOpen(true);
-      
-      resetProductForm();
     } catch (error: any) {
       showErrorFromException(error, ERROR_MESSAGES.CREATE_FAILED("product"));
     }
@@ -1247,7 +1242,7 @@ export default function EditDeliveryPage() {
 
       {/* Add Item to Delivery Dialog */}
       <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
-        <DialogContent className="!max-w-2xl">
+        <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Item to Delivery</DialogTitle>
             <DialogDescription>
@@ -1364,9 +1359,22 @@ export default function EditDeliveryPage() {
                 type="number"
                 step="0.01"
                 value={itemFormData.isFree ? "0" : itemFormData.unitCost}
-                onChange={(e) =>
-                  setItemFormData({ ...itemFormData, unitCost: e.target.value })
-                }
+                onChange={(e) => {
+                  const entered = e.target.value;
+                  const perUnit =
+                    itemMultiplier > 0 ? (parseFloat(entered) || 0) / itemMultiplier : 0;
+                  const synced = applyDeliveryCostToPrices(
+                    itemFormData,
+                    itemPriceManual,
+                    perUnit,
+                  );
+                  setItemPriceManual(synced.manual);
+                  setItemFormData({
+                    ...itemFormData,
+                    ...synced.pricing,
+                    unitCost: entered,
+                  });
+                }}
                 placeholder="Cost from supplier"
                 disabled={itemFormData.isFree}
                 required={!itemFormData.isFree}
@@ -1387,178 +1395,19 @@ export default function EditDeliveryPage() {
             )}
 
             {!itemFormData.isFree && (
-              <div className="border-t pt-4 mt-4 space-y-3">
-                <div>
-                  <h4 className="text-sm font-semibold">Selling Price &amp; Potential Profit</h4>
-                  <p className="text-xs text-muted-foreground">
-                    Read left to right: cost, sell price, then profit. Sell prices update with cost when the delivery is saved (not while it stays PENDING). Pack size here is for future sales — not the quantity received above.
-                  </p>
-                </div>
-
-                {/* Unit */}
-                <div className="rounded-md border p-3 space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Per unit</p>
-                  <div className="grid grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Cost</Label>
-                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
-                        ₱{previewUnitCost.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Sell price</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={itemFormData.sellingPrice}
-                        onChange={(e) => setItemFormData({ ...itemFormData, sellingPrice: e.target.value })}
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
-                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewUnitProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        ₱{previewUnitProfit.toFixed(2)}
-                        {previewSellingPrice > 0 && (
-                          <span className="ml-1 text-xs font-normal text-muted-foreground">
-                            ({((previewUnitProfit / previewSellingPrice) * 100).toFixed(1)}%)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pack */}
-                <div className="rounded-md border p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pack</p>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs whitespace-nowrap">Items in pack</Label>
-                      <Input
-                        type="number"
-                        className="w-20 h-8"
-                        value={itemFormData.packQuantity}
-                        onChange={(e) => setItemFormData({ ...itemFormData, packQuantity: e.target.value })}
-                        placeholder="12"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Cost</Label>
-                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
-                        ₱{previewPackCost.toFixed(2)}
-                      </div>
-                      {previewPackQuantity > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{previewUnitCost.toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Sell price</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={itemFormData.packPrice}
-                        onChange={(e) => setItemFormData({ ...itemFormData, packPrice: e.target.value })}
-                        placeholder="0.00"
-                      />
-                      {previewPackQuantity > 0 && previewPackPrice > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{(previewPackPrice / previewPackQuantity).toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
-                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {previewPackQuantity > 0 && previewPackPrice > 0 ? (
-                          <>
-                            ₱{previewPackProfit.toFixed(2)}
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              ({((previewPackProfit / previewPackPrice) * 100).toFixed(1)}%)
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
-                        )}
-                      </div>
-                      {previewPackQuantity > 0 && previewPackPrice > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{(previewPackProfit / previewPackQuantity).toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Half Pack */}
-                <div className="rounded-md border p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Half pack</p>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs whitespace-nowrap">Items in half pack</Label>
-                      <Input
-                        type="number"
-                        className="w-20 h-8"
-                        value={itemFormData.halfPackQuantity}
-                        onChange={(e) => setItemFormData({ ...itemFormData, halfPackQuantity: e.target.value })}
-                        placeholder="6"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 items-end">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Cost</Label>
-                      <div className="h-9 flex items-center text-sm font-medium tabular-nums">
-                        ₱{previewHalfPackCost.toFixed(2)}
-                      </div>
-                      {previewHalfPackQuantity > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{previewUnitCost.toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Sell price</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={itemFormData.halfPackPrice}
-                        onChange={(e) => setItemFormData({ ...itemFormData, halfPackPrice: e.target.value })}
-                        placeholder="0.00"
-                      />
-                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{(previewHalfPackPrice / previewHalfPackQuantity).toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Potential profit</Label>
-                      <div className={`h-9 flex items-center text-sm font-semibold tabular-nums ${previewHalfPackProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 ? (
-                          <>
-                            ₱{previewHalfPackProfit.toFixed(2)}
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              ({((previewHalfPackProfit / previewHalfPackPrice) * 100).toFixed(1)}%)
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-xs font-normal text-muted-foreground">Set qty &amp; price</span>
-                        )}
-                      </div>
-                      {previewHalfPackQuantity > 0 && previewHalfPackPrice > 0 && (
-                        <p className="text-xs text-muted-foreground tabular-nums">
-                          ₱{(previewHalfPackProfit / previewHalfPackQuantity).toFixed(2)} / item
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <TierMarkupSection
+                idPrefix="edit-delivery-item"
+                fields={fieldsFromDeliveryItemPricing(itemFormData)}
+                manual={itemPriceManual}
+                unitCost={previewUnitCost}
+                onChange={(fields, manual) => {
+                  setItemPriceManual(manual);
+                  setItemFormData((prev) => ({
+                    ...prev,
+                    ...deliveryItemPricingFromFields(fields),
+                  }));
+                }}
+              />
             )}
 
             {!itemFormData.isFree && itemFormData.unitCost && (
@@ -1567,11 +1416,9 @@ export default function EditDeliveryPage() {
                   The product's cost will be updated to ₱
                   {(itemMultiplier > 0 ? (parseFloat(itemFormData.unitCost) || 0) / itemMultiplier : 0).toFixed(2)}{" "}
                   per unit.
-                  {previewSellingPrice > 0 ? (
-                    <> The selling price will be updated to ₱{previewSellingPrice.toFixed(2)}.</>
-                  ) : selectedProductForItem?.markupPercentage || selectedProductForItem?.markupFixed ? (
-                    <> The selling price will be automatically recalculated based on markups.</>
-                  ) : null}
+                  {previewSellingPrice > 0 && (
+                    <> The unit selling price will be updated to ₱{previewSellingPrice.toFixed(2)}.</>
+                  )}
                 </p>
               </div>
             )}
@@ -1636,7 +1483,7 @@ export default function EditDeliveryPage() {
             >
               Cancel
             </Button>
-            <Button onClick={handleAddItemToDelivery}>
+            <Button onClick={handleAddItemToDelivery} disabled={!!itemPricingError}>
               Add to Delivery
             </Button>
           </DialogFooter>
@@ -1645,7 +1492,7 @@ export default function EditDeliveryPage() {
 
       {/* Create New Product Dialog */}
       <Dialog open={isCreateProductDialogOpen} onOpenChange={setIsCreateProductDialogOpen}>
-        <DialogContent className="!max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="!max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Product</DialogTitle>
             <DialogDescription>
@@ -1759,63 +1606,18 @@ export default function EditDeliveryPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Cost *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={productFormData.cost}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, cost: e.target.value })
-                  }
-                  placeholder="10.00"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Markup (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={productFormData.markupPercentage}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, markupPercentage: e.target.value })
-                  }
-                  placeholder="20"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Fixed Markup (₱)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={productFormData.markupFixed}
-                  onChange={(e) =>
-                    setProductFormData({ ...productFormData, markupFixed: e.target.value })
-                  }
-                  placeholder="1.50"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Selling Price *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={productFormData.price}
-                  readOnly
-                  className="bg-muted"
-                  placeholder="0.00"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Auto-calculated from cost + markups
-                </p>
-              </div>
-            </div>
+            <TierMarkupSection
+              idPrefix="edit-delivery-product"
+              fields={productFormData}
+              manual={productPriceManual}
+              showCostInput
+              costRequired
+              priceRequired
+              onChange={(fields, manual) => {
+                setProductPriceManual(manual);
+                setProductFormData((prev) => ({ ...prev, ...fields }));
+              }}
+            />
 
             {/* Convenience Markup */}
             <div className="border-t pt-4 mt-4">
@@ -1868,42 +1670,6 @@ export default function EditDeliveryPage() {
                 <p className="text-xs text-muted-foreground">
                   Optional fee for refrigeration or special handling (e.g., ₱2.00)
                 </p>
-              </div>
-            </div>
-
-            {/* Pack Pricing */}
-            <div className="border-t pt-4 mt-4">
-              <h4 className="text-sm font-semibold mb-3">Pack/Dozen Pricing (Optional)</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Pack Quantity</Label>
-                  <Input
-                    type="number"
-                    value={productFormData.packQuantity}
-                    onChange={(e) =>
-                      setProductFormData({ ...productFormData, packQuantity: e.target.value })
-                    }
-                    placeholder="12"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Items per pack (e.g., 12 for dozen)
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Pack Price (₱)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={productFormData.packPrice}
-                    onChange={(e) =>
-                      setProductFormData({ ...productFormData, packPrice: e.target.value })
-                    }
-                    placeholder="10.00"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Total price for the pack
-                  </p>
-                </div>
               </div>
             </div>
 

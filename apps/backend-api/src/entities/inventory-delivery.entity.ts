@@ -114,10 +114,17 @@ export class InventoryDelivery {
      * left half-applied if the delivery is never saved.
      */
     priceOverride?: number;
-    packPriceOverride?: number;
-    packQuantityOverride?: number;
-    halfPackPriceOverride?: number;
-    halfPackQuantityOverride?: number;
+    packPriceOverride?: number | null;
+    packQuantityOverride?: number | null;
+    halfPackPriceOverride?: number | null;
+    halfPackQuantityOverride?: number | null;
+    /** Markup saved onto the product when this delivery is received. Null clears it. */
+    markupPercentage?: number | null;
+    markupFixed?: number | null;
+    packMarkupPercentage?: number | null;
+    packMarkupFixed?: number | null;
+    halfPackMarkupPercentage?: number | null;
+    halfPackMarkupFixed?: number | null;
     /** Present when the item was entered as packs/half-packs, for display/audit purposes only. */
     packInfo?: {
       type: 'PACK' | 'HALF_PACK';

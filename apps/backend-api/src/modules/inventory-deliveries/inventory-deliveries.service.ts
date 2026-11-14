@@ -13,6 +13,11 @@ import { Supplier } from '../../entities/supplier.entity';
 import { InventoryReturnsService } from '../inventory-returns/inventory-returns.service';
 import { UserRole } from '@pos/shared-types';
 import {
+  applyMarkup,
+  belowCostPricingMessage,
+  roundMoney,
+} from '@pos/shared-utils';
+import {
   adjustTrackedStock,
   sumStockByProduct,
 } from '../../common/stock-quantity';
@@ -345,10 +350,16 @@ export class InventoryDeliveriesService {
       isFree?: boolean;
       updateProductCost?: boolean;
       priceOverride?: number;
-      packPriceOverride?: number;
-      packQuantityOverride?: number;
-      halfPackPriceOverride?: number;
-      halfPackQuantityOverride?: number;
+      packPriceOverride?: number | null;
+      packQuantityOverride?: number | null;
+      halfPackPriceOverride?: number | null;
+      halfPackQuantityOverride?: number | null;
+      markupPercentage?: number | null;
+      markupFixed?: number | null;
+      packMarkupPercentage?: number | null;
+      packMarkupFixed?: number | null;
+      halfPackMarkupPercentage?: number | null;
+      halfPackMarkupFixed?: number | null;
     }>,
     organizationId: string,
     supplierId?: string | null,
@@ -403,10 +414,16 @@ export class InventoryDeliveriesService {
       isFree?: boolean;
       updateProductCost?: boolean;
       priceOverride?: number;
-      packPriceOverride?: number;
-      packQuantityOverride?: number;
-      halfPackPriceOverride?: number;
-      halfPackQuantityOverride?: number;
+      packPriceOverride?: number | null;
+      packQuantityOverride?: number | null;
+      halfPackPriceOverride?: number | null;
+      halfPackQuantityOverride?: number | null;
+      markupPercentage?: number | null;
+      markupFixed?: number | null;
+      packMarkupPercentage?: number | null;
+      packMarkupFixed?: number | null;
+      halfPackMarkupPercentage?: number | null;
+      halfPackMarkupFixed?: number | null;
     }>,
   ) {
     const product = await manager.findOne(ProductEntity, {
@@ -429,10 +446,16 @@ export class InventoryDeliveriesService {
     if (costTouched) {
       patch.cost = product.cost;
       patch.price = product.price;
+      patch.markupPercentage = product.markupPercentage;
+      patch.markupFixed = product.markupFixed;
       patch.packQuantity = product.packQuantity;
       patch.packPrice = product.packPrice;
+      patch.packMarkupPercentage = product.packMarkupPercentage;
+      patch.packMarkupFixed = product.packMarkupFixed;
       patch.halfPackQuantity = product.halfPackQuantity;
       patch.halfPackPrice = product.halfPackPrice;
+      patch.halfPackMarkupPercentage = product.halfPackMarkupPercentage;
+      patch.halfPackMarkupFixed = product.halfPackMarkupFixed;
     }
 
     if (Object.keys(patch).length === 0) return;
@@ -440,20 +463,14 @@ export class InventoryDeliveriesService {
   }
 
   /**
-   * Keeps the product's cost (and price, if markups are set) in sync with
-   * the latest delivery price. Always the case when the item was bought by
-   * pack/half-pack (the per-unit cost is derived from packPrice ÷
-   * packQuantity), or when explicitly requested for individually-priced
-   * items. Free items never touch cost since they carry no real purchase
-   * price.
+   * Keeps the product's cost and selling prices in sync with the delivery.
+   * Free items never touch cost. Prices are applied only once the delivery
+   * is RECEIVED, together with the cost, so nothing is left half-applied
+   * if the delivery is never saved.
    *
-   * Also applies any manual selling-price overrides entered alongside the
-   * cost (unit/pack/half-pack selling price and pack/half-pack quantity),
-   * gated on the same `updateProductCost`/`isFree` conditions as cost so
-   * they only ever take effect once the delivery is actually RECEIVED -
-   * never immediately when the item is added to the form, and never
-   * partially applied if the delivery is never saved. A manual
-   * `priceOverride` always takes precedence over the markup calculation.
+   * A sell price sent on the line is what the form showed. Markup fields
+   * are saved too, so the next cost change can recalculate from the same
+   * percent or fixed amount. Null clears a pack, half-pack, or markup.
    */
   private applyCostSync(
     product: ProductEntity,
@@ -462,39 +479,151 @@ export class InventoryDeliveriesService {
       isFree?: boolean;
       updateProductCost?: boolean;
       priceOverride?: number;
-      packPriceOverride?: number;
-      packQuantityOverride?: number;
-      halfPackPriceOverride?: number;
-      halfPackQuantityOverride?: number;
+      packPriceOverride?: number | null;
+      packQuantityOverride?: number | null;
+      halfPackPriceOverride?: number | null;
+      halfPackQuantityOverride?: number | null;
+      markupPercentage?: number | null;
+      markupFixed?: number | null;
+      packMarkupPercentage?: number | null;
+      packMarkupFixed?: number | null;
+      halfPackMarkupPercentage?: number | null;
+      halfPackMarkupFixed?: number | null;
     },
   ) {
-    if (item.updateProductCost && !item.isFree && item.unitCost != null) {
-      product.cost = item.unitCost;
+    if (!(item.updateProductCost && !item.isFree && item.unitCost != null)) {
+      return;
+    }
 
-      if (item.priceOverride != null && item.priceOverride > 0) {
-        product.price = item.priceOverride;
-      } else {
-        const percentNum = Number(product.markupPercentage) || 0;
-        const fixedNum = Number(product.markupFixed) || 0;
-        if (percentNum || fixedNum) {
-          product.price =
-            item.unitCost + (item.unitCost * percentNum) / 100 + fixedNum;
-        }
-      }
+    product.cost = roundMoney(Number(item.unitCost));
+    this.writeNullable(product, 'markupPercentage', item.markupPercentage);
+    this.writeNullable(product, 'markupFixed', item.markupFixed);
+    this.writeNullable(product, 'packMarkupPercentage', item.packMarkupPercentage);
+    this.writeNullable(product, 'packMarkupFixed', item.packMarkupFixed);
+    this.writeNullable(
+      product,
+      'halfPackMarkupPercentage',
+      item.halfPackMarkupPercentage,
+    );
+    this.writeNullable(product, 'halfPackMarkupFixed', item.halfPackMarkupFixed);
 
-      if (item.packQuantityOverride != null) {
-        product.packQuantity = item.packQuantityOverride;
-      }
-      if (item.packPriceOverride != null && item.packPriceOverride > 0) {
-        product.packPrice = item.packPriceOverride;
-      }
-      if (item.halfPackQuantityOverride != null) {
-        product.halfPackQuantity = item.halfPackQuantityOverride;
-      }
-      if (item.halfPackPriceOverride != null && item.halfPackPriceOverride > 0) {
-        product.halfPackPrice = item.halfPackPriceOverride;
+    if (item.packQuantityOverride !== undefined) {
+      product.packQuantity = item.packQuantityOverride as any;
+    }
+    if (item.halfPackQuantityOverride !== undefined) {
+      product.halfPackQuantity = item.halfPackQuantityOverride as any;
+    }
+
+    if (item.priceOverride != null && Number(item.priceOverride) > 0) {
+      product.price = roundMoney(Number(item.priceOverride));
+    } else if (Number(product.markupPercentage) || Number(product.markupFixed)) {
+      product.price = applyMarkup(
+        Number(product.cost),
+        product.markupPercentage,
+        product.markupFixed,
+      );
+    }
+
+    if (item.packPriceOverride !== undefined) {
+      product.packPrice = (
+        item.packPriceOverride != null && Number(item.packPriceOverride) > 0
+          ? roundMoney(Number(item.packPriceOverride))
+          : null
+      ) as any;
+    } else if (
+      Number(product.packQuantity) > 0 &&
+      (Number(product.packMarkupPercentage) || Number(product.packMarkupFixed))
+    ) {
+      const computed = applyMarkup(
+        Number(product.cost) * Number(product.packQuantity),
+        product.packMarkupPercentage,
+        product.packMarkupFixed,
+      );
+      product.packPrice = (computed > 0 ? computed : null) as any;
+    }
+
+    if (item.halfPackPriceOverride !== undefined) {
+      product.halfPackPrice = (
+        item.halfPackPriceOverride != null && Number(item.halfPackPriceOverride) > 0
+          ? roundMoney(Number(item.halfPackPriceOverride))
+          : null
+      ) as any;
+    } else if (
+      Number(product.halfPackQuantity) > 0 &&
+      (Number(product.halfPackMarkupPercentage) ||
+        Number(product.halfPackMarkupFixed))
+    ) {
+      const computed = applyMarkup(
+        Number(product.cost) * Number(product.halfPackQuantity),
+        product.halfPackMarkupPercentage,
+        product.halfPackMarkupFixed,
+      );
+      product.halfPackPrice = (computed > 0 ? computed : null) as any;
+    }
+
+    if (this.itemSetsSellingPrices(item)) {
+      const message = belowCostPricingMessage(
+        {
+          cost: String(product.cost ?? ''),
+          price: product.price == null ? '' : String(product.price),
+          markupPercentage: '',
+          markupFixed: '',
+          packQuantity: product.packQuantity ? String(product.packQuantity) : '',
+          packMarkupPercentage: '',
+          packMarkupFixed: '',
+          packPrice:
+            product.packPrice != null && Number(product.packPrice) > 0
+              ? String(product.packPrice)
+              : '',
+          halfPackQuantity: product.halfPackQuantity
+            ? String(product.halfPackQuantity)
+            : '',
+          halfPackMarkupPercentage: '',
+          halfPackMarkupFixed: '',
+          halfPackPrice:
+            product.halfPackPrice != null && Number(product.halfPackPrice) > 0
+              ? String(product.halfPackPrice)
+              : '',
+        },
+        Number(product.cost) || 0,
+      );
+      if (message) {
+        throw new BadRequestException(message);
       }
     }
+  }
+
+  private writeNullable(
+    product: ProductEntity,
+    key:
+      | 'markupPercentage'
+      | 'markupFixed'
+      | 'packMarkupPercentage'
+      | 'packMarkupFixed'
+      | 'halfPackMarkupPercentage'
+      | 'halfPackMarkupFixed',
+    value: number | null | undefined,
+  ) {
+    if (value === undefined) return;
+    product[key] = value as any;
+  }
+
+  private itemSetsSellingPrices(item: {
+    priceOverride?: number;
+    packPriceOverride?: number | null;
+    halfPackPriceOverride?: number | null;
+    markupPercentage?: number | null;
+    packMarkupPercentage?: number | null;
+    halfPackMarkupPercentage?: number | null;
+  }) {
+    return (
+      item.priceOverride !== undefined ||
+      item.packPriceOverride !== undefined ||
+      item.halfPackPriceOverride !== undefined ||
+      item.markupPercentage !== undefined ||
+      item.packMarkupPercentage !== undefined ||
+      item.halfPackMarkupPercentage !== undefined
+    );
   }
 
   async dismissEdits(

@@ -3,6 +3,7 @@ export * from "./tax";
 
 // Pricing utilities
 export * from "./pricing";
+export * from "./markup";
 
 // Validation utilities
 export * from "./validation";

@@ -72,7 +72,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
+import { TierMarkupSection } from "@/components/pricing/tier-markup-section";
+import {
+  belowCostPricingMessage,
+  formatStockQuantity,
+  isUnlimitedStock,
+  KEEP_SAVED_PRICES,
+  PriceManual,
+  TierPricingFields,
+  TRACK_COST,
+} from "@pos/shared-utils";
 import { 
   showSuccessToast, 
   showErrorFromException,
@@ -99,115 +108,6 @@ const PRODUCT_TABLE_COLUMNS: { id: string; label: string }[] = [
 const DEFAULT_HIDDEN_PRODUCT_COLUMNS = ["markupPercentage", "markupFixed", "sku", "category"];
 
 const PRODUCT_TABLE_COLUMNS_STORAGE_KEY = "products-table-hidden-columns";
-
-function formatPeso(amount: number) {
-  return `₱${amount.toFixed(2)}`;
-}
-
-function profitCents(sellPrice: number, cost: number) {
-  return Math.round((sellPrice - cost) * 100);
-}
-
-/** Zero profit is allowed. A selling price below cost is not. */
-function getNegativeProfitError(formData: {
-  cost: string;
-  price: string;
-  packQuantity: string;
-  packPrice: string;
-  halfPackQuantity: string;
-  halfPackPrice: string;
-}) {
-  const unitCost = parseFloat(formData.cost);
-  const cost = Number.isFinite(unitCost) ? unitCost : 0;
-
-  if (formData.price !== "") {
-    const price = parseFloat(formData.price);
-    if (!Number.isFinite(price) || profitCents(price, cost) < 0) {
-      return "Unit price cannot be below cost. A profit of zero is allowed.";
-    }
-  }
-
-  const packQty = parseInt(formData.packQuantity, 10);
-  const packPrice = parseFloat(formData.packPrice);
-  if (
-    packQty > 0 &&
-    formData.packPrice !== "" &&
-    Number.isFinite(packPrice) &&
-    profitCents(packPrice, cost * packQty) < 0
-  ) {
-    return "Pack price cannot be below the cost of that pack. A profit of zero is allowed.";
-  }
-
-  const halfQty = parseInt(formData.halfPackQuantity, 10);
-  const halfPrice = parseFloat(formData.halfPackPrice);
-  if (
-    halfQty > 0 &&
-    formData.halfPackPrice !== "" &&
-    Number.isFinite(halfPrice) &&
-    profitCents(halfPrice, cost * halfQty) < 0
-  ) {
-    return "Half-pack price cannot be below the cost of that half-pack. A profit of zero is allowed.";
-  }
-
-  return null;
-}
-
-function TierPricingSummary({
-  label,
-  quantity,
-  unitCost,
-  sellPrice,
-  className,
-}: {
-  label: string;
-  quantity: number;
-  unitCost: number;
-  sellPrice: number;
-  className?: string;
-}) {
-  const cost = unitCost * quantity;
-  const profit = sellPrice - cost;
-  const perItemSell = quantity > 0 ? sellPrice / quantity : 0;
-  const marginPct = sellPrice > 0 ? (profit / sellPrice) * 100 : 0;
-
-  return (
-    <div className={cn("rounded-md border bg-muted/40 p-3", className)}>
-      <p className="text-xs font-medium text-muted-foreground mb-2">
-        {label} of {quantity} pcs
-      </p>
-      <div className="grid grid-cols-3 gap-3 text-sm">
-        <div>
-          <p className="text-xs text-muted-foreground">Cost</p>
-          <p className="font-medium tabular-nums">{formatPeso(cost)}</p>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {formatPeso(unitCost)} / item
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Sell price</p>
-          <p className="font-medium tabular-nums">{formatPeso(sellPrice)}</p>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {formatPeso(perItemSell)} / item
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Potential profit</p>
-          <p
-            className={cn(
-              "font-semibold tabular-nums",
-              profit >= 0 ? "text-green-700" : "text-red-700"
-            )}
-          >
-            {formatPeso(profit)}
-          </p>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {marginPct.toFixed(1)}% margin
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -262,6 +162,7 @@ export default function ProductsPage() {
     contactNumber: "",
     email: "",
   });
+  const [priceManual, setPriceManual] = useState<PriceManual>(TRACK_COST);
   const [isSaving, setIsSaving] = useState(false);
   const [canEditStock, setCanEditStock] = useState(false);
   const [canDeleteProduct, setCanDeleteProduct] = useState(false);
@@ -358,133 +259,18 @@ export default function ProductsPage() {
     }
   };
 
-  const computePrice = (cost: string, pct: string, fixed: string): number => {
-    const c = parseFloat(cost) || 0;
-    const p = parseFloat(pct) || 0;
-    const f = parseFloat(fixed) || 0;
-    return c + (c * p / 100) + f;
-  };
-
-  // Keep a delivery-overridden selling price when the edit dialog opens.
-  // Stays true across Strict Mode's double effect so we only recalc after
-  // the user actually changes cost or markup.
-  const preserveSellingPriceRef = useRef(false);
   const openedEditFromQuery = useRef(false);
 
-  const handlePricingInputChange = (
-    field: "cost" | "markupPercentage" | "markupFixed",
-    value: string,
+  const applyPricingChange = (
+    fields: TierPricingFields,
+    manual: PriceManual,
   ) => {
-    preserveSellingPriceRef.current = false;
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setPriceManual(manual);
+    setFormData((prev) => ({ ...prev, ...fields }));
   };
-
-  // Pack/half-pack pricing keeps a "base" price (cost x quantity, or a
-  // manually-typed price) separate from the displayed price so that markup
-  // (percentage and/or fixed) is always layered ON TOP of that base instead
-  // of replacing it. Without this, editing a markup field recomputed the
-  // price from cost x quantity alone and silently discarded any manually
-  // entered pack price.
-  const packBaseRef = useRef(0);
-  const halfPackBaseRef = useRef(0);
-  const skipPackBaseSyncRef = useRef(false);
-  const skipHalfPackBaseSyncRef = useRef(false);
-
-  const applyTieredMarkup = (base: number, pct: string, fixed: string): number => {
-    const p = parseFloat(pct) || 0;
-    const f = parseFloat(fixed) || 0;
-    return base + (base * p) / 100 + f;
-  };
-
-  // Reverse-solve the base price so that base + markup === the value the
-  // user just typed, keeping future markup edits consistent.
-  const deriveBaseFromDisplayedPrice = (displayed: number, pct: string, fixed: string): number => {
-    const p = parseFloat(pct) || 0;
-    const f = parseFloat(fixed) || 0;
-    const denom = 1 + p / 100;
-    return denom !== 0 ? (displayed - f) / denom : displayed;
-  };
-
-  // Manually typing a Pack/Half-Pack price updates the underlying base (via
-  // reverse-solve) instead of being blown away the next time a markup field
-  // changes, so pack price + markup now correctly combine.
-  const handleManualPackPriceChange = (value: string) => {
-    const displayed = parseFloat(value) || 0;
-    packBaseRef.current = deriveBaseFromDisplayedPrice(displayed, formData.packMarkupPercentage, formData.packMarkupFixed);
-    setFormData(prev => ({ ...prev, packPrice: value }));
-  };
-
-  const handleManualHalfPackPriceChange = (value: string) => {
-    const displayed = parseFloat(value) || 0;
-    halfPackBaseRef.current = deriveBaseFromDisplayedPrice(displayed, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
-    setFormData(prev => ({ ...prev, halfPackPrice: value }));
-  };
-
-  useEffect(() => {
-    if (preserveSellingPriceRef.current) {
-      return;
-    }
-    if (formData.cost || formData.markupPercentage || formData.markupFixed) {
-      const calculated = computePrice(formData.cost, formData.markupPercentage, formData.markupFixed);
-      setFormData(prev => ({ ...prev, price: calculated > 0 ? calculated.toFixed(2) : "" }));
-    }
-  }, [formData.cost, formData.markupPercentage, formData.markupFixed]);
-
-  // Recompute the pack base whenever cost/quantity change (the most
-  // authoritative source), then re-apply whatever markup is currently set.
-  useEffect(() => {
-    if (skipPackBaseSyncRef.current) {
-      skipPackBaseSyncRef.current = false;
-      return;
-    }
-    if (!formData.packQuantity) {
-      packBaseRef.current = 0;
-      setFormData(prev => ({ ...prev, packPrice: "" }));
-      return;
-    }
-    const cost = parseFloat(formData.cost) || 0;
-    const qty = parseInt(formData.packQuantity) || 0;
-    packBaseRef.current = cost * qty;
-    setFormData(prev => {
-      const calculated = applyTieredMarkup(packBaseRef.current, prev.packMarkupPercentage, prev.packMarkupFixed);
-      return { ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" };
-    });
-  }, [formData.cost, formData.packQuantity]);
-
-  // Markup changes always combine with the current base (never overwrite it).
-  useEffect(() => {
-    if (!formData.packQuantity) return;
-    const calculated = applyTieredMarkup(packBaseRef.current, formData.packMarkupPercentage, formData.packMarkupFixed);
-    setFormData(prev => ({ ...prev, packPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
-  }, [formData.packMarkupPercentage, formData.packMarkupFixed]);
-
-  useEffect(() => {
-    if (skipHalfPackBaseSyncRef.current) {
-      skipHalfPackBaseSyncRef.current = false;
-      return;
-    }
-    if (!formData.halfPackQuantity) {
-      halfPackBaseRef.current = 0;
-      setFormData(prev => ({ ...prev, halfPackPrice: "" }));
-      return;
-    }
-    const cost = parseFloat(formData.cost) || 0;
-    const qty = parseInt(formData.halfPackQuantity) || 0;
-    halfPackBaseRef.current = cost * qty;
-    setFormData(prev => {
-      const calculated = applyTieredMarkup(halfPackBaseRef.current, prev.halfPackMarkupPercentage, prev.halfPackMarkupFixed);
-      return { ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" };
-    });
-  }, [formData.cost, formData.halfPackQuantity]);
-
-  useEffect(() => {
-    if (!formData.halfPackQuantity) return;
-    const calculated = applyTieredMarkup(halfPackBaseRef.current, formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed);
-    setFormData(prev => ({ ...prev, halfPackPrice: calculated > 0 ? calculated.toFixed(2) : "" }));
-  }, [formData.halfPackMarkupPercentage, formData.halfPackMarkupFixed]);
 
   const resetForm = () => {
-    preserveSellingPriceRef.current = false;
+    setPriceManual(TRACK_COST);
     setFormData({
       sku: "",
       name: "",
@@ -522,25 +308,7 @@ export default function ProductsPage() {
 
   const handleEditProduct = (product: any) => {
     setSelectedProduct(product);
-    preserveSellingPriceRef.current = true;
-
-    // Seed the pack/half-pack base refs from the product's own saved values
-    // (reverse-solving out any already-applied markup) so the cost/quantity
-    // sync effect doesn't clobber a legacy/manual price when the dialog opens.
-    const packQty = Number(product.packQuantity) || 0;
-    const packPriceVal = Number(product.packPrice) || 0;
-    packBaseRef.current = packPriceVal > 0
-      ? deriveBaseFromDisplayedPrice(packPriceVal, product.packMarkupPercentage?.toString() || "", product.packMarkupFixed?.toString() || "")
-      : (Number(product.cost) || 0) * packQty;
-    skipPackBaseSyncRef.current = true;
-
-    const halfPackQty = Number(product.halfPackQuantity) || 0;
-    const halfPackPriceVal = Number(product.halfPackPrice) || 0;
-    halfPackBaseRef.current = halfPackPriceVal > 0
-      ? deriveBaseFromDisplayedPrice(halfPackPriceVal, product.halfPackMarkupPercentage?.toString() || "", product.halfPackMarkupFixed?.toString() || "")
-      : (Number(product.cost) || 0) * halfPackQty;
-    skipHalfPackBaseSyncRef.current = true;
-
+    setPriceManual(KEEP_SAVED_PRICES);
     setFormData({
       sku: product.sku || "",
       name: product.name || "",
@@ -635,11 +403,11 @@ export default function ProductsPage() {
     return payload;
   };
 
-  const pricingError = getNegativeProfitError(formData);
+  const pricingError = belowCostPricingMessage(formData);
 
   const handleSubmitAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const profitError = getNegativeProfitError(formData);
+    const profitError = belowCostPricingMessage(formData);
     if (profitError) {
       showErrorFromException(new Error(profitError), "Pricing");
       return;
@@ -661,7 +429,7 @@ export default function ProductsPage() {
 
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const profitError = getNegativeProfitError(formData);
+    const profitError = belowCostPricingMessage(formData);
     if (profitError) {
       showErrorFromException(new Error(profitError), "Pricing");
       return;
@@ -1560,63 +1328,15 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="cost">Cost *</Label>
-                    <Input
-                      id="cost"
-                      type="number"
-                      step="0.01"
-                      value={formData.cost}
-                      onChange={(e) => handlePricingInputChange("cost", e.target.value)}
-                      placeholder="10.00"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="markupPercentage">Markup (%) </Label>
-                    <Input
-                      id="markupPercentage"
-                      type="number"
-                      step="0.01"
-                      value={formData.markupPercentage}
-                      onChange={(e) =>
-                        handlePricingInputChange("markupPercentage", e.target.value)
-                      }
-                      placeholder="20"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="markupFixed">Fixed Markup (₱)</Label>
-                    <Input
-                      id="markupFixed"
-                      type="number"
-                      step="0.01"
-                      value={formData.markupFixed}
-                      onChange={(e) =>
-                        handlePricingInputChange("markupFixed", e.target.value)
-                      }
-                      placeholder="1.50"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Selling Price *</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      step="0.01"
-                      value={formData.price}
-                      readOnly
-                      className="bg-muted"
-                      placeholder="0.00"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">Auto-calculated from cost + markups</p>
-                  </div>
-                </div>
+                <TierMarkupSection
+                  idPrefix="product"
+                  fields={formData}
+                  manual={priceManual}
+                  showCostInput
+                  costRequired
+                  priceRequired
+                  onChange={applyPricingChange}
+                />
 
                 {/* Convenience Markup Section */}
                 <div className="border-t pt-4 mt-4">
@@ -1683,128 +1403,6 @@ export default function ProductsPage() {
                       Optional fee for refrigeration, cooling, etc. Cashier can choose to add this when scanning the product.
                     </p>
                   </div>
-                </div>
-
-                {/* Tiered Pricing Section */}
-                <div className="border-t pt-4 mt-4">
-                  <h4 className="text-sm font-semibold mb-4 text-gray-700">Tiered Pricing (Optional)</h4>
-
-                  {/* Pack */}
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Pack</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="packQuantity">Pack Qty</Label>
-                      <Input
-                        id="packQuantity"
-                        type="number"
-                        value={formData.packQuantity}
-                        onChange={(e) => setFormData({ ...formData, packQuantity: e.target.value })}
-                        placeholder="12"
-                      />
-                      <p className="text-xs text-muted-foreground">Items per pack</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="packMarkupPercentage">Pack Markup (%)</Label>
-                      <Input
-                        id="packMarkupPercentage"
-                        type="number"
-                        step="0.01"
-                        value={formData.packMarkupPercentage}
-                        onChange={(e) => setFormData({ ...formData, packMarkupPercentage: e.target.value })}
-                        placeholder="10"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="packMarkupFixed">Pack Markup (₱)</Label>
-                      <Input
-                        id="packMarkupFixed"
-                        type="number"
-                        step="0.01"
-                        value={formData.packMarkupFixed}
-                        onChange={(e) => setFormData({ ...formData, packMarkupFixed: e.target.value })}
-                        placeholder="5.00"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="packPrice">Pack Price (₱)</Label>
-                      <Input
-                        id="packPrice"
-                        type="number"
-                        step="0.01"
-                        value={formData.packPrice}
-                        onChange={(e) => handleManualPackPriceChange(e.target.value)}
-                        placeholder="120.00"
-                      />
-                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
-                    </div>
-                  </div>
-                  {formData.packQuantity && formData.packPrice && (
-                    <TierPricingSummary
-                      className="mb-4"
-                      label="Pack"
-                      quantity={parseInt(formData.packQuantity, 10)}
-                      unitCost={parseFloat(formData.cost) || 0}
-                      sellPrice={parseFloat(formData.packPrice)}
-                    />
-                  )}
-
-                  {/* Half-Pack */}
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="halfPackQuantity">Half-Pack Qty</Label>
-                      <Input
-                        id="halfPackQuantity"
-                        type="number"
-                        value={formData.halfPackQuantity}
-                        onChange={(e) => setFormData({ ...formData, halfPackQuantity: e.target.value })}
-                        placeholder="6"
-                      />
-                      <p className="text-xs text-muted-foreground">Items per half-pack</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="halfPackMarkupPercentage">Half-Pack Markup (%)</Label>
-                      <Input
-                        id="halfPackMarkupPercentage"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackMarkupPercentage}
-                        onChange={(e) => setFormData({ ...formData, halfPackMarkupPercentage: e.target.value })}
-                        placeholder="12"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="halfPackMarkupFixed">Half-Pack Markup (₱)</Label>
-                      <Input
-                        id="halfPackMarkupFixed"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackMarkupFixed}
-                        onChange={(e) => setFormData({ ...formData, halfPackMarkupFixed: e.target.value })}
-                        placeholder="3.00"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="halfPackPrice">Half-Pack Price (₱)</Label>
-                      <Input
-                        id="halfPackPrice"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackPrice}
-                        onChange={(e) => handleManualHalfPackPriceChange(e.target.value)}
-                        placeholder="65.00"
-                      />
-                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
-                    </div>
-                  </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (
-                    <TierPricingSummary
-                      label="Half-pack"
-                      quantity={parseInt(formData.halfPackQuantity, 10)}
-                      unitCost={parseFloat(formData.cost) || 0}
-                      sellPrice={parseFloat(formData.halfPackPrice)}
-                    />
-                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1915,9 +1513,6 @@ export default function ProductsPage() {
                 >
                   Cancel
                 </Button>
-                {pricingError && (
-                  <p className="text-sm text-red-600 mr-auto">{pricingError}</p>
-                )}
                 <Button type="submit" disabled={isSaving || !!pricingError}>
                   {isSaving ? "Adding..." : "Add Product"}
                 </Button>
@@ -2146,61 +1741,15 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-cost">Cost *</Label>
-                    <Input
-                      id="edit-cost"
-                      type="number"
-                      step="0.01"
-                      value={formData.cost}
-                      onChange={(e) => handlePricingInputChange("cost", e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-markupPercentage">Markup (%)</Label>
-                    <Input
-                      id="edit-markupPercentage"
-                      type="number"
-                      step="0.01"
-                      value={formData.markupPercentage}
-                      onChange={(e) =>
-                        handlePricingInputChange("markupPercentage", e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-markupFixed">Fixed Markup (₱)</Label>
-                    <Input
-                      id="edit-markupFixed"
-                      type="number"
-                      step="0.01"
-                      value={formData.markupFixed}
-                      onChange={(e) =>
-                        handlePricingInputChange("markupFixed", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-price">Selling Price *</Label>
-                    <Input
-                      id="edit-price"
-                      type="number"
-                      step="0.01"
-                      value={formData.price}
-                      readOnly
-                      className="bg-muted"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Saved selling price is kept. Changing cost or markup recalculates it.
-                    </p>
-                  </div>
-                </div>
+                <TierMarkupSection
+                  idPrefix="edit-product"
+                  fields={formData}
+                  manual={priceManual}
+                  showCostInput
+                  costRequired
+                  priceRequired
+                  onChange={applyPricingChange}
+                />
 
                 {/* Convenience Markup Section */}
                 <div className="border-t pt-4 mt-4">
@@ -2267,128 +1816,6 @@ export default function ProductsPage() {
                       Optional fee for refrigeration, cooling, etc. Cashier can choose to add this when scanning the product.
                     </p>
                   </div>
-                </div>
-
-                {/* Tiered Pricing Section */}
-                <div className="border-t pt-4 mt-4">
-                  <h4 className="text-sm font-semibold mb-4 text-gray-700">Tiered Pricing (Optional)</h4>
-
-                  {/* Pack */}
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Pack</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-packQuantity">Pack Qty</Label>
-                      <Input
-                        id="edit-packQuantity"
-                        type="number"
-                        value={formData.packQuantity}
-                        onChange={(e) => setFormData({ ...formData, packQuantity: e.target.value })}
-                        placeholder="12"
-                      />
-                      <p className="text-xs text-muted-foreground">Items per pack</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-packMarkupPercentage">Pack Markup (%)</Label>
-                      <Input
-                        id="edit-packMarkupPercentage"
-                        type="number"
-                        step="0.01"
-                        value={formData.packMarkupPercentage}
-                        onChange={(e) => setFormData({ ...formData, packMarkupPercentage: e.target.value })}
-                        placeholder="10"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-packMarkupFixed">Pack Markup (₱)</Label>
-                      <Input
-                        id="edit-packMarkupFixed"
-                        type="number"
-                        step="0.01"
-                        value={formData.packMarkupFixed}
-                        onChange={(e) => setFormData({ ...formData, packMarkupFixed: e.target.value })}
-                        placeholder="5.00"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-packPrice">Pack Price (₱)</Label>
-                      <Input
-                        id="edit-packPrice"
-                        type="number"
-                        step="0.01"
-                        value={formData.packPrice}
-                        onChange={(e) => handleManualPackPriceChange(e.target.value)}
-                        placeholder="120.00"
-                      />
-                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
-                    </div>
-                  </div>
-                  {formData.packQuantity && formData.packPrice && (
-                    <TierPricingSummary
-                      className="mb-4"
-                      label="Pack"
-                      quantity={parseInt(formData.packQuantity, 10)}
-                      unitCost={parseFloat(formData.cost) || 0}
-                      sellPrice={parseFloat(formData.packPrice)}
-                    />
-                  )}
-
-                  {/* Half-Pack */}
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Half-Pack</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-halfPackQuantity">Half-Pack Qty</Label>
-                      <Input
-                        id="edit-halfPackQuantity"
-                        type="number"
-                        value={formData.halfPackQuantity}
-                        onChange={(e) => setFormData({ ...formData, halfPackQuantity: e.target.value })}
-                        placeholder="6"
-                      />
-                      <p className="text-xs text-muted-foreground">Items per half-pack</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-halfPackMarkupPercentage">Half-Pack Markup (%)</Label>
-                      <Input
-                        id="edit-halfPackMarkupPercentage"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackMarkupPercentage}
-                        onChange={(e) => setFormData({ ...formData, halfPackMarkupPercentage: e.target.value })}
-                        placeholder="12"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-halfPackMarkupFixed">Half-Pack Markup (₱)</Label>
-                      <Input
-                        id="edit-halfPackMarkupFixed"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackMarkupFixed}
-                        onChange={(e) => setFormData({ ...formData, halfPackMarkupFixed: e.target.value })}
-                        placeholder="3.00"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-halfPackPrice">Half-Pack Price (₱)</Label>
-                      <Input
-                        id="edit-halfPackPrice"
-                        type="number"
-                        step="0.01"
-                        value={formData.halfPackPrice}
-                        onChange={(e) => handleManualHalfPackPriceChange(e.target.value)}
-                        placeholder="65.00"
-                      />
-                      <p className="text-xs text-muted-foreground">Type to set base price; markup above adds on top</p>
-                    </div>
-                  </div>
-                  {formData.halfPackQuantity && formData.halfPackPrice && (
-                    <TierPricingSummary
-                      label="Half-pack"
-                      quantity={parseInt(formData.halfPackQuantity, 10)}
-                      unitCost={parseFloat(formData.cost) || 0}
-                      sellPrice={parseFloat(formData.halfPackPrice)}
-                    />
-                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -2508,9 +1935,6 @@ export default function ProductsPage() {
                 >
                   Cancel
                 </Button>
-                {pricingError && (
-                  <p className="text-sm text-red-600 mr-auto">{pricingError}</p>
-                )}
                 <Button type="submit" disabled={isSaving || !!pricingError}>
                   {isSaving ? "Updating..." : "Update Product"}
                 </Button>
