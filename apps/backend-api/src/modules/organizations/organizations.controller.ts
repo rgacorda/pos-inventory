@@ -15,6 +15,7 @@ import { SubscriptionSchedulerService } from './subscription-scheduler.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole } from '@pos/shared-types';
 import { CreateOrganizationDto, UpdateOrganizationDto, UpdateSubscriptionDto } from './dto';
 
@@ -29,7 +30,8 @@ export class OrganizationsController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN)
   async create(@Body() createOrganizationDto: CreateOrganizationDto) {
-    return this.organizationsService.create(createOrganizationDto);
+    const organization = await this.organizationsService.create(createOrganizationDto);
+    return this.organizationsService.present(organization);
   }
 
   @Get()
@@ -40,8 +42,10 @@ export class OrganizationsController {
 
   @Get(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  async findOne(@Param('id') id: string) {
-    return this.organizationsService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    this.organizationsService.assertAccessible(id, user);
+    const organization = await this.organizationsService.findOne(id);
+    return this.organizationsService.present(organization);
   }
 
   @Get(':id/stats')
@@ -55,8 +59,11 @@ export class OrganizationsController {
   async update(
     @Param('id') id: string,
     @Body() updateOrganizationDto: UpdateOrganizationDto,
+    @CurrentUser() user: any,
   ) {
-    return this.organizationsService.update(id, updateOrganizationDto);
+    this.organizationsService.assertAccessible(id, user);
+    const organization = await this.organizationsService.update(id, updateOrganizationDto);
+    return this.organizationsService.present(organization);
   }
 
   @Delete(':id')

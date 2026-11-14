@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   assembleTrend,
+  businessCalendarDay,
   currentBusinessMonthRange,
   parseRange,
   zonedTimeToUtc,
@@ -15,6 +16,32 @@ describe('financials date range', () => {
 
     const end = zonedTimeToUtc(2026, 11, 30, 23, 59, 59, 999, MANILA);
     expect(end.toISOString()).toBe('2026-11-30T15:59:59.999Z');
+  });
+
+  it('keeps the full Manila calendar day, including the evening', () => {
+    // 9:28 PM on 14 Nov 2026 in Manila.
+    const evening = new Date('2026-11-14T13:28:00.000Z');
+    expect(businessCalendarDay(evening, 0, MANILA)).toEqual({
+      date: '2026-11-14',
+      start: '2026-11-14 00:00:00',
+      end: '2026-11-15 00:00:00',
+    });
+    expect(businessCalendarDay(evening, -1, MANILA)).toEqual({
+      date: '2026-11-13',
+      start: '2026-11-13 00:00:00',
+      end: '2026-11-14 00:00:00',
+    });
+
+    // 12:30 AM on 15 Nov in Manila is still 14 Nov in UTC.
+    const afterMidnight = new Date('2026-11-14T16:30:00.000Z');
+    expect(businessCalendarDay(afterMidnight, 0, MANILA).date).toBe(
+      '2026-11-15',
+    );
+
+    const firstOfMonth = new Date('2026-11-01T13:00:00.000Z');
+    expect(businessCalendarDay(firstOfMonth, -1, MANILA).date).toBe(
+      '2026-10-31',
+    );
   });
 
   it('uses the Manila calendar month even when the server clock is still on the previous UTC day', () => {

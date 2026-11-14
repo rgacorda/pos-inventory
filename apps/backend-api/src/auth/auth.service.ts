@@ -112,6 +112,23 @@ export class AuthService {
       throw new UnauthorizedException('Session ended');
     }
 
+    if (user.role !== UserRole.SUPER_ADMIN) {
+      if (!user.organizationId) {
+        throw new UnauthorizedException('Organization required');
+      }
+      const organization = await this.organizationRepository.findOne({
+        where: { id: user.organizationId },
+        relations: ['subscription'],
+      });
+      if (!organization?.isActive) {
+        throw new UnauthorizedException('Organization is inactive');
+      }
+      const status = organization.subscription?.status;
+      if (status === 'EXPIRED' || status === 'CANCELLED') {
+        throw new UnauthorizedException('Subscription expired');
+      }
+    }
+
     return user;
   }
 

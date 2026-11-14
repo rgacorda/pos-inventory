@@ -116,19 +116,72 @@ export function calculateTotalSoldItemCount(items: SoldItemCountInput[]): number
   return items.reduce((sum, item) => sum + calculateSoldItemCount(item), 0);
 }
 
+export interface PieceSurchargeSource {
+  price: number;
+  convenienceMarkupPercentage?: number | null;
+  convenienceMarkup?: number | null;
+  addonPrice?: number | null;
+  packPrice?: number | null;
+  packQuantity?: number | null;
+  halfPackPrice?: number | null;
+  halfPackQuantity?: number | null;
+}
+
+/**
+ * Per-piece fee for convenience and refrigeration. The percent is taken from
+ * the catalog piece price, then the fixed amounts are added. Pack and
+ * half-pack prices pick this up once per piece inside the tier.
+ */
+export function pieceSurcharge(
+  product: PieceSurchargeSource,
+  includeConvenience: boolean,
+  includeAddon: boolean,
+): number {
+  let surcharge = 0;
+  if (includeConvenience) {
+    const percent = Number(product.convenienceMarkupPercentage) || 0;
+    const fixed = Number(product.convenienceMarkup) || 0;
+    const unit = Number(product.price) || 0;
+    if (percent > 0) surcharge += (unit * percent) / 100;
+    if (fixed > 0) surcharge += fixed;
+  }
+  if (includeAddon) {
+    const addon = Number(product.addonPrice) || 0;
+    if (addon > 0) surcharge += addon;
+  }
+  return Number(surcharge.toFixed(2));
+}
+
+/** Adds a per-piece fee to the unit price and to each tier that contains pieces. */
+export function withPieceSurcharge<T extends PieceSurchargeSource>(
+  product: T,
+  surcharge: number,
+): T {
+  if (!surcharge) return product;
+  const next: T = {
+    ...product,
+    price: Number((Number(product.price) + surcharge).toFixed(2)),
+  };
+  const packQuantity = Number(product.packQuantity) || 0;
+  const halfPackQuantity = Number(product.halfPackQuantity) || 0;
+  if (Number(product.packPrice) > 0 && packQuantity > 0) {
+    next.packPrice = Number(
+      (Number(product.packPrice) + surcharge * packQuantity).toFixed(2),
+    );
+  }
+  if (Number(product.halfPackPrice) > 0 && halfPackQuantity > 0) {
+    next.halfPackPrice = Number(
+      (Number(product.halfPackPrice) + surcharge * halfPackQuantity).toFixed(2),
+    );
+  }
+  return next;
+}
+
 /**
  * Calculate the effective (blended) unit price based on quantity and tiered
  * pricing, e.g. for a quantity made up of a full pack plus one extra piece,
  * this returns the average price per unit across the whole quantity so that
  * `effectivePrice * quantity` equals the correct blended total.
- *
- * @param quantity       - Number of items being purchased
- * @param unitPrice      - Price per single item
- * @param packPrice      - Total sell price for a full pack (optional)
- * @param packQuantity   - Items that make a full pack (optional)
- * @param halfPackPrice  - Total sell price for a half-pack (optional)
- * @param halfPackQuantity - Items that make a half-pack (optional)
- * @returns Effective (blended) price per item
  */
 export function calculateEffectivePrice(
   quantity: number,

@@ -41,7 +41,7 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, formatStockQuantity, hasAvailableStock, PriceBreakdown, stockSortValue } from "@pos/shared-utils";
+import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, formatStockQuantity, hasAvailableStock, pieceSurcharge, PriceBreakdown, stockSortValue, withPieceSurcharge } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
 import {
@@ -404,30 +404,20 @@ export default function Page() {
     const qty = parseInt(quantityToAdd) || 1;
     if (qty <= 0) return;
 
-    // Apply convenience markup and addon price if checkboxes are checked
-    let priceAdjustment = 0;
-    
-    if (includeConvenience) {
-      // Calculate convenience markup from percentage and fixed amount
-      const basePrice = productToAdd.price;
-      if (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) {
-        priceAdjustment += (basePrice * productToAdd.convenienceMarkupPercentage / 100);
-      }
-      if (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0) {
-        priceAdjustment += productToAdd.convenienceMarkup;
-      }
-    }
-    
-    if (includeAddon && productToAdd.addonPrice) {
-      priceAdjustment += productToAdd.addonPrice;
-    }
-    
-    const productWithPrice = priceAdjustment > 0
-      ? { ...productToAdd, price: productToAdd.price + priceAdjustment }
-      : productToAdd;
+    // Convenience and refrigeration are per piece, including pieces inside a pack.
+    const surcharge = pieceSurcharge(
+      productToAdd,
+      includeConvenience,
+      includeAddon,
+    );
+    const productWithPrice = withPieceSurcharge(productToAdd, surcharge);
 
     const existingItem = orderItems.find(
-      (item) => item.product.id === productToAdd.id,
+      (item) =>
+        item.product.id === productToAdd.id &&
+        item.product.price === productWithPrice.price &&
+        item.product.packPrice === productWithPrice.packPrice &&
+        item.product.halfPackPrice === productWithPrice.halfPackPrice,
     );
     if (existingItem) {
       setOrderItems(
@@ -664,8 +654,8 @@ export default function Page() {
   };
 
   // Remove a single item from the cart (used after PIN is confirmed)
-  const removeFromOrder = (productId: string) => {
-    setOrderItems((prev) => prev.filter((item) => item.product.id !== productId));
+  const removeFromOrder = (lineIndex: number) => {
+    setOrderItems((prev) => prev.filter((_, index) => index !== lineIndex));
   };
 
   // Open the supervisor PIN dialog for a given action
@@ -695,8 +685,8 @@ export default function Page() {
           showSuccessToast("Order Voided", {
             description: "The current order has been cleared.",
           });
-        } else if (pinAction === "removeItem" && itemToRemove) {
-          removeFromOrder(itemToRemove);
+        } else if (pinAction === "removeItem" && itemToRemove != null) {
+          removeFromOrder(Number(itemToRemove));
           showSuccessToast("Item Removed", {
             description: "Item has been removed from the order.",
           });
@@ -1245,7 +1235,7 @@ export default function Page() {
                             size="sm"
                             variant="ghost"
                             className="h-8 w-8 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
-                            onClick={() => openPinDialog("removeItem", item.product.id!)}
+                            onClick={() => openPinDialog("removeItem", String(index))}
                             title="Remove item (requires PIN)"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1672,40 +1662,20 @@ export default function Page() {
                 </div>
                 {(() => {
                   const qty = parseInt(quantityToAdd) || 0;
-                  const basePrice = calculateEffectivePrice(
-                    qty,
-                    productToAdd.price,
-                    productToAdd.packPrice,
-                    productToAdd.packQuantity,
-                    productToAdd.halfPackPrice,
-                    productToAdd.halfPackQuantity,
+                  const priced = withPieceSurcharge(
+                    productToAdd,
+                    pieceSurcharge(productToAdd, includeConvenience, includeAddon),
                   );
-                  let effectivePrice = basePrice;
-                  
-                  // Calculate convenience markup from percentage and fixed amount
-                  if (includeConvenience) {
-                    let calculatedConvenienceMarkup = 0;
-                    if (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) {
-                      calculatedConvenienceMarkup += (basePrice * productToAdd.convenienceMarkupPercentage / 100);
-                    }
-                    if (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0) {
-                      calculatedConvenienceMarkup += productToAdd.convenienceMarkup;
-                    }
-                    effectivePrice += calculatedConvenienceMarkup;
-                  }
-                  
-                  if (includeAddon && productToAdd.addonPrice) {
-                    effectivePrice += productToAdd.addonPrice;
-                  }
-                  const lineTotal = Number((effectivePrice * qty).toFixed(2));
                   const breakdown = calculatePriceBreakdown(
                     qty,
-                    productToAdd.price,
-                    productToAdd.packPrice,
-                    productToAdd.packQuantity,
-                    productToAdd.halfPackPrice,
-                    productToAdd.halfPackQuantity,
+                    priced.price,
+                    priced.packPrice,
+                    priced.packQuantity,
+                    priced.halfPackPrice,
+                    priced.halfPackQuantity,
                   );
+                  const lineTotal = breakdown.total;
+                  const effectivePrice = qty > 0 ? lineTotal / qty : priced.price;
                   const breakdownLabel = formatPriceBreakdownLabel(breakdown);
                   
                   return qty > 0 ? (

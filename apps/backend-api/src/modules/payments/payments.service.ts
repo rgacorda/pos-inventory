@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { PaymentEntity } from '../../entities/payment.entity';
 import { OrderEntity } from '../../entities/order.entity';
 import { CreatePaymentDto, UpdatePaymentDto, RefundPaymentDto } from './dto';
+import { randomUUID } from 'crypto';
 import { UserRole, PaymentStatus } from '@pos/shared-types';
 
 @Injectable()
@@ -45,8 +46,11 @@ export class PaymentsService {
       createPaymentDto.organizationId = order.organizationId;
     }
 
+    const orderTotal = roundMoney(order.totalAmount);
+    const amount = roundMoney(createPaymentDto.amount);
+
     // Check if payment amount is valid
-    if (createPaymentDto.amount > order.totalAmount) {
+    if (amount > orderTotal) {
       throw new BadRequestException('Payment amount exceeds order total');
     }
 
@@ -55,14 +59,21 @@ export class PaymentsService {
       where: { orderId, status: PaymentStatus.COMPLETED },
     });
 
-    const totalPaid = existingPayments.reduce((sum, p) => sum + p.amount, 0);
-    if (totalPaid >= order.totalAmount) {
+    const totalPaid = existingPayments.reduce(
+      (sum, payment) => sum + roundMoney(payment.amount),
+      0,
+    );
+    if (roundMoney(totalPaid) >= orderTotal) {
       throw new ConflictException('Order is already fully paid');
     }
 
+    const suffix = `${Date.now().toString(36)}${randomUUID().slice(0, 8)}`.toUpperCase();
     // Create payment
     const payment = this.paymentsRepository.create({
       ...createPaymentDto,
+      amount,
+      paymentNumber: `PAY-${suffix}`,
+      posLocalId: randomUUID(),
       status: createPaymentDto.status || PaymentStatus.PENDING,
     });
 
@@ -196,26 +207,38 @@ export class PaymentsService {
       throw new BadRequestException('Can only refund completed payments');
     }
 
-    // Validate refund amount
-    if (refundDto.amount > payment.amount) {
+    const paid = roundMoney(payment.amount);
+    const requested = roundMoney(refundDto.amount);
+    const prior = await this.paymentsRepository.find({
+      where: { reference: `REFUND-${payment.id}` },
+    });
+    const already = prior.reduce(
+      (sum, row) => sum + Math.abs(roundMoney(row.amount)),
+      0,
+    );
+    if (roundMoney(requested + already) > paid) {
       throw new BadRequestException('Refund amount exceeds payment amount');
     }
 
+    const suffix = `${Date.now().toString(36)}${randomUUID().slice(0, 8)}`.toUpperCase();
     // Create refund payment record
     const refund = this.paymentsRepository.create({
       orderId: payment.orderId,
       terminalId: payment.terminalId,
       organizationId: payment.organizationId,
       method: payment.method,
-      amount: -refundDto.amount, // Negative amount for refund
+      amount: -requested,
       status: PaymentStatus.REFUNDED,
       reference: `REFUND-${payment.id}`,
+      paymentNumber: `RFD-${suffix}`,
+      posLocalId: randomUUID(),
+      processedAt: new Date(),
     });
 
     await this.paymentsRepository.save(refund);
 
     // Update original payment status if fully refunded
-    if (refundDto.amount === payment.amount) {
+    if (roundMoney(requested + already) >= paid) {
       payment.status = PaymentStatus.REFUNDED;
       await this.paymentsRepository.save(payment);
     }
@@ -310,4 +333,10 @@ export class PaymentsService {
       netRevenue: totalRevenue - totalRefunds,
     };
   }
+}
+
+function roundMoney(value: unknown): number {
+  const amount = parseFloat(String(value ?? '0'));
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * 100) / 100;
 }

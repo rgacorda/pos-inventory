@@ -18,6 +18,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserRole } from '@pos/shared-types';
 import { CreateUserDto, UpdateUserDto } from './dto';
+import { toPublicUser } from '../../common/public-user';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard, TenantGuard)
@@ -27,19 +28,20 @@ export class UsersController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   async create(@Body() createUserDto: CreateUserDto, @CurrentUser() user: any) {
-    return this.usersService.create(createUserDto, user);
+    return toPublicUser(await this.usersService.create(createUserDto, user));
   }
 
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
   async findAll(@CurrentUser() user: any) {
-    return this.usersService.findAll(user);
+    const users = await this.usersService.findAll(user);
+    return users.map((userRecord) => toPublicUser(userRecord));
   }
 
   @Get(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
   async findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.findOne(id, user);
+    return toPublicUser(await this.usersService.findOne(id, user));
   }
 
   @Put(':id')
@@ -49,7 +51,7 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() user: any,
   ) {
-    return this.usersService.update(id, updateUserDto, user);
+    return toPublicUser(await this.usersService.update(id, updateUserDto, user));
   }
 
   @Delete(':id')

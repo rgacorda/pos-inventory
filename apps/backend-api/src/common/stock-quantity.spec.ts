@@ -1,4 +1,4 @@
-import { sumStockByProduct, toStockUnits } from './stock-quantity';
+import { quantitiesStillSold, sumStockByProduct, toStockUnits } from './stock-quantity';
 
 describe('stock quantity units', () => {
   it('rounds finite numbers and ignores junk', () => {
@@ -22,5 +22,20 @@ describe('stock quantity units', () => {
     expect(totals.get('a')).toBe(15);
     expect(totals.get('b')).toBe(4);
     expect(totals.has('c')).toBe(false);
+  });
+
+  it('does not restore pieces an exchange already put back', () => {
+    expect(
+      quantitiesStillSold(
+        [
+          { productId: 'a', quantity: 10 },
+          { productId: 'b', quantity: 2 },
+        ],
+        [{ productId: 'a', quantity: 3 }],
+      ),
+    ).toEqual([
+      { productId: 'a', quantity: 7 },
+      { productId: 'b', quantity: 2 },
+    ]);
   });
 });

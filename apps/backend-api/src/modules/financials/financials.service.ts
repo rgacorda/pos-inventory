@@ -5,7 +5,7 @@ import { OrderEntity } from '../../entities/order.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { Expense } from '../../entities/expense.entity';
 import { ProductEntity } from '../../entities/product.entity';
-import { OrderStatus } from '@pos/shared-types';
+import { SALE_STATUSES } from '../../common/sale-status';
 import {
   assembleTrend,
   businessTimeZone,
@@ -18,11 +18,7 @@ import {
  * customer still paid after the return credit, so they belong in revenue
  * with completed and synced sales. Sales reports already count them.
  */
-const REVENUE_STATUSES = [
-  OrderStatus.COMPLETED,
-  OrderStatus.SYNCED,
-  OrderStatus.EXCHANGE,
-];
+const REVENUE_STATUSES = SALE_STATUSES;
 
 export interface DeliveredGoods {
   total: number;
@@ -324,6 +320,7 @@ export class FinancialsService {
         ) AS amount
       ) return_cost ON true
       WHERE o."organizationId" = $3
+        AND o."status"::text <> 'VOID'
         AND o."exchangedAt" BETWEEN $4 AND $5
         AND COALESCE(elem->>'productId', '') <> ''
         AND elem->>'productId' NOT LIKE 'manual-%'

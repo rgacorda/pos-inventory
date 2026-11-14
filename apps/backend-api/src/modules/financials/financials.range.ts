@@ -127,6 +127,44 @@ export function currentBusinessMonthRange(
   };
 }
 
+export interface BusinessCalendarDay {
+  /** YYYY-MM-DD in the business timezone. */
+  date: string;
+  /** Inclusive naive timestamp, `YYYY-MM-DD 00:00:00`. */
+  start: string;
+  /** Exclusive naive timestamp, midnight at the start of the next day. */
+  end: string;
+}
+
+/**
+ * A shop calendar day as naive timestamps.
+ * Sale timestamps are stored without a time zone. Comparing them to a UTC
+ * ISO string drops the offset, so a Manila evening (after 4pm) falls outside
+ * "today". Convert the stored clock into this timezone, then compare it to
+ * `start` and `end`.
+ */
+export function businessCalendarDay(
+  now = new Date(),
+  dayOffset = 0,
+  timeZone = businessTimeZone(),
+): BusinessCalendarDay {
+  const parts = zonedParts(now, timeZone);
+  const shifted = new Date(
+    Date.UTC(parts.year, parts.month - 1, parts.day + dayOffset),
+  );
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth() + 1;
+  const day = shifted.getUTCDate();
+  const date = `${year}-${pad2(month)}-${pad2(day)}`;
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  const endDate = `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}-${pad2(next.getUTCDate())}`;
+  return {
+    date,
+    start: `${date} 00:00:00`,
+    end: `${endDate} 00:00:00`,
+  };
+}
+
 function isValidCalendarDate(year: number, month: number, day: number): boolean {
   if (month < 1 || month > 12 || day < 1) return false;
   const probe = new Date(Date.UTC(year, month - 1, day));

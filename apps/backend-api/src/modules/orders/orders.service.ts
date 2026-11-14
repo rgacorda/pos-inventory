@@ -7,25 +7,33 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, QueryFailedError, DataSource, EntityManager } from 'typeorm';
+import { randomUUID } from 'crypto';
+import { In, IsNull, Repository, QueryFailedError, DataSource, EntityManager } from 'typeorm';
 import { OrderEntity } from '../../entities/order.entity';
 import { UserEntity } from '../../entities/user.entity';
 import { OrderItemEntity } from '../../entities/order-item.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { PaymentEntity } from '../../entities/payment.entity';
+import { CustomerEntity } from '../../entities/customer.entity';
+import {
+  CustomerPointTransactionEntity,
+  PointTransactionType,
+} from '../../entities/customer-point-transaction.entity';
 import { TerminalEntity } from '../../entities/terminal.entity';
-import { CreateOrderDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
-import { UserRole, OrderStatus } from '@pos/shared-types';
+import { CreateOrderDto, CreateOrderItemDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
+import { UserRole, OrderStatus, PaymentStatus } from '@pos/shared-types';
 import {
   adjustTrackedStock,
-  sumStockByProduct,
+  quantitiesStillSold,
 } from '../../common/stock-quantity';
 import {
   loadProductUnitCosts,
+  recordedUnitCost,
   stampReturnUnitCosts,
   unitCostByProduct,
-  unitCostForProduct,
 } from '../../common/sale-cost';
+import { SALE_STATUSES, SALE_STATUS_SQL } from '../../common/sale-status';
+import { loadDashboardStats } from './dashboard-stats';
 
 @Injectable()
 export class OrdersService {
@@ -114,13 +122,34 @@ export class OrdersService {
     );
 
     // Create order items
-    const orderItems = items.map((item) =>
-      this.orderItemsRepository.create({
-        ...item,
+    const orderItems = items.map((item) => {
+      const line = item as CreateOrderItemDto & {
+        unitPrice?: number;
+        unitCost?: unknown;
+        discountAmount?: number;
+      };
+      const quantity = Math.max(0, Math.round(Number(line.quantity) || 0));
+      const unitPrice = roundMoney(Number(line.unitPrice ?? line.price) || 0);
+      const discountAmount = roundMoney(
+        Number(line.discountAmount ?? line.discount) || 0,
+      );
+      const taxRate = Number(line.taxRate) || 0;
+      const subtotal = roundMoney(quantity * unitPrice);
+      const total = roundMoney(subtotal - discountAmount + subtotal * taxRate);
+      return this.orderItemsRepository.create({
         orderId: savedOrder.id,
-        unitCost: unitCostForProduct(item.productId, unitCosts),
-      }),
-    );
+        productId: line.productId,
+        sku: line.sku,
+        name: line.name,
+        quantity,
+        unitPrice,
+        unitCost: recordedUnitCost(line.productId, line.unitCost, unitCosts),
+        taxRate,
+        discountAmount,
+        subtotal,
+        total,
+      });
+    });
 
     await this.orderItemsRepository.save(orderItems);
 
@@ -424,56 +453,16 @@ export class OrdersService {
   }
 
   async getDashboardStats(requestingUser: any) {
-    const now = new Date();
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0, 0, 0, 0,
-    );
-    const todayEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      23, 59, 59, 999,
-    );
-
-    const qb = this.ordersRepository
-      .createQueryBuilder('order')
-      .select('SUM(order.totalAmount)', 'revenue')
-      .addSelect('COUNT(order.id)', 'orderCount')
-      .where('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
-      .andWhere(
-        'COALESCE(order.completedAt, order.createdAt) BETWEEN :start AND :end',
-        {
-          start: todayStart.toISOString(),
-          end: todayEnd.toISOString(),
-        },
-      );
-
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      qb.andWhere('order.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
-
-    if (requestingUser.role === UserRole.CASHIER) {
-      qb.andWhere('order.cashierId = :cashierId', {
-        cashierId: requestingUser.id,
-      });
-    }
-
-    const result = await qb.getRawOne();
-    const revenue = parseFloat(result?.revenue || '0');
-    const orders = parseInt(result?.orderCount || '0', 10);
-
-    return {
-      today: {
-        revenue,
-        orders,
-        averageOrderValue: orders > 0 ? revenue / orders : 0,
+    return loadDashboardStats(
+      {
+        orders: this.ordersRepository,
+        items: this.orderItemsRepository,
+        products: this.productsRepository,
+        dataSource: this.dataSource,
+        timezones: () => this.getReportTimezones(),
       },
-    };
+      requestingUser,
+    );
   }
 
   async getReportAnalytics(
@@ -488,8 +477,8 @@ export class OrdersService {
     const orderLocalTs = `(COALESCE(order.completedAt, order.createdAt) AT TIME ZONE :storedAsTz) AT TIME ZONE :displayTz`;
 
     const applyFilters = (qb: any) => {
-      qb.andWhere('order.status != :voidStatus', {
-        voidStatus: OrderStatus.VOID,
+      qb.andWhere('order.status IN (:...saleStatuses)', {
+        saleStatuses: SALE_STATUSES,
       }).andWhere(
         'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
         {
@@ -522,7 +511,6 @@ export class OrdersService {
         this.ordersRepository
           .createQueryBuilder('order')
           .select('SUM(order.totalAmount)', 'totalRevenue')
-          .addSelect('SUM(order.taxAmount)', 'totalTax')
           .addSelect('COUNT(order.id)', 'totalOrders')
           .where('1=1'),
       ).getRawOne(),
@@ -551,9 +539,9 @@ export class OrdersService {
           .addSelect('item.name', 'name')
           .addSelect('item.sku', 'sku')
           .addSelect('SUM(item.quantity)', 'totalQuantity')
-          .addSelect('SUM(item.quantity * item.unitPrice)', 'totalRevenue')
-          .where('order.status != :voidStatus', {
-            voidStatus: OrderStatus.VOID,
+          .addSelect('SUM(item.subtotal)', 'totalRevenue')
+          .where('order.status IN (:...saleStatuses)', {
+            saleStatuses: SALE_STATUSES,
           })
           .andWhere(
             'COALESCE(order.completedAt, order.createdAt) BETWEEN :startDate AND :endDate',
@@ -574,7 +562,7 @@ export class OrdersService {
           .groupBy('item.productId')
           .addGroupBy('item.name')
           .addGroupBy('item.sku')
-          .orderBy('SUM(item.quantity * item.unitPrice)', 'DESC')
+          .orderBy('SUM(item.subtotal)', 'DESC')
           .getRawMany();
       })(),
 
@@ -649,9 +637,14 @@ export class OrdersService {
     ]);
 
     const totalRevenue = parseFloat(summaryResult?.totalRevenue || '0');
-    const totalTax = parseFloat(summaryResult?.totalTax || '0');
     const totalOrders = parseInt(summaryResult?.totalOrders || '0', 10);
-    const totalProfit = totalRevenue - totalTax;
+    const costOfGoods = await this.reportCostOfGoods(
+      startDate,
+      endDate,
+      isSuperAdmin ? null : orgId,
+      isCashier ? requestingUser.id : null,
+    );
+    const totalProfit = roundMoney(totalRevenue - costOfGoods);
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     return {
@@ -955,10 +948,16 @@ export class OrdersService {
 
       this.logger.log(`Voiding order ${lockedOrder.orderNumber} with ${items.length} items`);
 
+      const stockLines = lockedOrder.exchangedAt
+        ? quantitiesStillSold(items, lockedOrder.returnedItems || [])
+        : items;
       const restoredCount = await this.restoreStock(
         queryRunner.manager,
-        items,
+        stockLines,
+        lockedOrder.organizationId,
       );
+      await this.refundCompletedPayments(queryRunner.manager, lockedOrder);
+      await this.reverseLoyalty(queryRunner.manager, lockedOrder);
 
       // Update order status and void info
       lockedOrder.status = OrderStatus.VOID;
@@ -1139,6 +1138,7 @@ export class OrdersService {
       const restoredCount = await this.restoreStock(
         queryRunner.manager,
         returnedItems,
+        lockedOrder.organizationId,
       );
 
       lockedOrder.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
@@ -1171,23 +1171,32 @@ export class OrdersService {
   private async restoreStock(
     manager: EntityManager,
     items: Array<{ productId?: string; quantity?: unknown; name?: string }>,
+    organizationId?: string | null,
   ) {
-    const totals = sumStockByProduct(
-      (items || []).filter(
-        (item) => item.productId && !item.productId.startsWith('manual-'),
-      ),
+    const lines = (items || []).filter(
+      (item) => item.productId && !String(item.productId).startsWith('manual-'),
+    );
+    const totals = new Map(
+      quantitiesStillSold(lines).map((line) => [line.productId, line.quantity]),
     );
     let restored = 0;
     for (const productId of [...totals.keys()].sort()) {
       const quantity = totals.get(productId) || 0;
-      const affected = await adjustTrackedStock(manager, productId, quantity);
+      const affected = await adjustTrackedStock(
+        manager,
+        productId,
+        quantity,
+        organizationId,
+      );
       if (affected > 0) {
         this.logger.log(`Restored ${quantity} units of product ${productId}`);
         restored += 1;
         continue;
       }
       const product = await manager.findOne(ProductEntity, {
-        where: { id: productId },
+        where: organizationId
+          ? { id: productId, organizationId }
+          : { id: productId },
       });
       if (product?.infiniteStock) {
         this.logger.log(
@@ -1200,6 +1209,189 @@ export class OrdersService {
       }
     }
     return restored;
+  }
+
+  /**
+   * Marks every completed payment on the order refunded and writes the
+   * balancing refund row. The amount still unpaid after earlier partial
+   * refunds is what gets written.
+   */
+  private async refundCompletedPayments(
+    manager: EntityManager,
+    order: OrderEntity,
+  ) {
+    const payments = await manager.find(PaymentEntity, {
+      where: { orderId: order.id, status: PaymentStatus.COMPLETED },
+    });
+    for (const payment of payments) {
+      const prior = await manager.find(PaymentEntity, {
+        where: { reference: `REFUND-${payment.id}` },
+      });
+      const already = prior.reduce(
+        (sum, row) => sum + Math.abs(roundMoney(row.amount)),
+        0,
+      );
+      const remaining = roundMoney(roundMoney(payment.amount) - already);
+      if (remaining > 0) {
+        const suffix = `${Date.now().toString(36)}${randomUUID().slice(0, 8)}`.toUpperCase();
+        await manager.save(
+          PaymentEntity,
+          manager.create(PaymentEntity, {
+            paymentNumber: `RFD-${suffix}`,
+            posLocalId: randomUUID(),
+            orderId: payment.orderId,
+            terminalId: payment.terminalId,
+            organizationId: payment.organizationId,
+            method: payment.method,
+            amount: -remaining,
+            status: PaymentStatus.REFUNDED,
+            reference: `REFUND-${payment.id}`,
+            processedAt: new Date(),
+          }),
+        );
+      }
+      payment.status = PaymentStatus.REFUNDED;
+      await manager.save(PaymentEntity, payment);
+    }
+  }
+
+  /**
+   * Puts loyalty back to where it was before the sale. Earned points that
+   * already expired are left alone. The earn row is closed so the expiry
+   * job does not take the same points again.
+   */
+  private async reverseLoyalty(manager: EntityManager, order: OrderEntity) {
+    if (!order.customerId) return;
+    const customer = await manager.findOne(CustomerEntity, {
+      where: { id: order.customerId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!customer) return;
+
+    const earned = Math.max(0, Math.floor(Number(order.pointsEarned) || 0));
+    const redeemed = Math.max(0, Math.floor(Number(order.pointsRedeemed) || 0));
+    let points = Number(customer.totalPoints) || 0;
+
+    if (earned > 0) {
+      const earnTx = await manager.findOne(CustomerPointTransactionEntity, {
+        where: {
+          orderId: order.id,
+          type: PointTransactionType.EARN,
+          expiredAt: IsNull(),
+        },
+      });
+      if (earnTx) {
+        points = Math.max(0, points - earned);
+        earnTx.expiredAt = new Date();
+        await manager.save(CustomerPointTransactionEntity, earnTx);
+        await manager.save(
+          CustomerPointTransactionEntity,
+          manager.create(CustomerPointTransactionEntity, {
+            customerId: customer.id,
+            orderId: order.id,
+            organizationId: order.organizationId,
+            type: PointTransactionType.REDEEM,
+            points: earned,
+            description: `Voided order ${order.orderNumber}: reversed ${earned} earned pts`,
+          }),
+        );
+      }
+    }
+
+    if (redeemed > 0) {
+      points += redeemed;
+      await manager.save(
+        CustomerPointTransactionEntity,
+        manager.create(CustomerPointTransactionEntity, {
+          customerId: customer.id,
+          orderId: order.id,
+          organizationId: order.organizationId,
+          type: PointTransactionType.EARN,
+          points: redeemed,
+          description: `Voided order ${order.orderNumber}: restored ${redeemed} redeemed pts`,
+        }),
+      );
+    }
+
+    customer.totalPoints = points;
+    customer.totalSpent = Math.max(
+      0,
+      roundMoney(Number(customer.totalSpent) - Number(order.totalAmount)),
+    );
+    await manager.save(CustomerEntity, customer);
+  }
+
+  /** Cost of the units sold in the range, minus the cost of units returned. */
+  private async reportCostOfGoods(
+    startDate: string,
+    endDate: string,
+    organizationId: string | null,
+    cashierId: string | null,
+  ) {
+    const params: unknown[] = [startDate, endDate];
+    const orgSql = organizationId
+      ? `AND o."organizationId" = $${params.push(organizationId)}`
+      : '';
+    const cashierSql = cashierId
+      ? `AND o."cashierId" = $${params.push(cashierId)}`
+      : '';
+    const [soldRow] = await this.dataSource.query(
+      `
+      SELECT COALESCE(SUM(
+        i."quantity" * CASE
+          WHEN i."unitCost" IS NOT NULL THEN i."unitCost"
+          ELSE COALESCE(p."cost", 0)
+        END
+      ), 0) AS total
+      FROM "order_items" i
+      INNER JOIN "orders" o ON o."id" = i."orderId"
+      LEFT JOIN "products" p
+        ON p."id"::text = i."productId"
+       AND p."organizationId" = o."organizationId"
+      WHERE o."status"::text IN (${SALE_STATUS_SQL})
+        AND COALESCE(o."completedAt", o."createdAt") BETWEEN $1 AND $2
+        AND COALESCE(i."productId", '') <> ''
+        AND i."productId" NOT LIKE 'manual-%'
+        ${orgSql}
+        ${cashierSql}
+      `,
+      params,
+    );
+    const [returnedRow] = await this.dataSource.query(
+      `
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN elem->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN (elem->>'quantity')::numeric
+          ELSE 0
+        END * COALESCE(
+          CASE
+            WHEN elem->>'unitCost' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+            THEN (elem->>'unitCost')::numeric
+          END,
+          p."cost",
+          0
+        )
+      ), 0) AS total
+      FROM "orders" o
+      CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(o."returnedItems", '[]'::jsonb)
+      ) AS elem
+      LEFT JOIN "products" p
+        ON p."id"::text = elem->>'productId'
+       AND p."organizationId" = o."organizationId"
+      WHERE o."status"::text <> 'VOID'
+        AND o."exchangedAt" BETWEEN $1 AND $2
+        AND COALESCE(elem->>'productId', '') <> ''
+        AND elem->>'productId' NOT LIKE 'manual-%'
+        ${orgSql}
+        ${cashierSql}
+      `,
+      params,
+    );
+    return roundMoney(
+      roundMoney(soldRow?.total) - roundMoney(returnedRow?.total),
+    );
   }
 
   async getOrderStats(requestingUser: any) {
@@ -1226,15 +1418,15 @@ export class OrdersService {
       query.getCount(),
       query
         .clone()
-        .andWhere('order.status IN (:...statuses)', { 
-          statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED] 
+        .andWhere('order.status IN (:...statuses)', {
+          statuses: SALE_STATUSES,
         })
         .getCount(),
       query
         .clone()
         .select('SUM(order.totalAmount)', 'total')
-        .andWhere('order.status IN (:...statuses)', { 
-          statuses: [OrderStatus.COMPLETED, OrderStatus.SYNCED] 
+        .andWhere('order.status IN (:...statuses)', {
+          statuses: SALE_STATUSES,
         })
         .getRawOne()
         .then((result) => parseFloat(result?.total || 0)),
@@ -1271,4 +1463,10 @@ export class OrdersService {
 
     return query.getMany();
   }
+}
+
+function roundMoney(value: unknown): number {
+  const amount = parseFloat(String(value ?? '0'));
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * 100) / 100;
 }

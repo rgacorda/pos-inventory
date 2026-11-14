@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryFailedError } from 'typeorm';
@@ -13,6 +14,7 @@ import { TerminalEntity } from '../../entities/terminal.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { SubscriptionPlan, SubscriptionStatus, UserRole } from '@pos/shared-types';
 import { CreateOrganizationDto, UpdateOrganizationDto } from './dto';
+import { toPublicUser } from '../../common/public-user';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -132,6 +134,28 @@ export class OrganizationsService {
       relations: ['subscription'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /**
+   * A store admin can read and update only their own organization.
+   * Super admin keeps access to every store.
+   */
+  assertAccessible(
+    id: string,
+    user: { role?: string; organizationId?: string | null },
+  ) {
+    if (user?.role === UserRole.SUPER_ADMIN) return;
+    if (user?.role === UserRole.ADMIN && user.organizationId === id) return;
+    throw new ForbiddenException('Access denied');
+  }
+
+  /** Organization payload safe to send to a client. */
+  present(organization: OrganizationEntity) {
+    if (!organization?.users?.length) return organization;
+    return {
+      ...organization,
+      users: organization.users.map((user: UserEntity) => toPublicUser(user)),
+    };
   }
 
   async findOne(id: string) {

@@ -13,6 +13,10 @@ export interface CreateOrderItemDto {
   unitCost?: number;
   taxRate: number;
   discountAmount: number;
+  /** Receipt line subtotal. Kept when pack pricing does not equal quantity × unit price. */
+  subtotal?: number;
+  /** Receipt line total, including that line's tax. */
+  total?: number;
 }
 
 /**

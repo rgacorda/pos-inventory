@@ -345,6 +345,7 @@ export class SyncService {
               queryRunner,
               stampedReturns,
               `from exchange of order ${lockedOriginal.orderNumber} (via sync fallback)`,
+              user?.organizationId,
             );
           } else if (!lockedOriginal) {
             this.logger.warn(
@@ -368,7 +369,12 @@ export class SyncService {
           const unitPrice = this.toMoney(item.unitPrice);
           const taxRate = this.toTaxRate(item.taxRate);
           const discountAmount = this.toMoney(item.discountAmount);
-          const subtotal = this.toMoney(quantity * unitPrice);
+          const computedSubtotal = this.toMoney(quantity * unitPrice);
+          const sentSubtotal = (item as { subtotal?: unknown }).subtotal;
+          const subtotal =
+            sentSubtotal != null && Number.isFinite(Number(sentSubtotal))
+              ? this.toMoney(sentSubtotal)
+              : computedSubtotal;
           const productId = item.productId ? String(item.productId) : '';
           const orderItem = new OrderItemEntity();
           orderItem.orderId = savedOrder.id;
@@ -381,9 +387,11 @@ export class SyncService {
           orderItem.taxRate = taxRate;
           orderItem.discountAmount = discountAmount;
           orderItem.subtotal = subtotal;
-          orderItem.total = this.toMoney(
-            subtotal - discountAmount + subtotal * taxRate,
-          );
+          const sentTotal = (item as { total?: unknown }).total;
+          orderItem.total =
+            sentTotal != null && Number.isFinite(Number(sentTotal))
+              ? this.toMoney(sentTotal)
+              : this.toMoney(subtotal - discountAmount + subtotal * taxRate);
           return orderItem;
         });
 
@@ -410,11 +418,14 @@ export class SyncService {
             queryRunner.manager,
             productId,
             -quantity,
+            user?.organizationId,
           );
           if (affected > 0) continue;
 
           const product = await queryRunner.manager.findOne(ProductEntity, {
-            where: { id: productId },
+            where: user?.organizationId
+              ? { id: productId, organizationId: user.organizationId }
+              : { id: productId },
           });
           if (product?.infiniteStock) {
             this.logger.log(
@@ -838,6 +849,7 @@ export class SyncService {
       name?: string;
     }[],
     contextLabel: string,
+    organizationId?: string | null,
   ): Promise<number> {
     let restoredCount = 0;
 
@@ -861,6 +873,7 @@ export class SyncService {
         queryRunner.manager,
         returnedItem.productId,
         quantity,
+        organizationId,
       );
       if (affected > 0) {
         this.logger.log(
@@ -871,7 +884,9 @@ export class SyncService {
       }
 
       const returnedProduct = await queryRunner.manager.findOne(ProductEntity, {
-        where: { id: returnedItem.productId },
+        where: organizationId
+          ? { id: returnedItem.productId, organizationId }
+          : { id: returnedItem.productId },
       });
       if (returnedProduct?.infiniteStock) {
         this.logger.log(

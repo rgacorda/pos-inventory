@@ -392,7 +392,7 @@ export default function ReportsPage() {
                   ₱{Number(stats.totalProfit || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Revenue minus tax
+                  Revenue minus cost of goods
                 </p>
               </CardContent>
             </Card>

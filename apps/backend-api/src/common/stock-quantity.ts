@@ -26,6 +26,23 @@ export function sumStockByProduct(
 }
 
 /**
+ * Pieces still out on a sale after an earlier restock, such as an exchange.
+ * Quantities already put back are not returned again.
+ */
+export function quantitiesStillSold(
+  sold: Array<{ productId?: string | null; quantity?: unknown }> = [],
+  alreadyRestored: Array<{ productId?: string | null; quantity?: unknown }> = [],
+): Array<{ productId: string; quantity: number }> {
+  const restored = sumStockByProduct(alreadyRestored);
+  const remaining: Array<{ productId: string; quantity: number }> = [];
+  for (const [productId, quantity] of sumStockByProduct(sold)) {
+    const left = quantity - (restored.get(productId) || 0);
+    if (left > 0) remaining.push({ productId, quantity: left });
+  }
+  return remaining;
+}
+
+/**
  * Adds `delta` to stockQuantity in SQL (`stockQuantity = stockQuantity + delta`).
  * Unlimited products are skipped. This does not read the row and write it
  * back, so a sale that commits in between cannot be overwritten.
