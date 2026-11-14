@@ -119,6 +119,8 @@ export class OrderEntity {
     sku?: string;
     quantity: number;
     unitPrice?: number;
+    /** Unit cost copied from the original sale line. */
+    unitCost?: number;
     total?: number;
   }[] | null;
 

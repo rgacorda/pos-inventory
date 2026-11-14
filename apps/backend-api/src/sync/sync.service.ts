@@ -29,6 +29,12 @@ import {
   adjustTrackedStock,
   sumStockByProduct,
 } from '../common/stock-quantity';
+import {
+  loadProductUnitCosts,
+  recordedUnitCost,
+  stampReturnUnitCosts,
+  unitCostByProduct,
+} from '../common/sale-cost';
 
 @Injectable()
 export class SyncService {
@@ -272,6 +278,15 @@ export class SyncService {
         const returnedItems = isExchangeOrder
           ? (orderDto.returnedItems ?? [])
           : [];
+        const saleLines = originalOrder
+          ? await queryRunner.manager.find(OrderItemEntity, {
+              where: { orderId: originalOrder.id },
+            })
+          : [];
+        const stampedReturns = stampReturnUnitCosts(
+          returnedItems,
+          unitCostByProduct(saleLines),
+        );
 
         // Create order entity
         const order = this.orderRepository.create({
@@ -296,8 +311,8 @@ export class SyncService {
           exchangeRef: isExchangeOrder
             ? (originalOrder?.orderNumber ?? orderDto.exchangeRef)
             : undefined,
-          returnedItems: isExchangeOrder && returnedItems.length > 0
-            ? returnedItems
+          returnedItems: isExchangeOrder && stampedReturns.length > 0
+            ? stampedReturns
             : undefined,
         });
 
@@ -321,14 +336,14 @@ export class SyncService {
           if (lockedOriginal && !lockedOriginal.exchangedAt) {
             lockedOriginal.exchangedAt = completedAt;
             lockedOriginal.returnedItems =
-              returnedItems.length > 0
-                ? returnedItems
+              stampedReturns.length > 0
+                ? stampedReturns
                 : lockedOriginal.returnedItems;
             await queryRunner.manager.save(OrderEntity, lockedOriginal);
 
             await this.restoreReturnedStock(
               queryRunner,
-              returnedItems,
+              stampedReturns,
               `from exchange of order ${lockedOriginal.orderNumber} (via sync fallback)`,
             );
           } else if (!lockedOriginal) {
@@ -341,19 +356,28 @@ export class SyncService {
         // Create order items. Coerce local values so one bad line (NaN price,
         // fractional quantity, tax rate that doesn't fit numeric(5,4)) cannot
         // reject the order on every retry.
+        const unitCosts = await loadProductUnitCosts(
+          queryRunner.manager,
+          user?.organizationId,
+          (orderDto.items ?? []).map((item) =>
+            item.productId ? String(item.productId) : '',
+          ),
+        );
         const items = (orderDto.items ?? []).map((item) => {
           const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
           const unitPrice = this.toMoney(item.unitPrice);
           const taxRate = this.toTaxRate(item.taxRate);
           const discountAmount = this.toMoney(item.discountAmount);
           const subtotal = this.toMoney(quantity * unitPrice);
+          const productId = item.productId ? String(item.productId) : '';
           const orderItem = new OrderItemEntity();
           orderItem.orderId = savedOrder.id;
-          orderItem.productId = item.productId ? String(item.productId) : '';
+          orderItem.productId = productId;
           orderItem.sku = item.sku || 'UNKNOWN';
           orderItem.name = item.name || 'Item';
           orderItem.quantity = quantity;
           orderItem.unitPrice = unitPrice;
+          orderItem.unitCost = recordedUnitCost(productId, item.unitCost, unitCosts);
           orderItem.taxRate = taxRate;
           orderItem.discountAmount = discountAmount;
           orderItem.subtotal = subtotal;

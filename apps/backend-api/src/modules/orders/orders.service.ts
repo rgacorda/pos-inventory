@@ -20,6 +20,12 @@ import {
   adjustTrackedStock,
   sumStockByProduct,
 } from '../../common/stock-quantity';
+import {
+  loadProductUnitCosts,
+  stampReturnUnitCosts,
+  unitCostByProduct,
+  unitCostForProduct,
+} from '../../common/sale-cost';
 
 @Injectable()
 export class OrdersService {
@@ -101,11 +107,18 @@ export class OrdersService {
 
     const savedOrder = await this.ordersRepository.save(order);
 
+    const unitCosts = await loadProductUnitCosts(
+      this.productsRepository.manager,
+      savedOrder.organizationId,
+      items.map((item) => item.productId),
+    );
+
     // Create order items
     const orderItems = items.map((item) =>
       this.orderItemsRepository.create({
         ...item,
         orderId: savedOrder.id,
+        unitCost: unitCostForProduct(item.productId, unitCosts),
       }),
     );
 
@@ -1111,6 +1124,13 @@ export class OrdersService {
       }
 
       const returnedItems = dto.returnedItems ?? [];
+      const saleLines = await queryRunner.manager.find(OrderItemEntity, {
+        where: { orderId: lockedOrder.id },
+      });
+      const stampedReturns = stampReturnUnitCosts(
+        returnedItems,
+        unitCostByProduct(saleLines),
+      );
 
       this.logger.log(
         `Exchanging order ${lockedOrder.orderNumber} — restoring stock for ${returnedItems.length} returned item(s)`,
@@ -1122,13 +1142,14 @@ export class OrdersService {
       );
 
       lockedOrder.exchangedAt = dto.exchangedAt ? new Date(dto.exchangedAt) : new Date();
-      lockedOrder.returnedItems = returnedItems.map((item) => ({
+      lockedOrder.returnedItems = stampedReturns.map((item) => ({
         productId: item.productId,
         name: item.name,
         sku: item.sku,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         total: item.total,
+        ...(item.unitCost != null ? { unitCost: item.unitCost } : {}),
       }));
       await queryRunner.manager.save(OrderEntity, lockedOrder);
       await queryRunner.commitTransaction();

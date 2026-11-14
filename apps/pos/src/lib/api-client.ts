@@ -744,6 +744,9 @@ export class SyncService {
         name: item?.name || "Item",
         quantity: Math.max(0, Math.round(Number(item?.quantity) || 0)),
         unitPrice: this.money(item?.unitPrice),
+        ...(Number.isFinite(Number(item?.unitCost)) && Number(item.unitCost) >= 0
+          ? { unitCost: this.money(item.unitCost) }
+          : {}),
         taxRate: Number.isFinite(Number(item?.taxRate)) ? Number(item.taxRate) : 0,
         discountAmount: this.money(item?.discountAmount),
       })),

@@ -717,7 +717,7 @@ export default function FinancialsPage() {
                   </div>
                 ) : null}
                 <p className="text-xs text-muted-foreground pl-4">
-                  Valued at each product&apos;s current unit cost.
+                  Valued at the unit cost recorded on each sale.
                 </p>
                 {cogs.missingCostCount > 0 ? (
                   <p className="text-xs text-amber-600 pl-4">

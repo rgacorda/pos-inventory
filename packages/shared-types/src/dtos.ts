@@ -9,6 +9,8 @@ export interface CreateOrderItemDto {
   name: string;
   quantity: number;
   unitPrice: number;
+  /** Unit cost on the register at the moment the line was rung. */
+  unitCost?: number;
   taxRate: number;
   discountAmount: number;
 }

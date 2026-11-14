@@ -80,6 +80,8 @@ export interface Order extends BaseEntity {
     sku?: string;
     quantity: number;
     unitPrice?: number;
+    /** Unit cost copied from the original sale line. */
+    unitCost?: number;
     total?: number;
   }[];
   items: OrderItem[];
@@ -121,6 +123,8 @@ export interface OrderItem {
   name: string;
   quantity: number;
   unitPrice: number;
+  /** Unit cost captured when the line was rung. Absent on older sales. */
+  unitCost?: number | null;
   taxRate: number;
   discountAmount: number;
   subtotal: number;

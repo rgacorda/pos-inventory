@@ -4,6 +4,7 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { OrderEntity } from './order.entity';
 
@@ -12,6 +13,7 @@ export class OrderItemEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Index('IDX_order_items_orderId')
   @Column()
   orderId: string;
 
@@ -37,6 +39,14 @@ export class OrderItemEntity {
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   unitPrice: number;
+
+  /**
+   * Unit cost when the line was saved. Profit and loss uses this so a later
+   * change to the product cost does not rewrite the sale. Null on manual
+   * lines and on rows not yet backfilled.
+   */
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  unitCost: number | null;
 
   @Column({ type: 'decimal', precision: 5, scale: 4 })
   taxRate: number;

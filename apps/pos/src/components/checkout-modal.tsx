@@ -108,29 +108,37 @@ export function CheckoutModal({
         status: OrderStatus.COMPLETED,
         completedAt: now,
         syncedAt: undefined,
-        items: items.map((item) => ({
-          id: uuidv4(),
-          orderId: posLocalId,
-          productId: item.product.id,
-          sku: item.product.sku,
-          name: item.product.name,
-          quantity: item.quantity,
-          unitPrice: Number(item.product.price),
-          taxRate: Number(item.product.taxRate),
-          discountAmount: 0,
-          subtotal: calculateLineSubtotal(
-            item.quantity,
-            Number(item.product.price),
-          ),
-          total: calculateOrderTotal(
-            calculateLineSubtotal(item.quantity, Number(item.product.price)),
-            calculateTax(
-              calculateLineSubtotal(item.quantity, Number(item.product.price)),
-              Number(item.product.taxRate),
+        items: items.map((item) => {
+          const rawCost = Number(item.product.cost);
+          const unitCost =
+            Number.isFinite(rawCost) && rawCost >= 0
+              ? Math.round(rawCost * 100) / 100
+              : undefined;
+          return {
+            id: uuidv4(),
+            orderId: posLocalId,
+            productId: item.product.id,
+            sku: item.product.sku,
+            name: item.product.name,
+            quantity: item.quantity,
+            unitPrice: Number(item.product.price),
+            ...(unitCost != null ? { unitCost } : {}),
+            taxRate: Number(item.product.taxRate),
+            discountAmount: 0,
+            subtotal: calculateLineSubtotal(
+              item.quantity,
+              Number(item.product.price),
             ),
-            0,
-          ),
-        })),
+            total: calculateOrderTotal(
+              calculateLineSubtotal(item.quantity, Number(item.product.price)),
+              calculateTax(
+                calculateLineSubtotal(item.quantity, Number(item.product.price)),
+                Number(item.product.taxRate),
+              ),
+              0,
+            ),
+          };
+        }),
         syncStatus: "pending",
         localCreatedAt: now,
         localUpdatedAt: now,

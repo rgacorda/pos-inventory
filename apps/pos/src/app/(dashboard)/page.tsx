@@ -916,6 +916,11 @@ export default function Page() {
       // Prepare order items with tiered pricing. Extra cents from rounding
       // the amount due are already included on one product line.
       const items = pricedLines.map(({ item, unitPrice, subtotal, tax: itemTax }) => {
+        const rawCost = Number(item.product.cost);
+        const unitCost =
+          Number.isFinite(rawCost) && rawCost >= 0
+            ? Math.round(rawCost * 100) / 100
+            : undefined;
         return {
           id: uuidv4(),
           orderId: orderPosLocalId,
@@ -924,6 +929,7 @@ export default function Page() {
           name: item.product.name,
           quantity: item.quantity,
           unitPrice,
+          ...(unitCost != null ? { unitCost } : {}),
           taxRate: item.product.taxRate || 0,
           discountAmount: 0,
           subtotal,
