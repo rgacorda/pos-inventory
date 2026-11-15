@@ -23,6 +23,7 @@ import { UserRole } from '@pos/shared-types';
 import {
   adjustTrackedStock,
   sumStockByProduct,
+  toStockUnits,
 } from '../../common/stock-quantity';
 
 @Injectable()
@@ -817,16 +818,28 @@ export class InventoryReturnsService {
     }
   }
 
-  /** Recomputes each item's totalCost server-side so it can never drift from quantity * unitCost. */
+  /**
+   * Stores the same whole units that stock will move. A fractional quantity
+   * is rounded (1.6 becomes 2) and the line total is recomputed from that,
+   * so the return record cannot say 1.6 while stock moved by 2.
+   */
   private normalizeItems(items: ReturnItemDto[]): InventoryReturnItem[] {
-    return items.map((item) => ({
-      productId: item.productId,
-      productName: item.productName,
-      productSku: item.productSku,
-      quantity: item.quantity,
-      unitCost: item.unitCost,
-      totalCost: Math.round(item.quantity * item.unitCost * 100) / 100,
-    }));
+    return items.map((item) => {
+      const quantity = toStockUnits(item.quantity);
+      if (quantity < 1) {
+        throw new BadRequestException(
+          `${item.productName || 'A return item'} quantity must be at least 1 unit`,
+        );
+      }
+      return {
+        productId: item.productId,
+        productName: item.productName,
+        productSku: item.productSku,
+        quantity,
+        unitCost: item.unitCost,
+        totalCost: Math.round(quantity * item.unitCost * 100) / 100,
+      };
+    });
   }
 
   private sumTotalCost(items: InventoryReturnItem[]): number {

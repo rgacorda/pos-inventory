@@ -17,6 +17,7 @@ import {
   belowCostPricingMessage,
   formatStockQuantity,
   isUnlimitedStock,
+  wholeStockUnits,
   KEEP_SAVED_PRICES,
   PriceManual,
   TRACK_COST,
@@ -402,7 +403,7 @@ export default function EditDeliveryPage() {
   const selectedProductForItem = products.find((p) => p.id === selectedProductId) || null;
   const itemMultiplier = getUnitMultiplier(itemFormData.quantityType, selectedProductForItem);
   const itemEnteredQuantity = parseFloat(itemFormData.quantity) || 0;
-  const itemTotalUnits = itemEnteredQuantity * itemMultiplier;
+  const itemTotalUnits = wholeStockUnits(itemEnteredQuantity * itemMultiplier);
 
   // Live "Pricing & Profit" preview for the Add Item dialog. The unit cost
   // is derived from whatever was entered above (per unit, pack, or half
@@ -522,7 +523,11 @@ export default function EditDeliveryPage() {
 
     const enteredQuantity = parseFloat(itemFormData.quantity);
     const multiplier = getUnitMultiplier(itemFormData.quantityType, product);
-    const totalUnits = enteredQuantity * multiplier;
+    const totalUnits = wholeStockUnits(enteredQuantity * multiplier);
+    if (totalUnits == null || totalUnits < 1) {
+      showErrorToast("Enter a quantity that adds a whole number of units");
+      return;
+    }
 
     const isFree = itemFormData.isFree;
     const enteredCost = isFree ? 0 : parseFloat(itemFormData.unitCost) || 0;
@@ -1324,9 +1329,14 @@ export default function EditDeliveryPage() {
                 placeholder="Enter quantity received"
                 required
               />
-              {itemFormData.quantityType !== "UNIT" && itemFormData.quantity && (
+              {itemFormData.quantityType !== "UNIT" && itemFormData.quantity && itemTotalUnits != null && (
                 <p className="text-xs text-muted-foreground">
                   = {itemTotalUnits} individual unit{itemTotalUnits === 1 ? "" : "s"}
+                </p>
+              )}
+              {itemFormData.quantity && itemTotalUnits == null && (
+                <p className="text-xs text-destructive">
+                  Quantity must add up to a whole number of units.
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
@@ -1431,7 +1441,9 @@ export default function EditDeliveryPage() {
                 ) : (
                   <>
                     Stock: {selectedProductForItem?.stockQuantity || 0}
-                    {itemFormData.quantity && ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
+                    {itemTotalUnits != null &&
+                      itemTotalUnits >= 1 &&
+                      ` → ${(selectedProductForItem?.stockQuantity || 0) + itemTotalUnits}`}
                   </>
                 )}
               </p>

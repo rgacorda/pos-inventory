@@ -232,6 +232,7 @@ export class InventoryVariancesService {
             ...(productIds?.length ? { productId: In(productIds) } : {}),
           },
           order: { productId: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
         })
       ).filter((count) => !skip.has(count.productId));
 

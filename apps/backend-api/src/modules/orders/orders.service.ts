@@ -24,6 +24,7 @@ import { CreateOrderDto, CreateOrderItemDto, UpdateOrderDto, ExchangeOrderDto } 
 import { UserRole, OrderStatus, PaymentStatus } from '@pos/shared-types';
 import {
   adjustTrackedStock,
+  capReturnedLines,
   quantitiesStillSold,
 } from '../../common/stock-quantity';
 import {
@@ -32,7 +33,11 @@ import {
   stampReturnUnitCosts,
   unitCostByProduct,
 } from '../../common/sale-cost';
-import { SALE_STATUSES, SALE_STATUS_SQL } from '../../common/sale-status';
+import {
+  isSaleStatus,
+  SALE_STATUSES,
+  SALE_STATUS_SQL,
+} from '../../common/sale-status';
 import { loadDashboardStats } from './dashboard-stats';
 
 @Injectable()
@@ -869,11 +874,10 @@ export class OrdersService {
     }
 
     // Cannot delete completed orders
-    if (
-      order.status === OrderStatus.COMPLETED ||
-      order.status === OrderStatus.SYNCED
-    ) {
-      throw new BadRequestException('Cannot delete completed or synced orders');
+    if (isSaleStatus(order.status)) {
+      throw new BadRequestException(
+        'Cannot delete a sale. Void it so the stock and payment are reversed.',
+      );
     }
 
     try {
@@ -948,9 +952,13 @@ export class OrdersService {
 
       this.logger.log(`Voiding order ${lockedOrder.orderNumber} with ${items.length} items`);
 
-      const stockLines = lockedOrder.exchangedAt
-        ? quantitiesStillSold(items, lockedOrder.returnedItems || [])
-        : items;
+      // Drafts never took stock. A sale that was already exchanged only
+      // puts back the pieces the exchange did not return.
+      const stockLines = !isSaleStatus(lockedOrder.status)
+        ? []
+        : lockedOrder.exchangedAt
+          ? quantitiesStillSold(items, lockedOrder.returnedItems || [])
+          : items;
       const restoredCount = await this.restoreStock(
         queryRunner.manager,
         stockLines,
@@ -1122,10 +1130,13 @@ export class OrdersService {
         throw new BadRequestException('Cannot exchange a voided order');
       }
 
-      const returnedItems = dto.returnedItems ?? [];
       const saleLines = await queryRunner.manager.find(OrderItemEntity, {
         where: { orderId: lockedOrder.id },
       });
+      const returnedItems = capReturnedLines(
+        saleLines,
+        dto.returnedItems ?? [],
+      );
       const stampedReturns = stampReturnUnitCosts(
         returnedItems,
         unitCostByProduct(saleLines),

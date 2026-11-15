@@ -26,6 +26,41 @@ export function sumStockByProduct(
 }
 
 /**
+ * Returned lines that may be put back into stock. A product cannot come
+ * back in a greater quantity than the sale took out, and a product that
+ * was never on the sale is ignored. Manual lines are kept for the receipt
+ * but they are not quantity-tracked.
+ */
+export function capReturnedLines<
+  T extends { productId?: string | null; quantity?: unknown },
+>(
+  sold: Array<{ productId?: string | null; quantity?: unknown }> = [],
+  returned: T[] = [],
+): T[] {
+  const remaining = sumStockByProduct(
+    sold.filter(
+      (line) => line?.productId && !String(line.productId).startsWith('manual-'),
+    ),
+  );
+  const capped: T[] = [];
+  for (const line of returned) {
+    const productId = line?.productId ? String(line.productId) : '';
+    if (!productId) continue;
+    if (productId.startsWith('manual-')) {
+      capped.push(line);
+      continue;
+    }
+    const quantity = Math.max(0, toStockUnits(line.quantity));
+    const left = remaining.get(productId) || 0;
+    const allowed = Math.min(quantity, Math.max(0, left));
+    if (allowed <= 0) continue;
+    remaining.set(productId, left - allowed);
+    capped.push({ ...line, quantity: allowed });
+  }
+  return capped;
+}
+
+/**
  * Pieces still out on a sale after an earlier restock, such as an exchange.
  * Quantities already put back are not returned again.
  */

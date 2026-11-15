@@ -24,7 +24,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { showErrorToast } from "@/lib/toast-utils";
-import { formatStockQuantity, isUnlimitedStock } from "@pos/shared-utils";
+import { formatStockQuantity, isUnlimitedStock, wholeStockUnits } from "@pos/shared-utils";
 import { IconX, IconPlus, IconSearch, IconPencil } from "@tabler/icons-react";
 
 export interface ReturnItemProduct {
@@ -195,11 +195,11 @@ export function ReturnItemsEditor({
 
   function handleSaveItem() {
     if (!activeProduct) return;
-    const quantity = parseFloat(quantityInput);
+    const quantity = wholeStockUnits(quantityInput);
     const unitCost = parseFloat(unitCostInput);
 
-    if (!quantity || quantity <= 0) {
-      showErrorToast("Please enter a valid quantity");
+    if (quantity == null || quantity < 1) {
+      showErrorToast("Enter a whole number of at least 1");
       return;
     }
     if (isNaN(unitCost) || unitCost < 0) {
@@ -247,7 +247,7 @@ export function ReturnItemsEditor({
 
   const subtotal = items.reduce((sum, i) => sum + i.totalCost, 0);
 
-  const previewQuantity = parseFloat(quantityInput) || 0;
+  const previewQuantity = wholeStockUnits(quantityInput) ?? 0;
   const previewUnlimited = isUnlimitedStock(activeProduct);
   const previewStock = activeProduct?.stockQuantity ?? 0;
   const previewAfterStock =
@@ -526,13 +526,18 @@ export function ReturnItemsEditor({
               <Label>Quantity *</Label>
               <Input
                 type="number"
-                step="0.01"
-                min="0"
+                step="1"
+                min="1"
                 value={quantityInput}
                 onChange={(e) => setQuantityInput(e.target.value)}
                 placeholder="Enter quantity"
                 autoFocus
               />
+              {quantityInput.trim() !== "" && wholeStockUnits(quantityInput) == null && (
+                <p className="text-xs text-destructive">
+                  Enter a whole number of at least 1.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Unit Cost (₱) *</Label>
@@ -568,10 +573,7 @@ export function ReturnItemsEditor({
                 Line Total:{" "}
                 <span className="font-semibold">
                   ₱
-                  {(
-                    (parseFloat(quantityInput) || 0) *
-                    (parseFloat(unitCostInput) || 0)
-                  ).toFixed(2)}
+                  {(previewQuantity * (parseFloat(unitCostInput) || 0)).toFixed(2)}
                 </span>
               </p>
               {wouldGoNegative && (

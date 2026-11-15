@@ -496,7 +496,18 @@ export class SyncService {
     let lastSyncedAt: Date | null = null;
     let lastCatalog: any = null;
 
-    const orderBatches = this.chunkArray(allOrders, this.BATCH_SIZE);
+    // Sales have to reach the server before an exchange of those sales.
+    // Otherwise the exchange is saved with nothing to put back, and a later
+    // retry sees it as a duplicate and never restores the returned units.
+    const orderedOrders = [...allOrders].sort((a, b) => {
+      const aExchange = a.exchangeRef ? 1 : 0;
+      const bExchange = b.exchangeRef ? 1 : 0;
+      if (aExchange !== bExchange) return aExchange - bExchange;
+      const aTime = new Date(a.completedAt ?? a.localCreatedAt ?? 0).getTime();
+      const bTime = new Date(b.completedAt ?? b.localCreatedAt ?? 0).getTime();
+      return aTime - bTime;
+    });
+    const orderBatches = this.chunkArray(orderedOrders, this.BATCH_SIZE);
     const paymentBatches = this.chunkArray(allPayments, this.BATCH_SIZE);
     const totalBatches = orderBatches.length + paymentBatches.length;
     let batchNum = 0;

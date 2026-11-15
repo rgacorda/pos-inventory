@@ -265,7 +265,7 @@ export default function OrdersPage() {
       await apiClient.voidOrder(selectedOrder.id);
       
       showSuccessToast("Order Voided Successfully", {
-        description: "Stock has been restored for all items in this order.",
+        description: "Stock has been restored for the items still out on this order.",
       });
 
       // Refresh orders list
@@ -287,9 +287,9 @@ export default function OrdersPage() {
 
   const canVoidOrder = (order: any) => {
     if (!order) return false;
-    // Can only void SYNCED orders (COMPLETED orders haven't reached here yet)
-    // Cannot void already voided orders
-    return order.status === "SYNCED" && order.status !== "VOID";
+    // Completed sales and exchange sales both took stock. Pending drafts
+    // have not reached the server as a sale, and a void cannot be voided again.
+    return order.status === "SYNCED" || order.status === "EXCHANGE";
   };
 
   const totalPages = Math.max(1, Math.ceil(totalOrders / itemsPerPage));
@@ -895,7 +895,7 @@ export default function OrdersPage() {
                   <strong>This will:</strong>
                   <ul className="list-disc list-inside mt-1 space-y-1">
                     <li>Mark the order as VOIDED</li>
-                    <li><strong>Restore stock</strong> for all items in the order</li>
+                    <li><strong>Restore stock</strong> for items still out on this order</li>
                     <li>Record void audit trail (who voided, when)</li>
                     <li>Keep order visible for financial records</li>
                   </ul>

@@ -27,6 +27,7 @@ import {
 import { OrganizationEntity } from '../entities/organization.entity';
 import {
   adjustTrackedStock,
+  capReturnedLines,
   sumStockByProduct,
 } from '../common/stock-quantity';
 import {
@@ -35,6 +36,7 @@ import {
   stampReturnUnitCosts,
   unitCostByProduct,
 } from '../common/sale-cost';
+import { exchangeShouldRestoreStock } from '../common/sale-status';
 
 @Injectable()
 export class SyncService {
@@ -275,13 +277,19 @@ export class SyncService {
             )
           : null;
 
-        const returnedItems = isExchangeOrder
-          ? (orderDto.returnedItems ?? [])
-          : [];
+        if (isExchangeOrder && !originalOrder) {
+          throw new Error(
+            'Original sale is not on the server yet. This exchange will sync after that sale.',
+          );
+        }
+
         const saleLines = originalOrder
           ? await queryRunner.manager.find(OrderItemEntity, {
               where: { orderId: originalOrder.id },
             })
+          : [];
+        const returnedItems = isExchangeOrder
+          ? capReturnedLines(saleLines, orderDto.returnedItems ?? [])
           : [];
         const stampedReturns = stampReturnUnitCosts(
           returnedItems,
@@ -322,8 +330,9 @@ export class SyncService {
         // and restore stock for the items that were returned. This is a
         // fallback path for when the POS couldn't call POST /orders/{id}/exchange
         // directly (e.g. offline, or the original order wasn't synced yet).
-        // The `!originalOrder.exchangedAt` guard prevents double-restoring stock
-        // if the direct exchange call already handled it.
+        // exchangeShouldRestoreStock prevents a second restore when the
+        // direct exchange call already put the units back, or when a void
+        // already put the whole sale back.
         if (isExchangeOrder) {
           // Lock the original sale so a direct exchange call and this sync
           // fallback cannot both put the returned units back.
@@ -333,7 +342,7 @@ export class SyncService {
                 lock: { mode: 'pessimistic_write' },
               })
             : null;
-          if (lockedOriginal && !lockedOriginal.exchangedAt) {
+          if (lockedOriginal && exchangeShouldRestoreStock(lockedOriginal)) {
             lockedOriginal.exchangedAt = completedAt;
             lockedOriginal.returnedItems =
               stampedReturns.length > 0
@@ -346,6 +355,10 @@ export class SyncService {
               stampedReturns,
               `from exchange of order ${lockedOriginal.orderNumber} (via sync fallback)`,
               user?.organizationId,
+            );
+          } else if (lockedOriginal?.status === OrderStatus.VOID) {
+            this.logger.warn(
+              `Skipping return stock for exchange ${orderDto.posLocalId}: order ${lockedOriginal.orderNumber} is already voided.`,
             );
           } else if (!lockedOriginal) {
             this.logger.warn(
@@ -402,9 +415,9 @@ export class SyncService {
         // Sort by product id so parallel orders lock rows in the same order
         // and don't deadlock each other.
         const stockTotals = sumStockByProduct(
-          (orderDto.items ?? [])
+          items
             .map((item) => ({
-              productId: item.productId ? String(item.productId) : '',
+              productId: item.productId,
               quantity: item.quantity,
             }))
             .filter(

@@ -20,6 +20,7 @@ import {
 import {
   adjustTrackedStock,
   sumStockByProduct,
+  toStockUnits,
 } from '../../common/stock-quantity';
 
 @Injectable()
@@ -132,6 +133,9 @@ export class InventoryDeliveriesService {
     createDto.createdByName = user?.name || user?.email || null;
 
     await this.resolveSupplierLink(createDto, createDto.organizationId);
+    if (Array.isArray(createDto.items)) {
+      createDto.items = this.normalizeItemQuantities(createDto.items);
+    }
 
     const requestedResolutions = this.extractRequestedResolutions(createDto);
     const preparedResolutions =
@@ -201,6 +205,9 @@ export class InventoryDeliveriesService {
     const oldItems = delivery.items || [];
 
     await this.resolveSupplierLink(updateDto, organizationId);
+    if (Array.isArray(updateDto.items)) {
+      updateDto.items = this.normalizeItemQuantities(updateDto.items);
+    }
 
     const requestedResolutions =
       'returnResolutions' in updateDto
@@ -332,6 +339,35 @@ export class InventoryDeliveriesService {
     return resolutions.flatMap((resolution) =>
       (resolution.replacementItems || []).map((item) => item.productId),
     );
+  }
+
+  /**
+   * Stock moves in whole units. The saved line uses that same integer and
+   * its cost is recomputed from it, so a delivery cannot record 1.6 units
+   * while the shelf count moves by 2.
+   */
+  private normalizeItemQuantities<
+    T extends {
+      quantity: unknown;
+      unitCost?: number;
+      totalCost?: number;
+      isFree?: boolean;
+      productName?: string;
+    },
+  >(items: T[]): T[] {
+    return items.map((item) => {
+      const quantity = toStockUnits(item.quantity);
+      if (quantity < 1) {
+        throw new BadRequestException(
+          `${item.productName || 'A delivery item'} quantity must be at least 1 unit`,
+        );
+      }
+      const unitCost = Number(item.unitCost) || 0;
+      const totalCost = item.isFree
+        ? 0
+        : Math.round(quantity * unitCost * 100) / 100;
+      return { ...item, quantity, totalCost };
+    });
   }
 
   /**
