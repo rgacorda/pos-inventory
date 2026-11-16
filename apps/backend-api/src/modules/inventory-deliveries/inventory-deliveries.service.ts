@@ -22,6 +22,10 @@ import {
   sumStockByProduct,
   toStockUnits,
 } from '../../common/stock-quantity';
+import {
+  isNewestCostUpdate,
+  type DeliveryCostStamp,
+} from '../../common/delivery-cost';
 
 @Injectable()
 export class InventoryDeliveriesService {
@@ -165,6 +169,7 @@ export class InventoryDeliveriesService {
           savedDelivery.items || [],
           savedDelivery.organizationId,
           savedDelivery.supplierId,
+          savedDelivery,
         );
       }
 
@@ -284,6 +289,7 @@ export class InventoryDeliveriesService {
           newItems,
           updatedDelivery.organizationId,
           updatedDelivery.supplierId,
+          updatedDelivery,
         );
       } else if (!wasReceived && isReceived) {
         await this.applyStockChange(
@@ -292,6 +298,7 @@ export class InventoryDeliveriesService {
           newItems,
           updatedDelivery.organizationId,
           updatedDelivery.supplierId,
+          updatedDelivery,
         );
       } else if (wasReceived && !isReceived) {
         await this.applyStockChange(
@@ -300,6 +307,7 @@ export class InventoryDeliveriesService {
           [],
           updatedDelivery.organizationId,
           null,
+          updatedDelivery,
         );
       }
 
@@ -375,6 +383,11 @@ export class InventoryDeliveriesService {
    * without writing stockQuantity from a previously loaded row. Product
    * ids are sorted so this cannot deadlock with a sale, which locks in
    * the same order.
+   *
+   * Cost and selling price are copied onto the product only when this
+   * delivery is the newest received cost for that product. Saving an
+   * older invoice keeps that invoice's own cost and leaves the product
+   * cost, which the next sale uses, where the newer delivery put it.
    */
   private async applyStockChange(
     manager: EntityManager,
@@ -399,6 +412,7 @@ export class InventoryDeliveriesService {
     }>,
     organizationId: string,
     supplierId?: string | null,
+    saving?: DeliveryCostStamp | null,
   ) {
     const oldTotals = sumStockByProduct(oldItems);
     const newTotals = sumStockByProduct(newItems);
@@ -409,13 +423,23 @@ export class InventoryDeliveriesService {
     }
 
     const pricingIds = new Set<string>();
+    const costIds: string[] = [];
     for (const item of newItems || []) {
       if (!item?.productId) continue;
       if (supplierId) pricingIds.add(item.productId);
       if (item.updateProductCost && !item.isFree && item.unitCost != null) {
         pricingIds.add(item.productId);
+        costIds.push(item.productId);
       }
     }
+    const superseded = saving
+      ? await this.productIdsSupersededByNewerCost(
+          manager,
+          organizationId,
+          saving,
+          costIds,
+        )
+      : new Set(costIds);
 
     const productIds = [...new Set([...deltas.keys(), ...pricingIds])].sort();
     for (const productId of productIds) {
@@ -430,14 +454,81 @@ export class InventoryDeliveriesService {
           productId,
           supplierId,
           newItems,
+          superseded.has(productId),
         );
       }
     }
   }
 
   /**
+   * Products whose current cost was set by a newer received delivery.
+   * Archived deliveries still count: archiving does not roll the cost back,
+   * so editing an older invoice must not replace it.
+   */
+  private async productIdsSupersededByNewerCost(
+    manager: EntityManager,
+    organizationId: string,
+    saving: DeliveryCostStamp,
+    productIds: string[],
+  ): Promise<Set<string>> {
+    const ids = [...new Set(productIds.filter(Boolean))];
+    const superseded = new Set<string>();
+    if (!saving.id || ids.length === 0) return superseded;
+
+    const stamp: DeliveryCostStamp = {
+      id: saving.id,
+      deliveryDate: saving.deliveryDate,
+      createdAt: saving.createdAt ?? new Date(),
+    };
+
+    const placeholders = ids.map((_, index) => `$${index + 3}`).join(', ');
+    const rows: Array<{
+      id: string;
+      deliveryDate: Date | string | null;
+      createdAt: Date | string | null;
+      productId: string | null;
+    }> = await manager.query(
+      `SELECT d.id AS id,
+              d."deliveryDate" AS "deliveryDate",
+              d."createdAt" AS "createdAt",
+              elem->>'productId' AS "productId"
+       FROM inventory_deliveries d
+       CROSS JOIN LATERAL jsonb_array_elements(COALESCE(d.items, '[]'::jsonb)) AS elem
+       WHERE d."organizationId" = $1
+         AND d.id <> $2
+         AND d.status = 'RECEIVED'
+         AND elem->>'productId' IN (${placeholders})
+         AND COALESCE(elem->>'isFree', 'false') <> 'true'
+         AND elem->>'updateProductCost' = 'true'
+         AND jsonb_typeof(elem->'unitCost') = 'number'`,
+      [organizationId, saving.id, ...ids],
+    );
+
+    const byProduct = new Map<string, DeliveryCostStamp[]>();
+    for (const row of rows) {
+      if (!row?.productId) continue;
+      const stamps = byProduct.get(row.productId) ?? [];
+      stamps.push({
+        id: row.id,
+        deliveryDate: row.deliveryDate,
+        createdAt: row.createdAt,
+      });
+      byProduct.set(row.productId, stamps);
+    }
+
+    for (const productId of ids) {
+      if (!isNewestCostUpdate(stamp, byProduct.get(productId) ?? [])) {
+        superseded.add(productId);
+      }
+    }
+    return superseded;
+  }
+
+  /**
    * Writes cost, price, and supplier only. stockQuantity is left to
    * adjustTrackedStock so a sale during this delivery is not overwritten.
+   * `skipCost` leaves the product cost and selling prices alone when a
+   * newer delivery already set them.
    */
   private async syncPricing(
     manager: EntityManager,
@@ -461,6 +552,7 @@ export class InventoryDeliveriesService {
       halfPackMarkupPercentage?: number | null;
       halfPackMarkupFixed?: number | null;
     }>,
+    skipCost = false,
   ) {
     const product = await manager.findOne(ProductEntity, {
       where: { id: productId, organizationId },
@@ -471,11 +563,13 @@ export class InventoryDeliveriesService {
     if (supplierId) patch.supplierId = supplierId;
 
     let costTouched = false;
-    for (const item of items) {
-      if (item.productId !== productId) continue;
-      if (item.updateProductCost && !item.isFree && item.unitCost != null) {
-        this.applyCostSync(product, item);
-        costTouched = true;
+    if (!skipCost) {
+      for (const item of items) {
+        if (item.productId !== productId) continue;
+        if (item.updateProductCost && !item.isFree && item.unitCost != null) {
+          this.applyCostSync(product, item);
+          costTouched = true;
+        }
       }
     }
 
@@ -499,10 +593,10 @@ export class InventoryDeliveriesService {
   }
 
   /**
-   * Keeps the product's cost and selling prices in sync with the delivery.
-   * Free items never touch cost. Prices are applied only once the delivery
-   * is RECEIVED, together with the cost, so nothing is left half-applied
-   * if the delivery is never saved.
+   * Keeps the product's cost and selling prices in sync with this delivery
+   * when it is the newest received cost for the product. Free items never
+   * touch cost. Prices are applied together with the cost, so nothing is
+   * left half-applied if the delivery is never saved.
    *
    * A sell price sent on the line is what the form showed. Markup fields
    * are saved too, so the next cost change can recalculate from the same
@@ -742,6 +836,7 @@ export class InventoryDeliveriesService {
           [],
           organizationId,
           null,
+          delivery,
         );
       }
 

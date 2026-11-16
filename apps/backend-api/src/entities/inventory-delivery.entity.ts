@@ -104,7 +104,7 @@ export class InventoryDelivery {
     totalCost: number;
     /** True when the supplier gave this item for free; stock is still updated but cost is excluded. */
     isFree?: boolean;
-    /** When true, the product's `cost` (and `price`, if markups are set) is synced to `unitCost`. */
+    /** When true, this line is a cost update. It changes the product cost only when this delivery is the newest received cost for that product. */
     updateProductCost?: boolean;
     /**
      * Manual selling-price overrides entered in the delivery's "Selling

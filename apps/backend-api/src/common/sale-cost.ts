@@ -79,6 +79,26 @@ export function stampReturnUnitCosts<T extends { productId?: string }>(
   });
 }
 
+/**
+ * Cost of a returned unit: the cost stored on the return, otherwise the
+ * cost stored on the original sale. The product's current cost is not used,
+ * so a later cost change cannot move a past exchange.
+ */
+export const FROZEN_RETURN_UNIT_COST_SQL = `COALESCE(
+  CASE
+    WHEN elem->>'unitCost' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+    THEN (elem->>'unitCost')::numeric
+  END,
+  (
+    SELECT SUM(item."quantity" * item."unitCost") / NULLIF(SUM(item."quantity"), 0)
+    FROM "order_items" item
+    WHERE item."orderId" = o."id"
+      AND item."productId" = elem->>'productId'
+      AND item."unitCost" IS NOT NULL
+  ),
+  0
+)`;
+
 /** Current product costs for the organization, keyed by product id. */
 export async function loadProductUnitCosts(
   manager: EntityManager,

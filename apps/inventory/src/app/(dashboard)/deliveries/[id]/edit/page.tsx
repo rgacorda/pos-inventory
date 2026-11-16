@@ -534,9 +534,8 @@ export default function EditDeliveryPage() {
     // Cost is always stored per individual unit, regardless of how it was entered.
     const unitCost = isFree ? 0 : enteredCost / multiplier;
     const totalCost = isFree ? 0 : enteredQuantity * enteredCost;
-    // The product's cost per unit is always kept in sync with the latest
-    // delivery price (whether bought by unit, pack, or half-pack), unless
-    // the item was free (free items carry no real purchase price).
+    // The line keeps this cost. The product cost changes only when this
+    // delivery is the newest received cost for the product.
     const updateProductCost = !isFree;
     const pricingFields = fieldsFromDeliveryItemPricing(itemFormData);
     if (!isFree) {

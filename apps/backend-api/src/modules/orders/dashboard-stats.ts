@@ -7,6 +7,7 @@ import { UserEntity } from '../../entities/user.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { OrderStatus, PaymentStatus, UserRole } from '@pos/shared-types';
 import { SALE_STATUSES, SALE_STATUS_SQL } from '../../common/sale-status';
+import { FROZEN_RETURN_UNIT_COST_SQL } from '../../common/sale-cost';
 import {
   businessCalendarDay,
   businessTimeZone,
@@ -453,17 +454,11 @@ async function lineActivity(
            COALESCE(SUM(
              CASE
                WHEN i."productId" IS NULL OR i."productId" = '' OR i."productId" LIKE 'manual-%' THEN 0
-               ELSE i."quantity" * CASE
-                 WHEN i."unitCost" IS NOT NULL THEN i."unitCost"
-                 ELSE COALESCE(p."cost", 0)
-               END
+               ELSE i."quantity" * COALESCE(i."unitCost", 0)
              END
            ), 0) AS cost
     FROM "order_items" i
     INNER JOIN "orders" o ON o."id" = i."orderId"
-    LEFT JOIN "products" p
-      ON p."id"::text = i."productId"
-     AND p."organizationId" = o."organizationId"
     WHERE o."status"::text IN (${SALE_STATUS_SQL})
       AND ${saleWindow}
       ${scope}
@@ -482,20 +477,10 @@ async function lineActivity(
                THEN (elem->>'quantity')::numeric
                ELSE 0
              END
-             * COALESCE(
-                 CASE
-                   WHEN elem->>'unitCost' ~ ${QTY_PATTERN}
-                   THEN (elem->>'unitCost')::numeric
-                 END,
-                 p."cost",
-                 0
-               )
+             * ${FROZEN_RETURN_UNIT_COST_SQL}
            ), 0) AS cost
     FROM "orders" o
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o."returnedItems", '[]'::jsonb)) AS elem
-    LEFT JOIN "products" p
-      ON p."id"::text = elem->>'productId'
-     AND p."organizationId" = o."organizationId"
     WHERE o."status"::text <> 'VOID'
       AND ((o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2) >= $3::timestamp
       AND ((o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2) < $4::timestamp

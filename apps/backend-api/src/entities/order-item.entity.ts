@@ -43,7 +43,7 @@ export class OrderItemEntity {
   /**
    * Unit cost when the line was saved. Profit and loss uses this so a later
    * change to the product cost does not rewrite the sale. Null on manual
-   * lines and on rows not yet backfilled.
+   * lines and on rows whose cost was never recorded.
    */
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   unitCost: number | null;

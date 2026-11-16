@@ -6,6 +6,7 @@ import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { Expense } from '../../entities/expense.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { SALE_STATUSES } from '../../common/sale-status';
+import { FROZEN_RETURN_UNIT_COST_SQL } from '../../common/sale-cost';
 import {
   assembleTrend,
   businessTimeZone,
@@ -225,10 +226,10 @@ export class FinancialsService {
 
   /**
    * Cost of goods sold is units sold times the unit cost saved on each sale
-   * line. A later change to the product cost does not rewrite it. Lines
-   * that have no saved cost yet fall back to the current product cost.
-   * Exchanges reduce it by the returned units, using the cost recorded on
-   * the original sale, dated on the day they were exchanged.
+   * line. A later change to the product cost does not rewrite it. A line
+   * with no saved cost counts as missing and adds nothing. Exchanges reduce
+   * it by the returned units, using the cost recorded on the return or, if
+   * that was never stored, the cost recorded on the original sale.
    * Manual lines have no product cost and are left out.
    */
   private async cogsActivity(
@@ -248,26 +249,16 @@ export class FinancialsService {
                (COALESCE(o."completedAt", o."createdAt") AT TIME ZONE $1) AT TIME ZONE $2,
                'YYYY-MM-DD'
              ) AS bucket,
-             COALESCE(SUM(
-               i."quantity" * CASE
-                 WHEN i."unitCost" IS NOT NULL THEN i."unitCost"
-                 ELSE COALESCE(p."cost", 0)
-               END
-             ), 0) AS total,
+             COALESCE(SUM(i."quantity" * COALESCE(i."unitCost", 0)), 0) AS total,
              COALESCE(SUM(i."quantity"), 0) AS units,
              COALESCE(SUM(
                CASE
-                 WHEN i."unitCost" IS NOT NULL THEN
-                   CASE WHEN i."unitCost" = 0 THEN 1 ELSE 0 END
-                 WHEN p."id" IS NULL OR p."cost" IS NULL OR p."cost" = 0 THEN 1
+                 WHEN i."unitCost" IS NULL OR i."unitCost" = 0 THEN 1
                  ELSE 0
                END
              ), 0) AS missing
       FROM "order_items" i
       INNER JOIN "orders" o ON o."id" = i."orderId"
-      LEFT JOIN "products" p
-        ON p."id"::text = i."productId"
-       AND p."organizationId" = o."organizationId"
       WHERE o."organizationId" = $3
         AND o."status"::text IN ('COMPLETED', 'SYNCED', 'EXCHANGE')
         AND COALESCE(o."completedAt", o."createdAt") BETWEEN $4 AND $5
@@ -286,7 +277,7 @@ export class FinancialsService {
                  WHEN elem->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
                  THEN (elem->>'quantity')::numeric
                  ELSE 0
-               END * COALESCE(return_cost.amount, 0)
+               END * ${FROZEN_RETURN_UNIT_COST_SQL}
              ), 0) AS total,
              COALESCE(SUM(
                CASE
@@ -300,25 +291,6 @@ export class FinancialsService {
       CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(o."returnedItems", '[]'::jsonb)
       ) AS elem
-      LEFT JOIN "products" p
-        ON p."id"::text = elem->>'productId'
-       AND p."organizationId" = o."organizationId"
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(
-          CASE
-            WHEN elem->>'unitCost' ~ '^-?[0-9]+(\\.[0-9]+)?$'
-            THEN (elem->>'unitCost')::numeric
-          END,
-          (
-            SELECT SUM(i."quantity" * i."unitCost") / NULLIF(SUM(i."quantity"), 0)
-            FROM "order_items" i
-            WHERE i."orderId" = o."id"
-              AND i."productId" = elem->>'productId'
-              AND i."unitCost" IS NOT NULL
-          ),
-          p."cost"
-        ) AS amount
-      ) return_cost ON true
       WHERE o."organizationId" = $3
         AND o."status"::text <> 'VOID'
         AND o."exchangedAt" BETWEEN $4 AND $5

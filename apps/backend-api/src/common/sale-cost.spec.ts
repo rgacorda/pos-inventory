@@ -1,4 +1,5 @@
 import {
+  FROZEN_RETURN_UNIT_COST_SQL,
   moneyCost,
   recordedUnitCost,
   stampReturnUnitCosts,
@@ -43,6 +44,12 @@ describe('sale unit cost', () => {
     expect(recordedUnitCost('missing', undefined, catalog)).toBeNull();
     expect(recordedUnitCost('manual-9', 5, catalog)).toBeNull();
     expect(unitCostForProduct('a', catalog)).toBe(40);
+  });
+
+  it('costs a return from the sale that was saved, not the current product cost', () => {
+    expect(FROZEN_RETURN_UNIT_COST_SQL).toContain('order_items');
+    expect(FROZEN_RETURN_UNIT_COST_SQL).not.toContain('products');
+    expect(FROZEN_RETURN_UNIT_COST_SQL).not.toContain('p."cost"');
   });
 
   it('copies the original sale cost onto each returned line', () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { visibleEditHistory } from "@/lib/edit-history";
@@ -60,7 +60,7 @@ import {
   IconTrash,
   IconCheck,
 } from "@tabler/icons-react";
-import { format } from "date-fns";
+import { endOfMonth, format, startOfMonth, subMonths } from "date-fns";
 
 interface DeliveryItem {
   productId: string;
@@ -118,6 +118,23 @@ interface InventoryDelivery {
       quantity: number;
     }>;
   }> | null;
+}
+
+function formatMoney(amount: number) {
+  const value = Number(amount);
+  return `₱${(Number.isFinite(value) ? value : 0).toFixed(2)}`;
+}
+
+/** Received deliveries only. Pending and cancelled rows stay in the table. */
+function receivedTotalForMonth(deliveries: InventoryDelivery[], month: Date) {
+  const start = startOfMonth(month);
+  const end = endOfMonth(month);
+  return deliveries.reduce((sum, delivery) => {
+    if (delivery.status !== "RECEIVED") return sum;
+    const date = new Date(delivery.deliveryDate);
+    if (Number.isNaN(date.getTime()) || date < start || date > end) return sum;
+    return sum + Number(delivery.totalCost || 0);
+  }, 0);
 }
 
 function formatItemQuantity(item: DeliveryItem) {
@@ -363,6 +380,18 @@ export default function InventoryDeliveriesPage() {
     }
   }
 
+  const monthTotals = useMemo(() => {
+    const now = new Date();
+    const currentMonth = startOfMonth(now);
+    const previousMonth = startOfMonth(subMonths(now, 1));
+    return {
+      previousMonth,
+      currentMonth,
+      previousTotal: receivedTotalForMonth(deliveries, previousMonth),
+      currentTotal: receivedTotalForMonth(deliveries, currentMonth),
+    };
+  }, [deliveries]);
+
   const filteredDeliveries = deliveries.filter((delivery) => {
     const query = searchQuery.toLowerCase();
     const matchesSearch =
@@ -437,7 +466,27 @@ export default function InventoryDeliveriesPage() {
             </Select>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border px-4 py-3">
+              <p className="text-sm text-muted-foreground">Last month</p>
+              <p className="text-xs text-muted-foreground">
+                {format(monthTotals.previousMonth, "MMMM yyyy")} · received
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatMoney(monthTotals.previousTotal)}
+              </p>
+            </div>
+            <div className="rounded-lg border px-4 py-3">
+              <p className="text-sm text-muted-foreground">This month</p>
+              <p className="text-xs text-muted-foreground">
+                {format(monthTotals.currentMonth, "MMMM yyyy")} · received
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {formatMoney(monthTotals.currentTotal)}
+              </p>
+            </div>
+          </div>
           <div className="max-h-[600px] overflow-auto">
             <Table>
               <TableHeader>

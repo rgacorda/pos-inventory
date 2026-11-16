@@ -32,6 +32,7 @@ import {
   recordedUnitCost,
   stampReturnUnitCosts,
   unitCostByProduct,
+  FROZEN_RETURN_UNIT_COST_SQL,
 } from '../../common/sale-cost';
 import {
   isSaleStatus,
@@ -1348,17 +1349,9 @@ export class OrdersService {
       : '';
     const [soldRow] = await this.dataSource.query(
       `
-      SELECT COALESCE(SUM(
-        i."quantity" * CASE
-          WHEN i."unitCost" IS NOT NULL THEN i."unitCost"
-          ELSE COALESCE(p."cost", 0)
-        END
-      ), 0) AS total
+      SELECT COALESCE(SUM(i."quantity" * COALESCE(i."unitCost", 0)), 0) AS total
       FROM "order_items" i
       INNER JOIN "orders" o ON o."id" = i."orderId"
-      LEFT JOIN "products" p
-        ON p."id"::text = i."productId"
-       AND p."organizationId" = o."organizationId"
       WHERE o."status"::text IN (${SALE_STATUS_SQL})
         AND COALESCE(o."completedAt", o."createdAt") BETWEEN $1 AND $2
         AND COALESCE(i."productId", '') <> ''
@@ -1375,22 +1368,12 @@ export class OrdersService {
           WHEN elem->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
           THEN (elem->>'quantity')::numeric
           ELSE 0
-        END * COALESCE(
-          CASE
-            WHEN elem->>'unitCost' ~ '^-?[0-9]+(\\.[0-9]+)?$'
-            THEN (elem->>'unitCost')::numeric
-          END,
-          p."cost",
-          0
-        )
+        END * ${FROZEN_RETURN_UNIT_COST_SQL}
       ), 0) AS total
       FROM "orders" o
       CROSS JOIN LATERAL jsonb_array_elements(
         COALESCE(o."returnedItems", '[]'::jsonb)
       ) AS elem
-      LEFT JOIN "products" p
-        ON p."id"::text = elem->>'productId'
-       AND p."organizationId" = o."organizationId"
       WHERE o."status"::text <> 'VOID'
         AND o."exchangedAt" BETWEEN $1 AND $2
         AND COALESCE(elem->>'productId', '') <> ''
