@@ -98,6 +98,17 @@ function formatPaymentMethod(method?: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatPeso(value: unknown) {
+  return `₱${Number(value || 0).toFixed(2)}`;
+}
+
+function formatUnitCost(value: unknown) {
+  if (value == null || value === "") return "—";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  return formatPeso(amount);
+}
+
 function getOrderPaymentMethods(order: any) {
   const methods = (order.payments ?? [])
     .map((payment: any) => formatPaymentMethod(payment.method))
@@ -724,6 +735,7 @@ export default function OrdersPage() {
                             <TableHead>Product</TableHead>
                             <TableHead className="text-right">Quantity</TableHead>
                             <TableHead className="text-right">Unit Price</TableHead>
+                            <TableHead className="text-right">Unit Cost</TableHead>
                             <TableHead className="text-right">Subtotal</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -746,15 +758,17 @@ export default function OrdersPage() {
                                 {item.quantity}
                               </TableCell>
                               <TableCell className="text-right">
-                                ₱{Number(item.unitPrice || 0).toFixed(2)}
+                                {formatPeso(item.unitPrice)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatUnitCost(item.unitCost)}
                               </TableCell>
                               <TableCell className="text-right font-medium">
-                                ₱
-                                {Number(
+                                {formatPeso(
                                   item.total ??
                                     Number(item.quantity || 0) *
                                       Number(item.unitPrice || 0),
-                                ).toFixed(2)}
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -772,6 +786,7 @@ export default function OrdersPage() {
                       <TableHead>Product</TableHead>
                       <TableHead className="text-right">Quantity</TableHead>
                       <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Unit Cost</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -794,14 +809,16 @@ export default function OrdersPage() {
                           {item.quantity}
                         </TableCell>
                         <TableCell className="text-right">
-                          ₱{Number(item.unitPrice || 0).toFixed(2)}
+                          {formatPeso(item.unitPrice)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatUnitCost(item.unitCost)}
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          ₱
-                          {(
+                          {formatPeso(
                             Number(item.quantity || 0) *
-                            Number(item.unitPrice || 0)
-                          ).toFixed(2)}
+                              Number(item.unitPrice || 0),
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
