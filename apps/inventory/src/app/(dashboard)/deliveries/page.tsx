@@ -550,18 +550,22 @@ export default function InventoryDeliveriesPage() {
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {delivery.receiptImageUrl ? (
-                          <a
-                            href={
-                              (process.env.NEXT_PUBLIC_API_URL ||
-                                "http://localhost:3000") +
-                              delivery.receiptImageUrl
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
                             className="text-blue-600 hover:underline text-sm"
+                            onClick={() => {
+                              void apiClient
+                                .openReceipt(delivery.receiptImageUrl as string)
+                                .catch((error) => {
+                                  showErrorFromException(
+                                    error,
+                                    "Could not open the receipt",
+                                  );
+                                });
+                            }}
                           >
                             View
-                          </a>
+                          </button>
                         ) : (
                           "—"
                         )}

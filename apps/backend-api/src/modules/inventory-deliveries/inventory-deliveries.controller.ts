@@ -99,7 +99,7 @@ export class InventoryDeliveriesController {
   }
 
   @Post(':id/dismiss-edits')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async dismissEdits(@Request() req, @Param('id') id: string) {
     return this.inventoryDeliveriesService.dismissEdits(
       id,
@@ -109,19 +109,19 @@ export class InventoryDeliveriesController {
   }
 
   @Post(':id/restore')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async restore(@Request() req, @Param('id') id: string) {
     return this.inventoryDeliveriesService.restore(id, req.user.organizationId);
   }
 
   @Delete(':id/permanent')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async delete(@Request() req, @Param('id') id: string) {
     return this.inventoryDeliveriesService.delete(id, req.user.organizationId);
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async archive(@Request() req, @Param('id') id: string) {
     return this.inventoryDeliveriesService.archive(
       id,

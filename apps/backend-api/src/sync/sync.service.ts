@@ -39,6 +39,7 @@ import {
   unitCostByProduct,
 } from '../common/sale-cost';
 import { exchangeShouldRestoreStock } from '../common/sale-status';
+import { settleSaleLine } from '../common/sale-line';
 import {
   CatalogRow,
   catalogSyncMode,
@@ -212,8 +213,14 @@ export class SyncService {
         let cashierRecord: UserEntity | null = null;
         if (orderDto.cashierId && !this.isUUID(orderDto.cashierId)) {
           cashierRecord = await queryRunner.manager.findOne(UserEntity, {
-            where: { email: orderDto.cashierId },
+            where: {
+              email: orderDto.cashierId,
+              organizationId: user?.organizationId || undefined,
+            },
           });
+          if (!user?.organizationId) {
+            cashierRecord = null;
+          }
           // If the value isn't a UUID and can't be resolved by email, treat as unknown
           cashierUuid = cashierRecord ? cashierRecord.id : undefined;
         } else if (cashierUuid) {
@@ -221,7 +228,12 @@ export class SyncService {
             where: { id: cashierUuid },
           });
           // A deleted cashier must not fail the sale. The name snapshot is kept.
-          if (!cashierRecord) {
+          if (
+            !cashierRecord ||
+            (user?.organizationId &&
+              cashierRecord.organizationId !== user.organizationId)
+          ) {
+            cashierRecord = null;
             cashierUuid = undefined;
           }
         }
@@ -389,33 +401,20 @@ export class SyncService {
           ),
         );
         const items = (orderDto.items ?? []).map((item) => {
-          const quantity = Math.max(0, Math.round(Number(item.quantity) || 0));
-          const unitPrice = this.toMoney(item.unitPrice);
-          const taxRate = this.toTaxRate(item.taxRate);
-          const discountAmount = this.toMoney(item.discountAmount);
-          const computedSubtotal = this.toMoney(quantity * unitPrice);
-          const sentSubtotal = (item as { subtotal?: unknown }).subtotal;
-          const subtotal =
-            sentSubtotal != null && Number.isFinite(Number(sentSubtotal))
-              ? this.toMoney(sentSubtotal)
-              : computedSubtotal;
+          const settled = settleSaleLine(item);
           const productId = item.productId ? String(item.productId) : '';
           const orderItem = new OrderItemEntity();
           orderItem.orderId = savedOrder.id;
           orderItem.productId = productId;
           orderItem.sku = item.sku || 'UNKNOWN';
           orderItem.name = item.name || 'Item';
-          orderItem.quantity = quantity;
-          orderItem.unitPrice = unitPrice;
+          orderItem.quantity = settled.quantity;
+          orderItem.unitPrice = settled.unitPrice;
           orderItem.unitCost = recordedUnitCost(productId, item.unitCost, unitCosts);
-          orderItem.taxRate = taxRate;
-          orderItem.discountAmount = discountAmount;
-          orderItem.subtotal = subtotal;
-          const sentTotal = (item as { total?: unknown }).total;
-          orderItem.total =
-            sentTotal != null && Number.isFinite(Number(sentTotal))
-              ? this.toMoney(sentTotal)
-              : this.toMoney(subtotal - discountAmount + subtotal * taxRate);
+          orderItem.taxRate = settled.taxRate;
+          orderItem.discountAmount = settled.discountAmount;
+          orderItem.subtotal = settled.subtotal;
+          orderItem.total = settled.total;
           return orderItem;
         });
 
@@ -911,9 +910,11 @@ export class SyncService {
 
   private catalogScope(user?: { role?: string; organizationId?: string | null }) {
     const query = this.productRepository.createQueryBuilder('product');
-    if (user?.role !== UserRole.SUPER_ADMIN) {
+    if (!user?.organizationId) {
+      query.andWhere('1 = 0');
+    } else {
       query.andWhere('product.organizationId = :orgId', {
-        orgId: user?.organizationId ?? null,
+        orgId: user.organizationId,
       });
     }
     return query;
@@ -925,8 +926,10 @@ export class SyncService {
   ): Promise<{ total: number; stockSum: number; changedCount: number }> {
     const params: unknown[] = [since ?? new Date(0)];
     let orgSql = '';
-    if (user?.role !== UserRole.SUPER_ADMIN) {
-      orgSql = `AND "organizationId" = $${params.push(user?.organizationId ?? null)}`;
+    if (user?.organizationId) {
+      orgSql = `AND "organizationId" = $${params.push(user.organizationId)}`;
+    } else {
+      orgSql = 'AND 1 = 0';
     }
 
     const [row] = await this.dataSource.query(
@@ -1056,13 +1059,6 @@ export class SyncService {
     const amount = Number(value);
     if (!Number.isFinite(amount)) return 0;
     return Math.round(amount * 100) / 100;
-  }
-
-  /** order_items.taxRate is numeric(5,4), so values must be below 10. */
-  private toTaxRate(value: unknown): number {
-    const rate = Number(value);
-    if (!Number.isFinite(rate) || rate < 0) return 0;
-    return Math.min(9.9999, Math.round(rate * 10000) / 10000);
   }
 
   private driverError(error: unknown): { code?: string; constraint?: string; detail?: string; message?: string } {

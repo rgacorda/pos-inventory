@@ -88,7 +88,7 @@ export class InventoryReturnsController {
   }
 
   @Put(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async update(
     @Request() req,
     @Param('id') id: string,
@@ -123,19 +123,19 @@ export class InventoryReturnsController {
   }
 
   @Post(':id/restore')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async restore(@Request() req, @Param('id') id: string) {
     return this.inventoryReturnsService.restore(id, req.user.organizationId);
   }
 
   @Delete(':id/permanent')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async delete(@Request() req, @Param('id') id: string) {
     return this.inventoryReturnsService.delete(id, req.user.organizationId);
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   async archive(@Request() req, @Param('id') id: string) {
     return this.inventoryReturnsService.archive(
       id,

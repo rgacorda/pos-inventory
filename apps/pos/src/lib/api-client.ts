@@ -1060,6 +1060,12 @@ export class SyncService {
           : {}),
         taxRate: Number.isFinite(Number(item?.taxRate)) ? Number(item.taxRate) : 0,
         discountAmount: this.money(item?.discountAmount),
+        ...(Number.isFinite(Number(item?.subtotal))
+          ? { subtotal: this.money(item.subtotal) }
+          : {}),
+        ...(Number.isFinite(Number(item?.total))
+          ? { total: this.money(item.total) }
+          : {}),
       })),
       subtotal: this.money(order.subtotal),
       taxAmount: this.money(order.taxAmount),

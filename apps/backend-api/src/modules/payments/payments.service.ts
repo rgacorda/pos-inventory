@@ -12,6 +12,7 @@ import { OrderEntity } from '../../entities/order.entity';
 import { CreatePaymentDto, UpdatePaymentDto, RefundPaymentDto } from './dto';
 import { randomUUID } from 'crypto';
 import { UserRole, PaymentStatus } from '@pos/shared-types';
+import { requireOrganizationId } from '../../common/organization-scope';
 
 @Injectable()
 export class PaymentsService {
@@ -23,7 +24,7 @@ export class PaymentsService {
   ) {}
 
   async create(createPaymentDto: CreatePaymentDto, requestingUser: any) {
-    const { orderId, organizationId } = createPaymentDto;
+    const { orderId } = createPaymentDto;
 
     // Verify order exists and belongs to user's organization
     const order = await this.ordersRepository.findOne({
@@ -34,17 +35,12 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
-    // Set organization from requesting user if not super admin
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (order.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException(
-          'Order does not belong to your organization',
-        );
-      }
-      createPaymentDto.organizationId = requestingUser.organizationId;
-    } else if (!organizationId) {
-      createPaymentDto.organizationId = order.organizationId;
+    if (order.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException(
+        'Order does not belong to your organization',
+      );
     }
+    createPaymentDto.organizationId = requestingUser.organizationId;
 
     const orderTotal = roundMoney(order.totalAmount);
     const amount = roundMoney(createPaymentDto.amount);
@@ -89,11 +85,9 @@ export class PaymentsService {
       .orderBy('COALESCE(payment.processedAt, payment.createdAt)', 'DESC');
 
     // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('payment.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('payment.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     // Apply additional filters
     if (filters?.orderId) {
@@ -124,11 +118,8 @@ export class PaymentsService {
       throw new NotFoundException('Payment not found');
     }
 
-    // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (payment.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (payment.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     return payment;
@@ -269,11 +260,9 @@ export class PaymentsService {
       })
       .andWhere('payment.amount > 0');
 
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      qb.andWhere('payment.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    qb.andWhere('payment.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     const rows = await qb
       .groupBy('payment.method')
@@ -292,12 +281,9 @@ export class PaymentsService {
       .leftJoin('payment.order', 'order')
       .where('order.status != :voidStatus', { voidStatus: 'VOID' });
 
-    // Filter by organization
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.andWhere('payment.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.andWhere('payment.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     const [totalPayments, completedPayments, totalRevenue, totalRefunds] =
       await Promise.all([

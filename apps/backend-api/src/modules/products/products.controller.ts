@@ -26,7 +26,7 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async create(
     @Body() createProductDto: CreateProductDto,
     @CurrentUser() user: any,
@@ -57,7 +57,7 @@ export class ProductsController {
   }
 
   @Put(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -67,26 +67,26 @@ export class ProductsController {
   }
 
   @Post(':id/dismiss-edits')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   async dismissEdits(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.dismissEdits(id, user);
   }
 
   @Post(':id/restore')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   async restore(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.restore(id, user);
   }
 
   @Delete(':id/permanent')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.remove(id, user);
   }
 
   @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async archive(@Param('id') id: string, @CurrentUser() user: any) {
     return this.productsService.archive(id, user);

@@ -8,15 +8,17 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  Unique,
 } from 'typeorm';
 
 @Entity('products')
 @Index('IDX_products_org_updated', ['organizationId', 'updatedAt'])
+@Unique('UQ_products_organization_sku', ['organizationId', 'sku'])
 export class ProductEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   @Index()
   sku: string;
 

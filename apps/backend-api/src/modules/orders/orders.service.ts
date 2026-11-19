@@ -22,6 +22,7 @@ import {
 import { TerminalEntity } from '../../entities/terminal.entity';
 import { CreateOrderDto, CreateOrderItemDto, UpdateOrderDto, ExchangeOrderDto } from './dto';
 import { UserRole, OrderStatus, PaymentStatus } from '@pos/shared-types';
+import { requireOrganizationId } from '../../common/organization-scope';
 import {
   adjustTrackedStock,
   capReturnedLines,
@@ -40,6 +41,7 @@ import {
   SALE_STATUSES,
   SALE_STATUS_SQL,
 } from '../../common/sale-status';
+import { settleSaleLine } from '../../common/sale-line';
 import { loadDashboardStats, loadProfitGaps } from './dashboard-stats';
 
 @Injectable()
@@ -71,18 +73,15 @@ export class OrdersService {
   }
 
   async create(createOrderDto: CreateOrderDto, requestingUser: any) {
-    const { orderNumber, posLocalId, organizationId, items } = createOrderDto;
-
-    // Set organization from requesting user if not super admin
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      createOrderDto.organizationId = requestingUser.organizationId;
-    } else if (!organizationId) {
-      throw new ForbiddenException('Organization ID is required');
-    }
+    const { orderNumber, posLocalId, items } = createOrderDto;
+    createOrderDto.organizationId = requireOrganizationId(requestingUser);
 
     // Check if order number already exists
     const existingByOrderNumber = await this.ordersRepository.findOne({
-      where: { orderNumber },
+      where: {
+        orderNumber,
+        organizationId: createOrderDto.organizationId,
+      },
     });
 
     if (existingByOrderNumber) {
@@ -134,27 +133,22 @@ export class OrdersService {
         unitPrice?: number;
         unitCost?: unknown;
         discountAmount?: number;
+        discount?: number;
+        price?: number;
       };
-      const quantity = Math.max(0, Math.round(Number(line.quantity) || 0));
-      const unitPrice = roundMoney(Number(line.unitPrice ?? line.price) || 0);
-      const discountAmount = roundMoney(
-        Number(line.discountAmount ?? line.discount) || 0,
-      );
-      const taxRate = Number(line.taxRate) || 0;
-      const subtotal = roundMoney(quantity * unitPrice);
-      const total = roundMoney(subtotal - discountAmount + subtotal * taxRate);
+      const settled = settleSaleLine(line);
       return this.orderItemsRepository.create({
         orderId: savedOrder.id,
         productId: line.productId,
         sku: line.sku,
         name: line.name,
-        quantity,
-        unitPrice,
+        quantity: settled.quantity,
+        unitPrice: settled.unitPrice,
         unitCost: recordedUnitCost(line.productId, line.unitCost, unitCosts),
-        taxRate,
-        discountAmount,
-        subtotal,
-        total,
+        taxRate: settled.taxRate,
+        discountAmount: settled.discountAmount,
+        subtotal: settled.subtotal,
+        total: settled.total,
       });
     });
 
@@ -195,12 +189,9 @@ export class OrdersService {
       .leftJoinAndSelect('order.payments', 'payments')
       .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC');
 
-    // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('order.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('order.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     // Apply additional filters
     if (filters?.status) {
@@ -405,13 +396,9 @@ export class OrdersService {
       search?: string;
     },
   ) {
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('order.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    } else {
-      query.where('1=1');
-    }
+    query.where('order.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     const statusValues = new Set<string>(Object.values(OrderStatus));
     if (filters?.status && statusValues.has(filters.status)) {
@@ -477,9 +464,8 @@ export class OrdersService {
     startDate: string,
     endDate: string,
   ) {
-    const isSuperAdmin = requestingUser.role === UserRole.SUPER_ADMIN;
     const isCashier = requestingUser.role === UserRole.CASHIER;
-    const orgId = requestingUser.organizationId;
+    const orgId = requireOrganizationId(requestingUser);
     const { storedAsTz, displayTz } = this.getReportTimezones();
     const orderLocalTs = `(COALESCE(order.completedAt, order.createdAt) AT TIME ZONE :storedAsTz) AT TIME ZONE :displayTz`;
 
@@ -493,9 +479,7 @@ export class OrdersService {
           endDate,
         },
       );
-      if (!isSuperAdmin) {
-        qb.andWhere('order.organizationId = :orgId', { orgId });
-      }
+      qb.andWhere('order.organizationId = :orgId', { orgId });
       if (isCashier) {
         qb.andWhere('order.cashierId = :cashierId', {
           cashierId: requestingUser.id,
@@ -557,9 +541,7 @@ export class OrdersService {
               endDate,
             },
           );
-        if (!isSuperAdmin) {
-          qb.andWhere('order.organizationId = :orgId', { orgId });
-        }
+        qb.andWhere('order.organizationId = :orgId', { orgId });
         if (isCashier) {
           qb.andWhere('order.cashierId = :cashierId', {
             cashierId: requestingUser.id,
@@ -649,7 +631,7 @@ export class OrdersService {
       this.reportCostOfGoods(
         startDate,
         endDate,
-        isSuperAdmin ? null : orgId,
+        orgId,
         isCashier ? requestingUser.id : null,
       ),
       loadProfitGaps(this.dataSource, requestingUser, {
@@ -724,11 +706,8 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (order.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (order.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     // Cashiers can only see their own orders
@@ -755,10 +734,8 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (order.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (order.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     if (requestingUser.role === UserRole.CASHIER) {
@@ -1014,10 +991,7 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    if (
-      requestingUser.role !== UserRole.SUPER_ADMIN &&
-      order.organizationId !== requestingUser.organizationId
-    ) {
+    if (order.organizationId !== requireOrganizationId(requestingUser)) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -1039,10 +1013,7 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    if (
-      requestingUser.role !== UserRole.SUPER_ADMIN &&
-      order.organizationId !== requestingUser.organizationId
-    ) {
+    if (order.organizationId !== requireOrganizationId(requestingUser)) {
       throw new NotFoundException('Order not found');
     }
 
@@ -1404,12 +1375,9 @@ export class OrdersService {
   async getOrderStats(requestingUser: any) {
     const query = this.ordersRepository.createQueryBuilder('order');
 
-    // Filter by organization
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('order.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('order.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     // Cashiers can only see their own stats
     if (requestingUser.role === UserRole.CASHIER) {
@@ -1455,11 +1423,9 @@ export class OrdersService {
       .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC');
 
     // Filter by organization
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.andWhere('order.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.andWhere('order.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     // Cashiers can only see their own manual items
     if (requestingUser.role === UserRole.CASHIER) {

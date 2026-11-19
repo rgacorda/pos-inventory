@@ -244,8 +244,9 @@ export class FinancialsService {
   /**
    * Cost of goods sold is units sold times the unit cost saved on each sale
    * line. A later change to the product cost does not rewrite it. A line
-   * with no saved cost counts as missing and adds nothing. Exchanges reduce
-   * it by the returned units, using the cost recorded on the return or, if
+   * with no saved cost counts as missing and adds nothing. A stored zero
+   * is a real cost, not a missing one. Exchanges reduce
+   * the total by the returned units, using the cost recorded on the return or, if
    * that was never stored, the cost recorded on the original sale.
    * Manual lines have no product cost and are left out.
    */
@@ -270,7 +271,7 @@ export class FinancialsService {
              COALESCE(SUM(i."quantity"), 0) AS units,
              COALESCE(SUM(
                CASE
-                 WHEN i."unitCost" IS NULL OR i."unitCost" = 0 THEN 1
+                 WHEN i."unitCost" IS NULL THEN 1
                  ELSE 0
                END
              ), 0) AS missing

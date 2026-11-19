@@ -8,14 +8,16 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  Unique,
 } from 'typeorm';
 
 @Entity('users')
+@Unique('UQ_users_organization_email', ['organizationId', 'email'])
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   @Index()
   email: string;
 

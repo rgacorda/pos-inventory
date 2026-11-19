@@ -11,6 +11,7 @@ import { TerminalEntity } from '../../entities/terminal.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateTerminalDto, UpdateTerminalDto } from './dto';
 import { UserRole } from '@pos/shared-types';
+import { requireOrganizationId } from '../../common/organization-scope';
 
 @Injectable()
 export class TerminalsService {
@@ -29,20 +30,9 @@ export class TerminalsService {
   ) {}
 
   async create(createTerminalDto: CreateTerminalDto, requestingUser: any) {
-    const { terminalId, organizationId } = createTerminalDto;
-
-    // Set organization from requesting user if not super admin
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      createTerminalDto.organizationId = requestingUser.organizationId;
-    } else if (!organizationId) {
-      throw new ForbiddenException('Organization ID is required');
-    }
-
-    // Check subscription limits (skip for SUPER_ADMIN)
-    const targetOrgId = createTerminalDto.organizationId;
-    if (targetOrgId && requestingUser.role !== UserRole.SUPER_ADMIN) {
-      await this.validateTerminalLimit(targetOrgId);
-    }
+    const { terminalId } = createTerminalDto;
+    createTerminalDto.organizationId = requireOrganizationId(requestingUser);
+    await this.validateTerminalLimit(createTerminalDto.organizationId);
 
     // Check if terminal ID already exists
     const existing = await this.terminalsRepository.findOne({
@@ -92,12 +82,9 @@ export class TerminalsService {
   async findAll(requestingUser: any) {
     const query = this.terminalsRepository.createQueryBuilder('terminal');
 
-    // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('terminal.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('terminal.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     return query.orderBy('terminal.name', 'ASC').getMany();
   }
@@ -110,10 +97,8 @@ export class TerminalsService {
     }
 
     // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (terminal.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (terminal.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     return terminal;
@@ -203,10 +188,8 @@ export class TerminalsService {
     }
 
     // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (terminal.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (terminal.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     // Update cache
@@ -246,10 +229,8 @@ export class TerminalsService {
     }
 
     // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (terminal.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (terminal.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     // Optimized update: only update changed fields

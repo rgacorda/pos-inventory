@@ -25,7 +25,7 @@ export class TerminalsController {
   constructor(private readonly terminalsService: TerminalsService) {}
 
   @Post()
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   async create(
     @Body() createTerminalDto: CreateTerminalDto,
     @CurrentUser() user: any,
@@ -44,7 +44,7 @@ export class TerminalsController {
   }
 
   @Put(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   async update(
     @Param('id') id: string,
     @Body() updateTerminalDto: UpdateTerminalDto,
@@ -54,7 +54,7 @@ export class TerminalsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.terminalsService.remove(id, user);

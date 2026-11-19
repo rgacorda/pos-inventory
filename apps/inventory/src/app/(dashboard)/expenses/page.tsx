@@ -104,6 +104,7 @@ export default function ExpensesPage() {
   const [expenseDate, setExpenseDate] = useState<Date>(new Date());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [savedReceiptUrl, setSavedReceiptUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -186,7 +187,7 @@ export default function ExpensesPage() {
 
     try {
       setUploading(true);
-      let receiptImageUrl = selectedExpense.receiptImageUrl || "";
+      let receiptImageUrl = savedReceiptUrl;
 
       // Upload new receipt if file is selected
       if (selectedFile) {
@@ -241,6 +242,7 @@ export default function ExpensesPage() {
     setSelectedExpense(null);
     setSelectedFile(null);
     setPreviewUrl(null);
+    setSavedReceiptUrl("");
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -263,10 +265,12 @@ export default function ExpensesPage() {
   function clearFile() {
     setSelectedFile(null);
     setPreviewUrl(null);
+    setSavedReceiptUrl("");
   }
 
-  function openEditDialog(expense: Expense) {
+  async function openEditDialog(expense: Expense) {
     setSelectedExpense(expense);
+    setSelectedFile(null);
     setFormData({
       type: expense.type,
       category: expense.category || "",
@@ -276,13 +280,16 @@ export default function ExpensesPage() {
       description: expense.description || "",
     });
     setExpenseDate(new Date(expense.expenseDate));
-    // Set preview if there's an existing receipt
-    if (expense.receiptImageUrl) {
-      const baseUrl =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-      setPreviewUrl(baseUrl + expense.receiptImageUrl);
-    }
+    setSavedReceiptUrl(expense.receiptImageUrl || "");
+    setPreviewUrl(null);
     setIsEditDialogOpen(true);
+    if (expense.receiptImageUrl) {
+      try {
+        setPreviewUrl(await apiClient.receiptPreviewUrl(expense.receiptImageUrl));
+      } catch (error) {
+        showErrorFromException(error, "Could not open the receipt");
+      }
+    }
   }
 
   const filteredExpenses = expenses.filter((expense) => {
@@ -434,18 +441,22 @@ export default function ExpensesPage() {
                       <TableCell>{expense.referenceNumber || "—"}</TableCell>
                       <TableCell>
                         {expense.receiptImageUrl ? (
-                          <a
-                            href={
-                              (process.env.NEXT_PUBLIC_API_URL ||
-                                "http://localhost:3000") +
-                              expense.receiptImageUrl
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
                             className="text-blue-600 hover:underline text-sm"
+                            onClick={() => {
+                              void apiClient
+                                .openReceipt(expense.receiptImageUrl as string)
+                                .catch((error) => {
+                                  showErrorFromException(
+                                    error,
+                                    "Could not open the receipt",
+                                  );
+                                });
+                            }}
                           >
                             View
-                          </a>
+                          </button>
                         ) : (
                           "—"
                         )}
@@ -768,6 +779,19 @@ export default function ExpensesPage() {
                     Remove
                   </Button>
                 </div>
+              )}
+              {savedReceiptUrl && !previewUrl && (
+                <button
+                  type="button"
+                  className="text-blue-600 hover:underline text-sm"
+                  onClick={() => {
+                    void apiClient.openReceipt(savedReceiptUrl).catch((error) => {
+                      showErrorFromException(error, "Could not open the receipt");
+                    });
+                  }}
+                >
+                  View current receipt
+                </button>
               )}
             </div>
           </div>

@@ -13,6 +13,7 @@ import { Supplier } from '../../entities/supplier.entity';
 import { CreateProductDto, UpdateProductDto } from './dto';
 import { UserRole } from '@pos/shared-types';
 import { applyMarkup, belowCostPricingMessage, roundMoney } from '@pos/shared-utils';
+import { requireOrganizationId } from '../../common/organization-scope';
 
 @Injectable()
 export class ProductsService {
@@ -53,14 +54,8 @@ export class ProductsService {
   }
 
   async create(createProductDto: CreateProductDto, requestingUser: any) {
-    const { sku, organizationId } = createProductDto;
-
-    // Set organization from requesting user if not super admin
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      createProductDto.organizationId = requestingUser.organizationId;
-    } else if (!organizationId) {
-      throw new ForbiddenException('Organization ID is required');
-    }
+    const { sku } = createProductDto;
+    createProductDto.organizationId = requireOrganizationId(requestingUser);
 
     // Check if SKU already exists in this organization
     const existing = await this.productsRepository.findOne({
@@ -100,12 +95,9 @@ export class ProductsService {
       .leftJoin('product.supplier', 'supplier')
       .addSelect(['supplier.id', 'supplier.name']);
 
-    // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('product.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('product.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     query.andWhere(
       filters?.archived
@@ -134,11 +126,8 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (product.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (product.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     return product;
@@ -307,12 +296,9 @@ export class ProductsService {
       .createQueryBuilder('product')
       .where('product.barcode = :barcode', { barcode });
 
-    // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.andWhere('product.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.andWhere('product.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     query.andWhere('product.deletedAt IS NULL');
 

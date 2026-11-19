@@ -148,10 +148,6 @@ function text(value: unknown, fallback = ''): string {
   return raw || fallback;
 }
 
-function isSuper(user: DashboardUser) {
-  return user.role === UserRole.SUPER_ADMIN;
-}
-
 function isCashier(user: DashboardUser) {
   return user.role === UserRole.CASHIER;
 }
@@ -161,9 +157,13 @@ function applyOrg(
   user: DashboardUser,
   column: string,
 ) {
-  if (!isSuper(user) && user.organizationId) {
-    qb.andWhere(`${column} = :orgId`, { orgId: user.organizationId });
+  if (!user.organizationId) {
+    qb.andWhere('1 = 0');
+    return qb;
   }
+  qb.andWhere(`${column} = :orgId`, {
+    orgId: user.organizationId,
+  });
   return qb;
 }
 
@@ -191,7 +191,9 @@ function applySaleWindow(
 
 function orgAndCashierSql(user: DashboardUser, params: unknown[]) {
   let sql = '';
-  if (!isSuper(user) && user.organizationId) {
+  if (!user.organizationId) {
+    sql += ' AND 1 = 0';
+  } else {
     params.push(user.organizationId);
     sql += ` AND o."organizationId" = $${params.length}`;
   }

@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, QueryFailedError } from 'typeorm';
+import { Repository, IsNull, QueryFailedError } from 'typeorm';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { SubscriptionEntity } from '../../entities/subscription.entity';
 import { UserEntity } from '../../entities/user.entity';
@@ -44,15 +44,14 @@ export class OrganizationsService {
       ...orgData
     } = createOrganizationDto;
 
-    // Check if admin email already exists
-    const existingUser = await this.usersRepository.findOne({
-      where: { email: adminEmail },
+    const platformAccount = await this.usersRepository.findOne({
+      where: { email: adminEmail, organizationId: IsNull() },
     });
-    if (existingUser) {
+    if (platformAccount) {
       throw new ConflictException('A user with this email already exists');
     }
 
-    // Use provided slug or generate from name
+    // The same email may belong to another store. It must be free in this new one.
     const slug = providedSlug || this.generateSlug(name);
 
     // Check if slug already exists

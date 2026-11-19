@@ -600,6 +600,39 @@ class APIClient {
     });
     return response.data;
   }
+
+  receiptFilename(receiptUrl?: string | null) {
+    if (!receiptUrl) return null;
+    const name = receiptUrl.split("?")[0].split("/").pop() || "";
+    return /^receipt-\d+-\d+\.(jpg|jpeg|png|gif|webp|pdf)$/i.test(name)
+      ? name
+      : null;
+  }
+
+  async fetchReceipt(receiptUrl: string) {
+    const filename = this.receiptFilename(receiptUrl);
+    if (!filename) {
+      throw new Error("Receipt not found");
+    }
+    const response = await this.client.get(`/upload/receipts/${filename}`, {
+      responseType: "blob",
+    });
+    return response.data as Blob;
+  }
+
+  async openReceipt(receiptUrl: string) {
+    const blob = await this.fetchReceipt(receiptUrl);
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  async receiptPreviewUrl(receiptUrl?: string | null) {
+    const filename = this.receiptFilename(receiptUrl);
+    if (!filename || filename.toLowerCase().endsWith(".pdf")) return null;
+    const blob = await this.fetchReceipt(receiptUrl as string);
+    return URL.createObjectURL(blob);
+  }
 }
 
 export const apiClient = new APIClient();

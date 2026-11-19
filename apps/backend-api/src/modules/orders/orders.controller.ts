@@ -95,7 +95,7 @@ export class OrdersController {
   }
 
   @Put(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async update(
     @Param('id') id: string,
     @Body() updateOrderDto: UpdateOrderDto,
@@ -105,7 +105,7 @@ export class OrdersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ordersService.remove(id, user);
@@ -117,7 +117,7 @@ export class OrdersController {
   }
 
   @Post(':id/void')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async void(@Param('id') id: string, @CurrentUser() user: any) {
     return this.ordersService.voidOrder(id, user);
   }

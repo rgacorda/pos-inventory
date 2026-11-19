@@ -6,12 +6,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, IsNull, QueryFailedError, Repository } from 'typeorm';
 import { UserEntity } from '../../entities/user.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { CreateUserDto, UpdateUserDto } from './dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@pos/shared-types';
+import { requireOrganizationId } from '../../common/organization-scope';
 
 @Injectable()
 export class UsersService {
@@ -23,37 +24,29 @@ export class UsersService {
   ) {}
 
   async create(createUserDto: CreateUserDto, requestingUser: any) {
-    const { email, password, organizationId, role } = createUserDto;
+    const { email, password, role } = createUserDto;
+    createUserDto.organizationId = requireOrganizationId(requestingUser);
 
-    // Check if email already exists
-    const existing = await this.usersRepository.findOne({ where: { email } });
-    if (existing) {
+    const existing = await this.usersRepository.findOne({
+      where: { email, organizationId: createUserDto.organizationId },
+    });
+    const platformAccount = await this.usersRepository.findOne({
+      where: { email, organizationId: IsNull() },
+    });
+    if (existing || platformAccount) {
       throw new ConflictException('Email already exists');
     }
 
-    // Role-based validation
     if (requestingUser.role === UserRole.ADMIN) {
-      // Admins can only create users in their own organization
-      if (organizationId && organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException(
-          'Cannot create users in other organizations',
-        );
-      }
-
-      // Organization admins can create other admins, but not platform owners
       if (role === UserRole.SUPER_ADMIN) {
         throw new ForbiddenException(
           'Insufficient permissions to create this role',
         );
       }
-
-      // Set organization to admin's organization
-      createUserDto.organizationId = requestingUser.organizationId;
     }
 
-    // Check subscription limits (skip for SUPER_ADMIN)
-    const targetOrgId = createUserDto.organizationId || requestingUser.organizationId;
-    if (targetOrgId && requestingUser.role !== UserRole.SUPER_ADMIN) {
+    const targetOrgId = createUserDto.organizationId;
+    if (targetOrgId) {
       await this.validateUserLimit(targetOrgId);
     }
 
@@ -103,12 +96,9 @@ export class UsersService {
   async findAll(requestingUser: any) {
     const query = this.usersRepository.createQueryBuilder('user');
 
-    // Filter by organization for non-super-admins
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      query.where('user.organizationId = :orgId', {
-        orgId: requestingUser.organizationId,
-      });
-    }
+    query.where('user.organizationId = :orgId', {
+      orgId: requireOrganizationId(requestingUser),
+    });
 
     return query.orderBy('user.createdAt', 'DESC').getMany();
   }
@@ -123,11 +113,8 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // Check tenant access
-    if (requestingUser.role !== UserRole.SUPER_ADMIN) {
-      if (user.organizationId !== requestingUser.organizationId) {
-        throw new ForbiddenException('Access denied');
-      }
+    if (user.organizationId !== requireOrganizationId(requestingUser)) {
+      throw new ForbiddenException('Access denied');
     }
 
     return user;
@@ -261,7 +248,11 @@ export class UsersService {
     return value;
   }
 
-  async findByEmail(email: string) {
-    return this.usersRepository.findOne({ where: { email } });
+  async findByEmail(email: string, organizationId?: string | null) {
+    return this.usersRepository.findOne({
+      where: organizationId
+        ? { email, organizationId }
+        : { email, organizationId: IsNull() },
+    });
   }
 }

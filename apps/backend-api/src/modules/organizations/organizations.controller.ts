@@ -16,10 +16,12 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { AllowSuperAdmin } from '../../auth/decorators/allow-super-admin.decorator';
 import { UserRole } from '@pos/shared-types';
 import { CreateOrganizationDto, UpdateOrganizationDto, UpdateSubscriptionDto } from './dto';
 
 @Controller('organizations')
+@AllowSuperAdmin()
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrganizationsController {
   constructor(

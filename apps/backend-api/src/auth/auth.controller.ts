@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { AllowSuperAdmin } from './decorators/allow-super-admin.decorator';
 import type {
   LoginDto,
   AuthResponseDto,
@@ -24,6 +25,7 @@ import type {
 } from '@pos/shared-types';
 
 @Controller('auth')
+@AllowSuperAdmin()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

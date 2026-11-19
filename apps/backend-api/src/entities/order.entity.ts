@@ -9,15 +9,17 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  Unique,
 } from 'typeorm';
 import { OrderItemEntity } from './order-item.entity';
 
 @Entity('orders')
+@Unique('UQ_orders_organization_order_number', ['organizationId', 'orderNumber'])
 export class OrderEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column()
   @Index()
   orderNumber: string;
 

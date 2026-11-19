@@ -25,19 +25,20 @@ export class AuthService {
     email: string,
     password: string,
   ): Promise<UserEntity | null> {
-    const user = await this.userRepository.findOne({
+    const users = await this.userRepository.find({
       where: { email, isActive: true },
       relations: ['organization', 'organization.subscription'],
     });
 
-    if (!user) {
+    const matches: UserEntity[] = [];
+    for (const candidate of users) {
+      const isPasswordValid = await bcrypt.compare(password, candidate.password);
+      if (isPasswordValid) matches.push(candidate);
+    }
+    if (matches.length !== 1) {
       return null;
     }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return null;
-    }
+    const user = matches[0];
 
     // SUPER_ADMIN users don't belong to an organization, skip org checks
     if (user.role === 'SUPER_ADMIN') {
@@ -207,8 +208,10 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // If user must change password (first login), current password is not required
-    if (!user.mustChangePassword && currentPassword) {
+    if (!user.mustChangePassword) {
+      if (!currentPassword) {
+        throw new UnauthorizedException('Current password is required');
+      }
       const isPasswordValid = await bcrypt.compare(
         currentPassword,
         user.password,
@@ -226,12 +229,11 @@ export class AuthService {
   }
 
   async requestPasswordReset(email: string): Promise<void> {
-    const user = await this.userRepository.findOne({ where: { email } });
-
-    if (!user) {
-      // Don't reveal if email exists or not for security
+    const users = await this.userRepository.find({ where: { email } });
+    if (users.length !== 1) {
       return;
     }
+    const user = users[0];
 
     // Generate reset token (valid for 1 hour)
     const resetToken = this.generateResetToken();
