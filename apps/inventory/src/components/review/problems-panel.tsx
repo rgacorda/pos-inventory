@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import {
   BelowCostCard,
+  MispricedProductsCard,
   ProductActionChecklist,
   type BelowCostLine,
+  type CatalogProductPrice,
   type LossOrder,
 } from "@/components/below-cost-lines";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,28 @@ export function ProblemsPanel() {
   const [endDate, setEndDate] = useState<Date>(() => endOfDay(new Date()));
   const [lines, setLines] = useState<BelowCostLine[]>([]);
   const [orders, setOrders] = useState<LossOrder[]>([]);
+  const [products, setProducts] = useState<CatalogProductPrice[]>([]);
+  const [productsReady, setProductsReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .getProducts()
+      .then((rows) => {
+        if (!cancelled) setProducts(rows || []);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("products"));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProductsReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,8 +76,10 @@ export function ProblemsPanel() {
   return (
     <div className="space-y-6" aria-busy={loading}>
       <p className="text-muted-foreground">
-        Products to correct, and the sales that collected less than their item cost.
+        Products whose current price is below cost, and the sales that collected less than their item cost.
       </p>
+
+      <MispricedProductsCard products={products} ready={productsReady} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Popover>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { catalogPricingIssues } from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -449,6 +451,124 @@ export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
               </label>
             );
           })}
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+export interface CatalogProductPrice {
+  id: string;
+  name?: string;
+  sku?: string;
+  status?: string;
+  cost?: number | string | null;
+  price?: number | string | null;
+  packQuantity?: number | string | null;
+  packPrice?: number | string | null;
+  halfPackQuantity?: number | string | null;
+  halfPackPrice?: number | string | null;
+}
+
+/** Current catalog prices that are below the saved cost. */
+export function MispricedProductsCard({
+  products,
+  ready = true,
+}: {
+  products: CatalogProductPrice[];
+  ready?: boolean;
+}) {
+  const router = useRouter();
+  const rows = useMemo(
+    () =>
+      (products ?? [])
+        .filter((product) => !product.status || product.status === "ACTIVE")
+        .map((product) => ({
+          product,
+          issues: catalogPricingIssues(product),
+        }))
+        .filter((row) => row.issues.length > 0)
+        .sort((a, b) => {
+          const gap = (row: { issues: { cost: number; price: number }[] }) =>
+            row.issues.reduce((sum, issue) => sum + (issue.cost - issue.price), 0);
+          return gap(b) - gap(a);
+        }),
+    [products],
+  );
+  const page = usePagedRows(
+    rows,
+    rows.map((row) => row.product.id).join(","),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Wrongly priced products</CardTitle>
+        <CardDescription>
+          {!ready
+            ? "Checking current product prices."
+            : rows.length === 0
+              ? "Every active product is priced at or above its saved cost."
+              : `${formatCount(rows.length)} ${rows.length === 1 ? "product has" : "products have"} a selling price below the saved cost. Open one to correct it.`}
+        </CardDescription>
+      </CardHeader>
+      {rows.length > 0 ? (
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead>Problem</TableHead>
+                <TableHead className="text-right">Selling price</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {page.pageRows.map((row) => (
+                <TableRow
+                  key={row.product.id}
+                  className="cursor-pointer"
+                  onClick={() => router.push(`/products?edit=${row.product.id}`)}
+                >
+                  <TableCell className="whitespace-normal">
+                    <div className="font-medium">{row.product.name || "Unnamed product"}</div>
+                    {row.product.sku ? (
+                      <div className="text-xs text-muted-foreground">{row.product.sku}</div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="whitespace-normal">
+                    {row.issues.map((issue) => (
+                      <div key={issue.label} className="py-1">
+                        <div className="font-medium">{issue.label}</div>
+                        <div className="text-xs text-muted-foreground">{issue.action}</div>
+                      </div>
+                    ))}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {row.issues.map((issue) => (
+                      <div key={issue.label} className="py-1">
+                        {formatCurrency(issue.price)}
+                      </div>
+                    ))}
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums text-red-600">
+                    {row.issues.map((issue) => (
+                      <div key={issue.label} className="py-1">
+                        {formatCurrency(issue.cost)}
+                      </div>
+                    ))}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePager
+            currentPage={page.currentPage}
+            totalPages={page.totalPages}
+            total={page.total}
+            start={page.start}
+            onPageChange={page.setPage}
+          />
         </CardContent>
       ) : null}
     </Card>

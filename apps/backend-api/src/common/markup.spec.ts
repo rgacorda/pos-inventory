@@ -1,6 +1,7 @@
 import {
   applyMarkup,
   belowCostPricingMessage,
+  catalogPricingIssues,
   changeExternalUnitCost,
   changeTierMarkup,
   changeTierPrice,
@@ -198,5 +199,29 @@ describe('tier markup', () => {
     expect(overrides.halfPackQuantityOverride).toBe(6);
     expect(overrides.halfPackMarkupPercentage).toBe(5);
     expect(overrides.halfPackPriceOverride).toBe(63);
+  });
+
+  it('lists catalog prices that sit below the saved cost', () => {
+    expect(catalogPricingIssues({ cost: 10, price: 10 })).toEqual([]);
+    expect(catalogPricingIssues({ cost: 10, price: 9.99 })[0]).toMatchObject({
+      label: 'Unit',
+      price: 9.99,
+      cost: 10,
+    });
+    expect(
+      catalogPricingIssues({
+        cost: 129,
+        price: 10.75,
+        packQuantity: 12,
+      })[0].action,
+    ).toMatch(/pack of 12/);
+    expect(
+      catalogPricingIssues({
+        cost: 7.25,
+        price: 5.4,
+        packQuantity: 24,
+        packPrice: 100,
+      }).map((issue) => issue.label),
+    ).toEqual(['Unit', 'Pack']);
   });
 });

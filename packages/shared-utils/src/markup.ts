@@ -320,6 +320,79 @@ export function belowCostPricingMessage(
   return null;
 }
 
+export interface CatalogPricingIssue {
+  label: "Unit" | "Pack" | "Half-pack";
+  price: number;
+  cost: number;
+  action: string;
+}
+
+function positivePieceCount(value: number | string | null | undefined): number {
+  const parsed = parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+/**
+ * Current catalog prices that sit below the saved cost. A unit cost that
+ * matches the pack price is called out so it can be stored per piece.
+ */
+export function catalogPricingIssues(product: {
+  cost?: number | string | null;
+  price?: number | string | null;
+  packQuantity?: number | string | null;
+  packPrice?: number | string | null;
+  halfPackQuantity?: number | string | null;
+  halfPackPrice?: number | string | null;
+}): CatalogPricingIssue[] {
+  const cost = pricingUnitCost(parsePricingNumber(product.cost));
+  if (cost <= 0) return [];
+
+  const issues: CatalogPricingIssue[] = [];
+  const price = roundMoney(parsePricingNumber(product.price));
+  if (Math.round((price - cost) * 100) < 0) {
+    const pack = positivePieceCount(product.packQuantity);
+    const perPiece = pack > 1 ? roundMoney(cost / pack) : null;
+    const savedAsPack =
+      perPiece != null &&
+      price > 0 &&
+      Math.abs(price - perPiece) / price <= 0.2;
+    issues.push({
+      label: "Unit",
+      price,
+      cost,
+      action: savedAsPack
+        ? `Saved cost matches a pack of ${pack}. Set the product cost to ${perPiece.toFixed(2)} per piece.`
+        : "Raise the selling price or correct the cost.",
+    });
+  }
+
+  const packQty = positivePieceCount(product.packQuantity);
+  const packPrice = roundMoney(parsePricingNumber(product.packPrice));
+  const packCost = roundMoney(cost * packQty);
+  if (packQty > 0 && packPrice > 0 && Math.round((packPrice - packCost) * 100) < 0) {
+    issues.push({
+      label: "Pack",
+      price: packPrice,
+      cost: packCost,
+      action: `Pack price is below the cost of ${packQty} pieces.`,
+    });
+  }
+
+  const halfQty = positivePieceCount(product.halfPackQuantity);
+  const halfPrice = roundMoney(parsePricingNumber(product.halfPackPrice));
+  const halfCost = roundMoney(cost * halfQty);
+  if (halfQty > 0 && halfPrice > 0 && Math.round((halfPrice - halfCost) * 100) < 0) {
+    issues.push({
+      label: "Half-pack",
+      price: halfPrice,
+      cost: halfCost,
+      action: `Half-pack price is below the cost of ${halfQty} pieces.`,
+    });
+  }
+
+  return issues;
+}
+
 export function nullablePricingNumber(value: string): number | null {
   if (value.trim() === "") return null;
   const parsed = parseFloat(value);
