@@ -79,7 +79,17 @@ export function ProblemsPanel() {
         Products whose current price is below cost, and the sales that collected less than their item cost.
       </p>
 
-      <MispricedProductsCard products={products} ready={productsReady} />
+      <MispricedProductsCard
+        products={products}
+        ready={productsReady}
+        onUpdated={(saved) =>
+          setProducts((current) =>
+            current.map((product) =>
+              product.id === saved.id ? { ...product, ...saved } : product,
+            ),
+          )
+        }
+      />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Popover>

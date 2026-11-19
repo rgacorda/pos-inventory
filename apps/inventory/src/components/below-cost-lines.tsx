@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { catalogPricingIssues } from "@pos/shared-utils";
+import { ProductEditDialog } from "@/components/product-edit-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -474,11 +474,13 @@ export interface CatalogProductPrice {
 export function MispricedProductsCard({
   products,
   ready = true,
+  onUpdated,
 }: {
   products: CatalogProductPrice[];
   ready?: boolean;
+  onUpdated?: (product: CatalogProductPrice) => void;
 }) {
-  const router = useRouter();
+  const [editing, setEditing] = useState<CatalogProductPrice | null>(null);
   const rows = useMemo(
     () =>
       (products ?? [])
@@ -501,6 +503,7 @@ export function MispricedProductsCard({
   );
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>Wrongly priced products</CardTitle>
@@ -528,7 +531,7 @@ export function MispricedProductsCard({
                 <TableRow
                   key={row.product.id}
                   className="cursor-pointer"
-                  onClick={() => router.push(`/products?edit=${row.product.id}`)}
+                  onClick={() => setEditing(row.product)}
                 >
                   <TableCell className="whitespace-normal">
                     <div className="font-medium">{row.product.name || "Unnamed product"}</div>
@@ -572,5 +575,14 @@ export function MispricedProductsCard({
         </CardContent>
       ) : null}
     </Card>
+    <ProductEditDialog
+      product={editing as Record<string, unknown> | null}
+      open={editing != null}
+      onOpenChange={(open) => {
+        if (!open) setEditing(null);
+      }}
+      onSaved={(saved) => onUpdated?.(saved as unknown as CatalogProductPrice)}
+    />
+    </>
   );
 }
