@@ -7,7 +7,10 @@ import { UserEntity } from '../../entities/user.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { OrderStatus, PaymentStatus, UserRole } from '@pos/shared-types';
 import { SALE_STATUSES, SALE_STATUS_SQL } from '../../common/sale-status';
-import { FROZEN_RETURN_UNIT_COST_SQL } from '../../common/sale-cost';
+import {
+  exchangedAtNaiveSql,
+  FROZEN_RETURN_UNIT_COST_SQL,
+} from '../../common/sale-cost';
 import {
   businessCalendarDay,
   businessTimeZone,
@@ -84,6 +87,38 @@ export interface DashboardStats {
     activeProducts: number;
     teamSize: number;
   };
+  /** Sale lines whose saved unit cost is above the unit price. */
+  belowCost: BelowCostLine[];
+  /** Orders that collected less than the cost of their items. */
+  lossOrders: LossOrder[];
+}
+
+export interface BelowCostLine {
+  orderId: string;
+  orderNumber: string;
+  name: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  unitCost: number;
+  /** Quantity times (unit cost − unit price). Positive. */
+  loss: number;
+  packQuantity: number | null;
+  productCost: number | null;
+}
+
+/** An order whose amount collected is below the cost saved on its items. */
+export interface LossOrder {
+  orderId: string;
+  orderNumber: string;
+  status: string;
+  paid: number;
+  lineSales: number;
+  cost: number;
+  discount: number;
+  /** Paid minus cost. Negative. */
+  profit: number;
+  exchangeRef: string | null;
 }
 
 type DashboardUser = {
@@ -201,6 +236,7 @@ export async function loadDashboardStats(
     orderCount,
     paymentTotals,
     teamSize,
+    profitGaps,
   ] = await Promise.all([
     daySummary(deps.orders, user, yesterday, today, zones),
     lineActivity(deps.dataSource, user, today, zones),
@@ -215,6 +251,11 @@ export async function loadDashboardStats(
     overviewOrders(deps.orders, user),
     overviewPayments(deps.dataSource, user),
     overviewTeam(deps.dataSource, user),
+    loadProfitGaps(deps.dataSource, user, {
+      kind: 'shop-day',
+      bounds: today,
+      zones,
+    }),
   ]);
 
   const todayRow = dayRows.find((row) => text(row.day) === today.date);
@@ -301,7 +342,166 @@ export async function loadDashboardStats(
       activeProducts: count(inventoryRow?.active),
       teamSize,
     },
+    belowCost: profitGaps.belowCost,
+    lossOrders: profitGaps.lossOrders,
   };
+}
+
+type ProfitScope =
+  | { kind: 'shop-day'; bounds: BusinessCalendarDay; zones: Zones }
+  | { kind: 'range'; startDate: string; endDate: string };
+
+function saleWindowSql(scope: ProfitScope, params: unknown[]): string {
+  if (scope.kind === 'shop-day') {
+    params.push(
+      scope.zones.storedAsTz,
+      scope.zones.displayTz,
+      scope.bounds.start,
+      scope.bounds.end,
+    );
+    return `
+      ((COALESCE(o."completedAt", o."createdAt") AT TIME ZONE $1) AT TIME ZONE $2) >= $3::timestamp
+      AND ((COALESCE(o."completedAt", o."createdAt") AT TIME ZONE $1) AT TIME ZONE $2) < $4::timestamp
+    `;
+  }
+  params.push(scope.startDate, scope.endDate);
+  return `COALESCE(o."completedAt", o."createdAt") BETWEEN $1 AND $2`;
+}
+
+const TRACKED_COST_SQL = `
+  CASE
+    WHEN i."productId" IS NULL OR i."productId" = '' OR i."productId" LIKE 'manual-%' THEN 0
+    ELSE i.quantity * COALESCE(i."unitCost", 0)
+  END
+`;
+
+/**
+ * What pulls a period's gross profit down: items priced below their saved
+ * cost, and orders that collected less than that cost (a discount, points,
+ * or an exchange credit).
+ */
+export async function loadProfitGaps(
+  dataSource: DataSource,
+  user: DashboardUser,
+  scope: ProfitScope,
+): Promise<{ belowCost: BelowCostLine[]; lossOrders: LossOrder[] }> {
+  const [belowCost, lossOrders] = await Promise.all([
+    queryBelowCostLines(dataSource, user, scope),
+    queryLossOrders(dataSource, user, scope),
+  ]);
+  return { belowCost, lossOrders };
+}
+
+async function queryBelowCostLines(
+  dataSource: DataSource,
+  user: DashboardUser,
+  scope: ProfitScope,
+): Promise<BelowCostLine[]> {
+  const params: unknown[] = [];
+  const windowSql = saleWindowSql(scope, params);
+  const orgSql = orgAndCashierSql(user, params);
+  const rows = await dataSource.query(
+    `
+    SELECT o.id AS "orderId",
+           o."orderNumber" AS "orderNumber",
+           i.name AS name,
+           i.sku AS sku,
+           i.quantity AS quantity,
+           i."unitPrice" AS "unitPrice",
+           i."unitCost" AS "unitCost",
+           ROUND((i.quantity * (i."unitCost" - i."unitPrice"))::numeric, 2) AS loss,
+           p."packQuantity" AS "packQuantity",
+           p.cost AS "productCost"
+    FROM "order_items" i
+    INNER JOIN "orders" o ON o.id = i."orderId"
+    LEFT JOIN "products" p ON p.id::text = i."productId"
+    WHERE o."status"::text IN (${SALE_STATUS_SQL})
+      AND ${windowSql}
+      AND i."unitCost" > i."unitPrice"
+      AND COALESCE(i."productId", '') <> ''
+      AND i."productId" NOT LIKE 'manual-%'
+      ${orgSql}
+    ORDER BY (i.quantity * (i."unitCost" - i."unitPrice")) DESC
+    LIMIT 100
+    `,
+    params,
+  );
+  return (rows as Array<Record<string, unknown>>).map((row) => ({
+    orderId: text(rowField(row, 'orderId')),
+    orderNumber: text(rowField(row, 'orderNumber'), 'Order'),
+    name: text(rowField(row, 'name'), 'Unnamed item'),
+    sku: text(rowField(row, 'sku')),
+    quantity: count(rowField(row, 'quantity')),
+    unitPrice: money(rowField(row, 'unitPrice')),
+    unitCost: money(rowField(row, 'unitCost')),
+    loss: money(rowField(row, 'loss')),
+    packQuantity: optionalNumber(rowField(row, 'packQuantity')),
+    productCost: optionalNumber(rowField(row, 'productCost')),
+  }));
+}
+
+async function queryLossOrders(
+  dataSource: DataSource,
+  user: DashboardUser,
+  scope: ProfitScope,
+): Promise<LossOrder[]> {
+  const params: unknown[] = [];
+  const windowSql = saleWindowSql(scope, params);
+  const orgSql = orgAndCashierSql(user, params);
+  const rows = await dataSource.query(
+    `
+    SELECT o.id AS "orderId",
+           o."orderNumber" AS "orderNumber",
+           o.status::text AS status,
+           o."totalAmount" AS paid,
+           o."discountAmount" AS discount,
+           o."exchangeRef" AS "exchangeRef",
+           COALESCE(SUM(i.quantity * i."unitPrice"), 0) AS "lineSales",
+           COALESCE(SUM(${TRACKED_COST_SQL}), 0) AS cost
+    FROM "orders" o
+    LEFT JOIN "order_items" i ON i."orderId" = o.id
+    WHERE o."status"::text IN (${SALE_STATUS_SQL})
+      AND ${windowSql}
+      ${orgSql}
+    GROUP BY o.id, o."orderNumber", o.status, o."totalAmount",
+             o."discountAmount", o."exchangeRef"
+    HAVING o."totalAmount" + 0.009 < COALESCE(SUM(${TRACKED_COST_SQL}), 0)
+    ORDER BY o."totalAmount" - COALESCE(SUM(${TRACKED_COST_SQL}), 0)
+    LIMIT 100
+    `,
+    params,
+  );
+  return (rows as Array<Record<string, unknown>>).map((row) => {
+    const paid = money(rowField(row, 'paid'));
+    const cost = money(rowField(row, 'cost'));
+    const exchangeRef = text(rowField(row, 'exchangeRef'));
+    return {
+      orderId: text(rowField(row, 'orderId')),
+      orderNumber: text(rowField(row, 'orderNumber'), 'Order'),
+      status: text(rowField(row, 'status')),
+      paid,
+      lineSales: money(rowField(row, 'lineSales')),
+      cost,
+      discount: money(rowField(row, 'discount')),
+      profit: money(paid - cost),
+      exchangeRef: exchangeRef || null,
+    };
+  });
+}
+
+function rowField(row: Record<string, unknown>, key: string) {
+  if (row[key] != null) return row[key];
+  const match = Object.keys(row).find(
+    (candidate) => candidate.toLowerCase() === key.toLowerCase(),
+  );
+  return match ? row[match] : undefined;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const amount = parseFloat(String(value));
+  if (!Number.isFinite(amount)) return null;
+  return amount;
 }
 
 function daySummary(
@@ -482,8 +682,8 @@ async function lineActivity(
     FROM "orders" o
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(o."returnedItems", '[]'::jsonb)) AS elem
     WHERE o."status"::text <> 'VOID'
-      AND ((o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2) >= $3::timestamp
-      AND ((o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2) < $4::timestamp
+      AND ((${exchangedAtNaiveSql('$1')} AT TIME ZONE $1) AT TIME ZONE $2) >= $3::timestamp
+      AND ((${exchangedAtNaiveSql('$1')} AT TIME ZONE $1) AT TIME ZONE $2) < $4::timestamp
       AND COALESCE(elem->>'productId', '') <> ''
       AND elem->>'productId' NOT LIKE 'manual-%'
       ${scope}

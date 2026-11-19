@@ -31,6 +31,7 @@ import {
   loadProductUnitCosts,
   recordedUnitCost,
   stampReturnUnitCosts,
+  exchangedAtNaiveSql,
   unitCostByProduct,
   FROZEN_RETURN_UNIT_COST_SQL,
 } from '../../common/sale-cost';
@@ -39,7 +40,7 @@ import {
   SALE_STATUSES,
   SALE_STATUS_SQL,
 } from '../../common/sale-status';
-import { loadDashboardStats } from './dashboard-stats';
+import { loadDashboardStats, loadProfitGaps } from './dashboard-stats';
 
 @Injectable()
 export class OrdersService {
@@ -644,12 +645,19 @@ export class OrdersService {
 
     const totalRevenue = parseFloat(summaryResult?.totalRevenue || '0');
     const totalOrders = parseInt(summaryResult?.totalOrders || '0', 10);
-    const costOfGoods = await this.reportCostOfGoods(
-      startDate,
-      endDate,
-      isSuperAdmin ? null : orgId,
-      isCashier ? requestingUser.id : null,
-    );
+    const [costOfGoods, profitGaps] = await Promise.all([
+      this.reportCostOfGoods(
+        startDate,
+        endDate,
+        isSuperAdmin ? null : orgId,
+        isCashier ? requestingUser.id : null,
+      ),
+      loadProfitGaps(this.dataSource, requestingUser, {
+        kind: 'range',
+        startDate,
+        endDate,
+      }),
+    ]);
     const totalProfit = roundMoney(totalRevenue - costOfGoods);
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
@@ -661,6 +669,8 @@ export class OrdersService {
         totalProfit,
         totalProducts: new Set(topProductsRows.map((r: any) => r.productId))
           .size,
+        belowCost: profitGaps.belowCost,
+        lossOrders: profitGaps.lossOrders,
       },
       salesTrend: dailyRows.map((r: any) => ({
         date: r.date,
@@ -1347,6 +1357,8 @@ export class OrdersService {
     const cashierSql = cashierId
       ? `AND o."cashierId" = $${params.push(cashierId)}`
       : '';
+    const storedAsTz = `$${params.push(this.getReportTimezones().storedAsTz)}`;
+    const exchangedAt = exchangedAtNaiveSql(storedAsTz);
     const [soldRow] = await this.dataSource.query(
       `
       SELECT COALESCE(SUM(i."quantity" * COALESCE(i."unitCost", 0)), 0) AS total
@@ -1375,7 +1387,7 @@ export class OrdersService {
         COALESCE(o."returnedItems", '[]'::jsonb)
       ) AS elem
       WHERE o."status"::text <> 'VOID'
-        AND o."exchangedAt" BETWEEN $1 AND $2
+        AND ${exchangedAt} BETWEEN $1 AND $2
         AND COALESCE(elem->>'productId', '') <> ''
         AND elem->>'productId' NOT LIKE 'manual-%'
         ${orgSql}

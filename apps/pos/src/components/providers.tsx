@@ -39,7 +39,7 @@ export function Providers({ children }: { children: ReactNode }) {
       
       // If logged in and online, start auto-sync
       if (token && navigator.onLine) {
-        syncService.startAutoSync(60000); // Sync every 60 seconds
+        syncService.startAutoSync(60000); // Sales every 60s. Products poll on their own.
       }
     };
 
@@ -50,7 +50,7 @@ export function Providers({ children }: { children: ReactNode }) {
       console.log('Connection restored, starting sync...');
       const token = apiClient.getAccessToken();
       if (token) {
-        syncService.startAutoSync(60000);
+        syncService.startAutoSync(60000); // Sales every 60s. Products poll on their own.
       }
     };
 

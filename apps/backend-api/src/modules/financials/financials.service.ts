@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { loadProfitGaps } from '../orders/dashboard-stats';
 import { OrderEntity } from '../../entities/order.entity';
 import { InventoryDelivery } from '../../entities/inventory-delivery.entity';
 import { Expense } from '../../entities/expense.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { SALE_STATUSES } from '../../common/sale-status';
-import { FROZEN_RETURN_UNIT_COST_SQL } from '../../common/sale-cost';
+import {
+  exchangedAtNaiveSql,
+  FROZEN_RETURN_UNIT_COST_SQL,
+} from '../../common/sale-cost';
 import {
   assembleTrend,
   businessTimeZone,
@@ -84,6 +88,7 @@ export class FinancialsService {
       revenueDays,
       purchaseDays,
       cogsActivity,
+      profitGaps,
     ] = await Promise.all([
       this.orderRepository
         .createQueryBuilder('order')
@@ -123,6 +128,16 @@ export class FinancialsService {
       this.dailyPurchases(organizationId, period.startDate, period.endDate),
 
       this.cogsActivity(organizationId, period.startDate, period.endDate),
+
+      loadProfitGaps(
+        this.orderRepository.manager.connection as DataSource,
+        { organizationId },
+        {
+          kind: 'range',
+          startDate: period.startDate,
+          endDate: period.endDate,
+        },
+      ),
     ]);
 
     const revenue = this.money(revenueResult?.total);
@@ -182,6 +197,8 @@ export class FinancialsService {
         netMargin: Number(netMargin.toFixed(2)),
       },
       trend,
+      belowCost: profitGaps.belowCost,
+      lossOrders: profitGaps.lossOrders,
     };
   }
 
@@ -269,7 +286,7 @@ export class FinancialsService {
     `;
     const returnedSql = `
       SELECT TO_CHAR(
-               (o."exchangedAt" AT TIME ZONE $1) AT TIME ZONE $2,
+               ((${exchangedAtNaiveSql('$1')} AT TIME ZONE $1) AT TIME ZONE $2),
                'YYYY-MM-DD'
              ) AS bucket,
              COALESCE(SUM(
@@ -293,7 +310,7 @@ export class FinancialsService {
       ) AS elem
       WHERE o."organizationId" = $3
         AND o."status"::text <> 'VOID'
-        AND o."exchangedAt" BETWEEN $4 AND $5
+        AND ${exchangedAtNaiveSql('$1')} BETWEEN $4 AND $5
         AND COALESCE(elem->>'productId', '') <> ''
         AND elem->>'productId' NOT LIKE 'manual-%'
       GROUP BY 1

@@ -212,12 +212,22 @@ export const apiClient = new APIClient();
 // Sync service for managing offline/online sync
 export class SyncService {
   private isSyncing = false;
+  private isCatalogSyncing = false;
+  private catalogSyncQueued = false;
+  private catalogSyncEnabled = false;
+  private catalogVisibilityBound = false;
   private syncInterval: NodeJS.Timeout | null = null;
+  private catalogInterval: NodeJS.Timeout | null = null;
   private retryInterval: NodeJS.Timeout | null = null;
   private isRetryActive = false;
   private syncRequestCheckInterval: NodeJS.Timeout | null = null;
   private lastSyncRequestCheck = 0;
   private hasPendingItems = false;
+
+  // Product edits are checked on their own. The check is one small request
+  // when nothing changed, so a few seconds is enough for prices and stock
+  // to show up on the register without waiting for the sales upload.
+  private readonly CATALOG_SYNC_MS = 5000;
 
   // Max orders/payments per sync request to avoid timeouts on large backlogs
   private readonly BATCH_SIZE = 25;
@@ -234,6 +244,9 @@ export class SyncService {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
     }
+
+    // Products start immediately and keep polling while sales upload.
+    this.startCatalogSync();
 
     // Initial sync
     await this.performSync();
@@ -255,8 +268,69 @@ export class SyncService {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
     }
+    this.stopCatalogSync();
     this.stopRetryMonitoring();
     this.stopSyncRequestMonitoring();
+  }
+
+  private startCatalogSync() {
+    this.catalogSyncEnabled = true;
+    this.bindCatalogVisibility();
+    void this.syncProductsNow();
+    if (this.catalogInterval) {
+      clearInterval(this.catalogInterval);
+    }
+    this.catalogInterval = setInterval(() => {
+      void this.syncProductsNow();
+    }, this.CATALOG_SYNC_MS);
+  }
+
+  private stopCatalogSync() {
+    this.catalogSyncEnabled = false;
+    if (this.catalogInterval) {
+      clearInterval(this.catalogInterval);
+      this.catalogInterval = null;
+    }
+  }
+
+  private bindCatalogVisibility() {
+    if (this.catalogVisibilityBound || typeof document === "undefined") return;
+    this.catalogVisibilityBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (this.catalogSyncEnabled && document.visibilityState === "visible") {
+        void this.syncProductsNow();
+      }
+    });
+  }
+
+  /**
+   * Pull product changes without waiting for the sales sync. Overlapping
+   * checks are skipped so a slow page cannot stack on the next tick.
+   */
+  private async syncProductsNow() {
+    if (!this.catalogSyncEnabled) return;
+    if (this.isCatalogSyncing) {
+      this.catalogSyncQueued = true;
+      return;
+    }
+    if (!apiClient.isOnline() || !apiClient.getAccessToken()) return;
+
+    this.isCatalogSyncing = true;
+    try {
+      const terminalId = await dbHelpers.getTerminalId();
+      if (!terminalId) return;
+      await this.syncProductCatalog(terminalId);
+    } catch (error) {
+      console.error("Product catalog sync failed:", error);
+    } finally {
+      this.isCatalogSyncing = false;
+      if (this.catalogSyncQueued && this.catalogSyncEnabled) {
+        this.catalogSyncQueued = false;
+        void this.syncProductsNow();
+      } else {
+        this.catalogSyncQueued = false;
+      }
+    }
   }
 
   private async startRetryMonitoring() {
@@ -428,9 +502,7 @@ export class SyncService {
         this.hasPendingItems = false;
       }
 
-      // Product download is separate from the upload, so a waiting sale cannot
-      // keep new inventory products or stock counts off this register.
-      await this.syncProductCatalog(terminalId);
+      void this.syncProductsNow();
       console.log("Sync completed successfully");
       return true;
     } catch (error) {
@@ -482,7 +554,7 @@ export class SyncService {
       );
 
       await this.syncBatchedItems(orders, payments, terminalId);
-      await this.syncProductCatalog(terminalId);
+      void this.syncProductsNow();
 
       console.log("Retry sync completed successfully");
 

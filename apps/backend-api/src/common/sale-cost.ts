@@ -99,6 +99,21 @@ export const FROZEN_RETURN_UNIT_COST_SQL = `COALESCE(
   0
 )`;
 
+/**
+ * exchangedAt on the same clock as completedAt. completedAt is a naive
+ * timestamp in the server zone. exchangedAt may be that same naive timestamp,
+ * or an absolute timestamptz. A timestamptz is turned into the server-zone
+ * wall clock first, so the shop-day shift does not move the return onto the
+ * previous day.
+ */
+export function exchangedAtNaiveSql(storedTimeZoneSql: string): string {
+  return `(CASE
+    WHEN pg_typeof(o."exchangedAt") = 'timestamp with time zone'::regtype
+    THEN (o."exchangedAt" AT TIME ZONE ${storedTimeZoneSql})
+    ELSE o."exchangedAt"
+  END)`;
+}
+
 /** Current product costs for the organization, keyed by product id. */
 export async function loadProductUnitCosts(
   manager: EntityManager,

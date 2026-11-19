@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import { showErrorFromException, ERROR_MESSAGES } from "@/lib/toast-utils";
+import { BelowCostCard, type LossOrder } from "@/components/below-cost-lines";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -95,6 +96,19 @@ interface DashboardStats {
     activeProducts: number;
     teamSize: number;
   };
+  belowCost: Array<{
+    orderId: string;
+    orderNumber: string;
+    name: string;
+    sku: string;
+    quantity: number;
+    unitPrice: number;
+    unitCost: number;
+    loss: number;
+    packQuantity: number | null;
+    productCost: number | null;
+  }>;
+  lossOrders: LossOrder[];
 }
 
 const hourlyChartConfig = {
@@ -492,6 +506,12 @@ export default function Page() {
           </Card>
         </div>
       </div>
+
+      <BelowCostCard
+        lines={stats.belowCost ?? []}
+        orders={stats.lossOrders ?? []}
+        periodLabel="today"
+      />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">

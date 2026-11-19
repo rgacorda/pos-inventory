@@ -737,7 +737,6 @@ export class SyncService {
         });
 
     if (mode === 'unchanged') {
-      await this.touchTerminal(input.terminalId);
       return {
         products: [],
         removedIds: [],
