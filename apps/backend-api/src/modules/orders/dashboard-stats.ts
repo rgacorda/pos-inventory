@@ -96,6 +96,7 @@ export interface DashboardStats {
 export interface BelowCostLine {
   orderId: string;
   orderNumber: string;
+  productId: string;
   name: string;
   sku: string;
   quantity: number;
@@ -404,6 +405,7 @@ async function queryBelowCostLines(
     `
     SELECT o.id AS "orderId",
            o."orderNumber" AS "orderNumber",
+           i."productId" AS "productId",
            i.name AS name,
            i.sku AS sku,
            i.quantity AS quantity,
@@ -429,6 +431,7 @@ async function queryBelowCostLines(
   return (rows as Array<Record<string, unknown>>).map((row) => ({
     orderId: text(rowField(row, 'orderId')),
     orderNumber: text(rowField(row, 'orderNumber'), 'Order'),
+    productId: text(rowField(row, 'productId')),
     name: text(rowField(row, 'name'), 'Unnamed item'),
     sku: text(rowField(row, 'sku')),
     quantity: count(rowField(row, 'quantity')),

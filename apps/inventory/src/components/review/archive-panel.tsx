@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -39,9 +40,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { showErrorFromException, showSuccessToast } from "@/lib/toast-utils";
+import {
+  showErrorFromException,
+  showErrorToast,
+  showSuccessToast,
+  showWarningToast,
+} from "@/lib/toast-utils";
 
 type ArchiveKind = "product" | "delivery" | "return";
+type BulkAction = "restore" | "delete";
 
 interface ArchivedProduct {
   id: string;
@@ -90,6 +97,19 @@ function archivedBy(name?: string | null, at?: string | null) {
   return `${who} · ${format(new Date(at), "MMM d, yyyy h:mm a")}`;
 }
 
+function countPhrase(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function errorText(error: unknown) {
+  const message = (error as { response?: { data?: { message?: unknown } } })
+    ?.response?.data?.message;
+  if (Array.isArray(message)) return message.map(String).join(", ");
+  if (typeof message === "string" && message.trim()) return message;
+  if (error instanceof Error && error.message) return error.message;
+  return "Request failed";
+}
+
 export function ArchivePanel() {
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<ArchivedProduct[]>([]);
@@ -103,15 +123,21 @@ export function ArchivePanel() {
   const [pendingDelete, setPendingDelete] = useState<
     { kind: ArchiveKind; id: string; label: string } | null
   >(null);
+  const [pendingBulk, setPendingBulk] = useState<BulkAction | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     loadArchive();
   }, []);
 
-  async function loadArchive() {
+  async function loadArchive(silent = false) {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [productRows, deliveryRows, returnRows] = await Promise.all([
         apiClient.getProducts({ archived: true }),
         apiClient.getInventoryDeliveries({ archived: true }),
@@ -123,7 +149,7 @@ export function ArchivePanel() {
     } catch (error) {
       showErrorFromException(error, "Failed to load archive");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -134,7 +160,7 @@ export function ArchivePanel() {
       if (kind === "delivery") await apiClient.restoreInventoryDelivery(id);
       if (kind === "return") await apiClient.restoreInventoryReturn(id);
       showSuccessToast("Restored");
-      await loadArchive();
+      await loadArchive(true);
     } catch (error) {
       showErrorFromException(error, "Failed to restore");
     } finally {
@@ -153,12 +179,96 @@ export function ArchivePanel() {
       showSuccessToast("Permanently deleted");
       setPendingDelete(null);
       setView(null);
-      await loadArchive();
+      await loadArchive(true);
     } catch (error) {
       showErrorFromException(error, "Failed to permanently delete");
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function confirmBulk() {
+    if (!pendingBulk || bulkBusy) return;
+    const action = pendingBulk;
+    const jobs: Array<{ label: string; run: () => Promise<unknown> }> = [];
+    const add = (
+      rows: Array<{ id: string; label: string }>,
+      run: (id: string) => Promise<unknown>,
+    ) => {
+      for (const row of rows) {
+        jobs.push({ label: row.label, run: () => run(row.id) });
+      }
+    };
+
+    const productRows = products.map((product) => ({
+      id: product.id,
+      label: product.name,
+    }));
+    const deliveryRows = deliveries.map((delivery) => ({
+      id: delivery.id,
+      label: delivery.invoiceNumber
+        ? `${delivery.supplier} (${delivery.invoiceNumber})`
+        : delivery.supplier,
+    }));
+    const returnRows = returns.map((inventoryReturn) => ({
+      id: inventoryReturn.id,
+      label: inventoryReturn.reason
+        ? `${inventoryReturn.supplier} (${inventoryReturn.reason})`
+        : inventoryReturn.supplier,
+    }));
+
+    if (action === "restore") {
+      add(productRows, (id) => apiClient.restoreProduct(id));
+      add(deliveryRows, (id) => apiClient.restoreInventoryDelivery(id));
+      add(returnRows, (id) => apiClient.restoreInventoryReturn(id));
+    } else {
+      // Deliveries and returns reverse stock. Clear those before products
+      // so a product still referenced by an archived record is tried last.
+      add(deliveryRows, (id) => apiClient.permanentlyDeleteInventoryDelivery(id));
+      add(returnRows, (id) => apiClient.permanentlyDeleteInventoryReturn(id));
+      add(productRows, (id) => apiClient.permanentlyDeleteProduct(id));
+    }
+
+    if (jobs.length === 0) {
+      setPendingBulk(null);
+      return;
+    }
+
+    setBulkBusy(true);
+    setBulkProgress({ done: 0, total: jobs.length });
+    const failures: string[] = [];
+    for (let index = 0; index < jobs.length; index += 1) {
+      try {
+        await jobs[index].run();
+      } catch (error) {
+        failures.push(`${jobs[index].label}: ${errorText(error)}`);
+      }
+      setBulkProgress({ done: index + 1, total: jobs.length });
+    }
+
+    const succeeded = jobs.length - failures.length;
+    const verb = action === "restore" ? "Restored" : "Permanently deleted";
+    if (failures.length === 0) {
+      showSuccessToast(
+        `${verb} ${countPhrase(succeeded, "archived record", "archived records")}`,
+      );
+    } else if (succeeded === 0) {
+      showErrorToast(
+        action === "restore" ? "Failed to restore archive" : "Failed to delete archive",
+        { description: failures.slice(0, 3).join(" "), duration: 6000 },
+      );
+    } else {
+      showWarningToast(`${verb} ${succeeded} of ${jobs.length}`, {
+        description: failures.slice(0, 3).join(" "),
+        duration: 6000,
+      });
+    }
+
+    setBulkBusy(false);
+    setBulkProgress(null);
+    setPendingBulk(null);
+    setView(null);
+    await loadArchive(true);
   }
 
   if (loading) {
@@ -169,6 +279,18 @@ export function ArchivePanel() {
     );
   }
 
+  const archivedTotal = products.length + deliveries.length + returns.length;
+  const archivedSummary = [
+    products.length ? countPhrase(products.length, "product", "products") : "",
+    deliveries.length
+      ? countPhrase(deliveries.length, "delivery", "deliveries")
+      : "",
+    returns.length ? countPhrase(returns.length, "return", "returns") : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const actionsLocked = bulkBusy || !!busyId;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -177,8 +299,27 @@ export function ArchivePanel() {
           <CardDescription>
             Archived products, deliveries, and returns stay here with the name
             of the person who archived them. Restore puts a record back.
-            Permanent delete removes it for good.
+            Permanent delete removes it for good. Restore all and Delete all
+            cover every record in this archive.
           </CardDescription>
+          <CardAction className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={archivedTotal === 0 || actionsLocked}
+              onClick={() => setPendingBulk("restore")}
+            >
+              Restore all
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={archivedTotal === 0 || actionsLocked}
+              onClick={() => setPendingBulk("delete")}
+            >
+              Delete all
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="products">
@@ -204,7 +345,7 @@ export function ArchivePanel() {
                   ],
                   actions: (
                     <RowActions
-                      busy={busyId === product.id}
+                      busy={busyId === product.id || bulkBusy}
                       onRestore={() => restore("product", product.id)}
                       onDelete={() =>
                         setPendingDelete({
@@ -235,7 +376,7 @@ export function ArchivePanel() {
                   ],
                   actions: (
                     <RowActions
-                      busy={busyId === delivery.id}
+                      busy={busyId === delivery.id || bulkBusy}
                       onRestore={() => restore("delivery", delivery.id)}
                       onDelete={() =>
                         setPendingDelete({
@@ -265,7 +406,7 @@ export function ArchivePanel() {
                   ],
                   actions: (
                     <RowActions
-                      busy={busyId === inventoryReturn.id}
+                      busy={busyId === inventoryReturn.id || bulkBusy}
                       onRestore={() => restore("return", inventoryReturn.id)}
                       onDelete={() =>
                         setPendingDelete({
@@ -349,6 +490,45 @@ export function ArchivePanel() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmPermanentDelete}>
               Permanently delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!pendingBulk}
+        onOpenChange={(open) => {
+          if (!open && !bulkBusy) setPendingBulk(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingBulk === "restore"
+                ? "Restore the whole archive?"
+                : "Permanently delete the whole archive?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingBulk === "restore"
+                ? `This puts ${archivedSummary} back.`
+                : `This permanently deletes ${archivedSummary}. Deliveries reverse the stock they added, and returns reverse the stock they changed. A product still used by an order or another record stays archived.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant={pendingBulk === "delete" ? "destructive" : "default"}
+              disabled={bulkBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmBulk();
+              }}
+            >
+              {bulkBusy && bulkProgress
+                ? `${pendingBulk === "restore" ? "Restoring" : "Deleting"} ${bulkProgress.done} of ${bulkProgress.total}`
+                : pendingBulk === "restore"
+                  ? "Restore all"
+                  : "Delete all"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

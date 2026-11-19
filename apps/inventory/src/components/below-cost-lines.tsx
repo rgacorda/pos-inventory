@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { catalogPricingIssues } from "@pos/shared-utils";
 import { ProductEditDialog } from "@/components/product-edit-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -26,6 +25,7 @@ const PAGE_SIZE = 10;
 export interface BelowCostLine {
   orderId: string;
   orderNumber: string;
+  productId?: string;
   name: string;
   sku: string;
   quantity: number;
@@ -307,10 +307,9 @@ export function BelowCostCard({
   );
 }
 
-const ACTION_CHECK_KEY = "inventory-product-action-checks";
-
 export interface ProductAction {
   key: string;
+  productId: string;
   name: string;
   sku: string;
   extraCost: number;
@@ -343,12 +342,13 @@ function actionForLine(line: BelowCostLine): string {
 export function productActions(lines: BelowCostLine[]): ProductAction[] {
   const groups = new Map<string, ProductAction & { sampleLoss: number }>();
   for (const line of lines) {
-    const key = (line.sku || line.name || "item").trim();
+    const key = (line.productId || line.sku || line.name || "item").trim();
     const loss = Math.abs(Number(line.loss) || 0);
     const current = groups.get(key);
     if (!current) {
       groups.set(key, {
         key,
+        productId: line.productId || "",
         name: line.name,
         sku: line.sku,
         extraCost: loss,
@@ -373,37 +373,26 @@ export function productActions(lines: BelowCostLine[]): ProductAction[] {
     .sort((a, b) => b.extraCost - a.extraCost);
 }
 
-function readActionChecks(): Record<string, true> {
-  if (typeof window === "undefined") return {};
-  try {
-    const parsed = JSON.parse(localStorage.getItem(ACTION_CHECK_KEY) || "{}");
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as Record<string, true>;
-  } catch {
-    return {};
-  }
+function plainLabel(value?: string | null) {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function catalogMatchKey(sku?: string | null, name?: string | null) {
-  return (sku || name || "").trim().toLowerCase();
-}
-
-/**
- * True when the current catalog price is no longer below cost.
- * Null when this sale cannot be matched to a product yet.
- */
-function catalogPriceCorrected(
+/** A past below-cost sale stays on the list only while that product is still priced below cost. */
+function stillNeedsPriceFix(
   action: ProductAction,
   products: CatalogProductPrice[],
-  productsReady: boolean,
-): boolean | null {
-  if (!productsReady) return null;
-  const key = catalogMatchKey(action.sku, action.name);
-  const matches = products.filter(
-    (product) => catalogMatchKey(product.sku, product.name) === key,
-  );
-  if (matches.length === 0) return null;
-  return matches.every((product) => catalogPricingIssues(product).length === 0);
+): boolean {
+  const sku = plainLabel(action.sku);
+  const name = plainLabel(action.name);
+  const matches = products.filter((product) => {
+    if (product.status && product.status !== "ACTIVE") return false;
+    if (action.productId && product.id === action.productId) return true;
+    const productSku = plainLabel(product.sku);
+    const productName = plainLabel(product.name);
+    return (sku !== "" && productSku === sku) || (name !== "" && productName === name);
+  });
+  if (matches.length === 0) return false;
+  return matches.some((product) => catalogPricingIssues(product).length > 0);
 }
 
 /** Products sold below the cost saved on the sale, with the change to make. */
@@ -416,94 +405,35 @@ export function ProductActionChecklist({
   products?: CatalogProductPrice[];
   productsReady?: boolean;
 }) {
-  const actions = useMemo(() => productActions(lines), [lines]);
-  const [checked, setChecked] = useState<Record<string, true>>({});
+  const open = useMemo(() => {
+    if (!productsReady) return [];
+    return productActions(lines).filter((action) => stillNeedsPriceFix(action, products));
+  }, [lines, products, productsReady]);
 
-  useEffect(() => {
-    setChecked(readActionChecks());
-  }, []);
-
-  const statusOf = (action: ProductAction) =>
-    catalogPriceCorrected(action, products, productsReady);
-
-  const ordered = [...actions].sort((a, b) => {
-    const aDone = statusOf(a) === true || (statusOf(a) == null && checked[a.key]) ? 1 : 0;
-    const bDone = statusOf(b) === true || (statusOf(b) == null && checked[b.key]) ? 1 : 0;
-    if (aDone !== bDone) return aDone - bDone;
-    return b.extraCost - a.extraCost;
-  });
-  const openCount = actions.filter((action) => {
-    const status = statusOf(action);
-    if (status === true) return false;
-    if (status === false) return true;
-    return !checked[action.key];
-  }).length;
-
-  function toggle(key: string, value: boolean) {
-    setChecked((current) => {
-      const next = { ...current };
-      if (value) next[key] = true;
-      else delete next[key];
-      localStorage.setItem(ACTION_CHECK_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
+  if (!productsReady || open.length === 0) return null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Products to fix</CardTitle>
         <CardDescription>
-          {actions.length === 0
-            ? "No product in this period was sold below its saved cost."
-            : `${formatCount(openCount)} of ${formatCount(actions.length)} still need a price or cost change. Saving a price that is no longer below cost checks the product here.`}
+          {`${formatCount(open.length)} ${open.length === 1 ? "product was" : "products were"} sold below cost in this period and the current price is still below cost. Each one leaves this list when that price is corrected.`}
         </CardDescription>
       </CardHeader>
-      {ordered.length > 0 ? (
-        <CardContent className="space-y-3">
-          {ordered.map((action) => {
-            const catalogStatus = statusOf(action);
-            const done = catalogStatus === true || (catalogStatus == null && Boolean(checked[action.key]));
-            const followsPrice = catalogStatus != null;
-            return (
-              <label
-                key={action.key}
-                className={`flex items-start gap-3 rounded-md border p-3 ${done ? "opacity-60" : ""}`}
-              >
-                <Checkbox
-                  checked={done}
-                  disabled={followsPrice}
-                  onCheckedChange={(value) => {
-                    if (!followsPrice) toggle(action.key, value === true);
-                  }}
-                  className="mt-0.5"
-                  aria-label={
-                    followsPrice
-                      ? `${action.name} follows its current price`
-                      : `Mark ${action.name} as done`
-                  }
-                />
-                <span className="min-w-0">
-                  <span className={`block font-medium ${done ? "line-through" : ""}`}>
-                    {action.name}
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {action.sku ? `${action.sku} · ` : ""}
-                    {formatCount(action.sales)} {action.sales === 1 ? "sale" : "sales"}
-                    {" · "}
-                    extra cost {formatCurrency(action.extraCost)}
-                  </span>
-                  <span className="mt-1 block text-sm">
-                    {catalogStatus === true
-                      ? "Current price is no longer below cost. The sales in this period already happened."
-                      : action.action}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </CardContent>
-      ) : null}
+      <CardContent className="space-y-3">
+        {open.map((action) => (
+          <div key={action.key} className="rounded-md border p-3">
+            <div className="font-medium">{action.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {action.sku ? `${action.sku} · ` : ""}
+              {formatCount(action.sales)} {action.sales === 1 ? "sale" : "sales"}
+              {" · "}
+              extra cost {formatCurrency(action.extraCost)}
+            </div>
+            <div className="mt-1 text-sm">{action.action}</div>
+          </div>
+        ))}
+      </CardContent>
     </Card>
   );
 }
