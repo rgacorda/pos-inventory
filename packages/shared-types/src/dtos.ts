@@ -130,6 +130,23 @@ export interface ProductCatalogDto {
 }
 
 /**
+ * One page of the POS catalog download.
+ * The POS keeps its own cursor and only replaces products after every page arrives.
+ */
+export interface ProductCatalogPageDto {
+  products: ProductDto[];
+  removedIds: string[];
+  nextCursor: string | null;
+  total: number;
+  /** Sum of tracked stock. Used to detect quantity changes that did not bump a cursor. */
+  stockSum: number;
+  asOf: string;
+  unchanged?: boolean;
+  /** The client's cursor is stale. This page is the start of a full download. */
+  resync?: boolean;
+}
+
+/**
  * DTO for product
  */
 export interface ProductDto {
@@ -139,6 +156,7 @@ export interface ProductDto {
   description?: string;
   category?: string;
   price: number;
+  cost?: number;
   packPrice?: number;
   packQuantity?: number;
   packMarkupPercentage?: number;

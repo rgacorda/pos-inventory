@@ -78,9 +78,10 @@ export function quantitiesStillSold(
 }
 
 /**
- * Adds `delta` to stockQuantity in SQL (`stockQuantity = stockQuantity + delta`).
- * Unlimited products are skipped. This does not read the row and write it
- * back, so a sale that commits in between cannot be overwritten.
+ * Adds `delta` to stockQuantity in one UPDATE (`stockQuantity = stockQuantity + delta`).
+ * Unlimited products are skipped. The row is not read and written back, so a
+ * sale that commits in between cannot be overwritten. The same statement moves
+ * `updatedAt`, which lets the POS catalog pick up the new quantity.
  */
 export async function adjustTrackedStock(
   manager: EntityManager,
@@ -89,19 +90,22 @@ export async function adjustTrackedStock(
   organizationId?: string | null,
 ): Promise<number> {
   const units = toStockUnits(delta);
-  if (!productId || units === 0) return 0;
+  if (!productId || units === 0 || !Number.isInteger(units)) return 0;
 
-  const where: Record<string, unknown> = {
-    id: productId,
-    infiniteStock: false,
-  };
-  if (organizationId) where.organizationId = organizationId;
+  let whereSql = '"id" = :id AND "infiniteStock" = false';
+  const params: Record<string, unknown> = { id: productId };
+  if (organizationId) {
+    whereSql += ' AND "organizationId" = :organizationId';
+    params.organizationId = organizationId;
+  }
 
-  const result = await manager.increment(
-    ProductEntity,
-    where,
-    'stockQuantity',
-    units,
-  );
+  const result = await manager
+    .createQueryBuilder()
+    .update(ProductEntity)
+    .set({
+      stockQuantity: () => `"stockQuantity" + (${units})`,
+    })
+    .where(whereSql, params)
+    .execute();
   return result.affected ?? 0;
 }

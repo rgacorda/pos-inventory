@@ -391,6 +391,36 @@ export const dbHelpers = {
     return metadata ? new Date(metadata.value) : null;
   },
 
+  // Server timestamp of the last complete product-catalog download.
+  async getCatalogAsOf(): Promise<string | null> {
+    const metadata = await db.syncMetadata
+      .where("key")
+      .equals("catalogAsOf")
+      .first();
+
+    return metadata?.value ?? null;
+  },
+
+  async setCatalogAsOf(asOf: string) {
+    const existing = await db.syncMetadata
+      .where("key")
+      .equals("catalogAsOf")
+      .first();
+
+    if (existing) {
+      await db.syncMetadata.update(existing.id!, {
+        value: asOf,
+        updatedAt: new Date(),
+      });
+    } else {
+      await db.syncMetadata.add({
+        key: "catalogAsOf",
+        value: asOf,
+        updatedAt: new Date(),
+      });
+    }
+  },
+
   // Update last sync time
   async updateLastSyncTime(date: Date) {
     const dateObj = date instanceof Date ? date : new Date(date);
@@ -444,9 +474,9 @@ export const dbHelpers = {
     }
   },
 
-  // Get active products
+  // Products cached from inventory. Archived products are removed during sync.
   async getActiveProducts() {
-    return db.products.where("status").equals("ACTIVE").toArray();
+    return db.products.toArray();
   },
 
   async findProductsByBarcode(barcode: string) {
@@ -460,12 +490,12 @@ export const dbHelpers = {
 
     if (/^\d{6,}$/.test(trimmed)) {
       const hits = await db.products.where("barcode").equals(trimmed).toArray();
-      return hits.filter((p) => p.status === "ACTIVE").slice(0, limit);
+      return hits.slice(0, limit);
     }
 
     const terms = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
     const results: LocalProduct[] = [];
-    await db.products.where("status").equals("ACTIVE").each((product) => {
+    await db.products.each((product) => {
       if (results.length >= limit) return;
       const name = product.name?.toLowerCase() ?? "";
       const sku = product.sku?.toLowerCase() ?? "";

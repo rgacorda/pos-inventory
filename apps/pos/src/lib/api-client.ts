@@ -1,8 +1,9 @@
 import axios, { AxiosInstance } from "axios";
-import { db, dbHelpers } from "./db";
+import { db, dbHelpers, type LocalProduct } from "./db";
 import type {
   SyncRequestDto,
   SyncResponseDto,
+  ProductCatalogPageDto,
   CreateOrderDto,
   CreatePaymentDto,
   LoginDto,
@@ -123,6 +124,22 @@ class APIClient {
     const response = await this.client.post<SyncResponseDto>(
       "/pos/sync",
       syncRequest,
+    );
+    return response.data;
+  }
+
+  async getCatalog(params: {
+    terminalId?: string;
+    since?: string;
+    cursor?: string;
+    asOf?: string;
+    count?: number;
+    stockSum?: number;
+    limit?: number;
+  }): Promise<ProductCatalogPageDto> {
+    const response = await this.client.get<ProductCatalogPageDto>(
+      "/pos/sync/catalog",
+      { params, timeout: 60000 },
     );
     return response.data;
   }
@@ -392,26 +409,28 @@ export class SyncService {
       }
 
       if (orders.length === 0 && payments.length === 0) {
-        console.log("No items to sync");
+        console.log("No orders to upload");
         this.hasPendingItems = false;
-        await this.syncProductCatalog(terminalId);
-        return true;
+      } else {
+        console.log(
+          `Syncing ${orders.length} orders and ${payments.length} payments in batches of ${this.BATCH_SIZE}...`,
+        );
+
+        await this.syncBatchedItems(orders, payments, terminalId);
+
+        // Clear sync request flag
+        try {
+          await apiClient.clearSyncRequest(terminalId);
+        } catch (error) {
+          console.error("Failed to clear sync request flag:", error);
+        }
+
+        this.hasPendingItems = false;
       }
 
-      console.log(
-        `Syncing ${orders.length} orders and ${payments.length} payments in batches of ${this.BATCH_SIZE}...`,
-      );
-
-      await this.syncBatchedItems(orders, payments, terminalId);
-
-      // Clear sync request flag
-      try {
-        await apiClient.clearSyncRequest(terminalId);
-      } catch (error) {
-        console.error("Failed to clear sync request flag:", error);
-      }
-
-      this.hasPendingItems = false;
+      // Product download is separate from the upload, so a waiting sale cannot
+      // keep new inventory products or stock counts off this register.
+      await this.syncProductCatalog(terminalId);
       console.log("Sync completed successfully");
       return true;
     } catch (error) {
@@ -463,6 +482,7 @@ export class SyncService {
       );
 
       await this.syncBatchedItems(orders, payments, terminalId);
+      await this.syncProductCatalog(terminalId);
 
       console.log("Retry sync completed successfully");
 
@@ -494,7 +514,6 @@ export class SyncService {
   ): Promise<void> {
     const lastSyncAt = await dbHelpers.getLastSyncTime();
     let lastSyncedAt: Date | null = null;
-    let lastCatalog: any = null;
 
     // Sales have to reach the server before an exchange of those sales.
     // Otherwise the exchange is saved with nothing to put back, and a later
@@ -531,7 +550,6 @@ export class SyncService {
         const response = await apiClient.sync(req);
         await this.processSyncResults(response);
         lastSyncedAt = new Date(response.syncedAt);
-        if (response.catalog) lastCatalog = response.catalog;
       } catch (error) {
         // Keep going so one bad batch does not block the rest of the retry.
         await this.markItemsAsError(error);
@@ -557,45 +575,158 @@ export class SyncService {
         const response = await apiClient.sync(req);
         await this.processSyncResults(response);
         lastSyncedAt = new Date(response.syncedAt);
-        if (response.catalog) lastCatalog = response.catalog;
       } catch (error) {
         await this.markItemsAsError(error);
         console.error("Payment batch failed:", error);
       }
     }
 
-    if (lastCatalog) {
-      await this.updateProductCatalog(lastCatalog);
-    }
     if (lastSyncedAt) {
       await dbHelpers.updateLastSyncTime(lastSyncedAt);
-    }
-
-    // Exchange restocks on the server; catalog is skipped while uploading
-    // orders, so pull it now so POS counts reflect returned quantities.
-    if (allOrders.some((order) => order.exchangeRef)) {
-      await this.syncProductCatalog(terminalId);
     }
   }
 
   private async syncProductCatalog(terminalId: string) {
     try {
-      const lastSyncAt = await dbHelpers.getLastSyncTime();
-      const response = await apiClient.sync({
-        terminalId,
-        lastSyncAt: lastSyncAt || undefined,
-        orders: [],
-        payments: [],
-      });
-
-      if (response.catalog) {
-        await this.updateProductCatalog(response.catalog);
+      await this.syncCatalogPages(terminalId);
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        await this.syncProductCatalogLegacy(terminalId);
+        return;
       }
-
-      await dbHelpers.updateLastSyncTime(response.syncedAt);
-    } catch (error) {
       console.error("Failed to sync product catalog:", error);
     }
+  }
+
+  private async syncProductCatalogLegacy(terminalId: string) {
+    const lastSyncAt = await dbHelpers.getLastSyncTime();
+    const response = await apiClient.sync({
+      terminalId,
+      lastSyncAt: lastSyncAt || undefined,
+      orders: [],
+      payments: [],
+    });
+
+    if (response.catalog) {
+      await this.updateProductCatalog(response.catalog);
+    }
+
+    await dbHelpers.updateLastSyncTime(response.syncedAt);
+  }
+
+  /**
+   * Downloads the same non-archived products inventory shows.
+   * Unchanged catalogs return in one small request. Edits come back as a
+   * delta. A count or stock mismatch downloads every page and then removes
+   * local products the server no longer has. The local catalog is not cleared
+   * first, so a failed page leaves the previous products in place.
+   */
+  private async syncCatalogPages(terminalId: string) {
+    const limit = 500;
+    const snapshot = await this.catalogSnapshot();
+    let since = (await dbHelpers.getCatalogAsOf()) || undefined;
+    let full = !since;
+    let cursor: string | undefined;
+    let asOf: string | undefined;
+    let checkedDelta = false;
+    const seen = new Set<string>();
+
+    for (let guard = 0; guard < 10000; guard++) {
+      const page = await apiClient.getCatalog({
+        terminalId,
+        limit,
+        cursor,
+        asOf,
+        since: full ? undefined : since,
+        count: cursor ? undefined : snapshot.count,
+        stockSum: cursor ? undefined : snapshot.stockSum,
+      });
+
+      if (page.unchanged) {
+        if (page.asOf) await dbHelpers.setCatalogAsOf(page.asOf);
+        return;
+      }
+
+      if (page.resync && !full) {
+        full = true;
+        seen.clear();
+      }
+
+      asOf = page.asOf || asOf;
+      const products = Array.isArray(page.products)
+        ? page.products.filter((product) => product?.id)
+        : [];
+
+      if (products.length > 0) {
+        const now = new Date();
+        await db.products.bulkPut(
+          products.map(
+            (product) =>
+              ({
+                ...product,
+                lastSyncedAt: now,
+              }) as LocalProduct,
+          ),
+        );
+      }
+
+      if (full) {
+        for (const product of products) seen.add(String(product.id));
+      } else if (page.removedIds?.length) {
+        await db.products.bulkDelete(page.removedIds);
+      }
+
+      const next = page.nextCursor || undefined;
+      if (next && next !== cursor) {
+        cursor = next;
+        continue;
+      }
+
+      if (full) {
+        if ((page.total ?? 0) > 0 && seen.size === 0) {
+          console.error(
+            "Catalog sync returned no products; keeping the current catalog",
+          );
+          return;
+        }
+        const localIds = await db.products.toCollection().primaryKeys();
+        const stale = localIds.filter((id) => !seen.has(String(id)));
+        if (stale.length > 0) {
+          await db.products.bulkDelete(stale as string[]);
+        }
+      } else if (!checkedDelta) {
+        checkedDelta = true;
+        const after = await this.catalogSnapshot();
+        if (after.count !== page.total || after.stockSum !== page.stockSum) {
+          full = true;
+          cursor = undefined;
+          asOf = undefined;
+          since = undefined;
+          seen.clear();
+          continue;
+        }
+      }
+
+      if (page.asOf) await dbHelpers.setCatalogAsOf(page.asOf);
+      console.log(
+        full
+          ? `Catalog synced (${seen.size} products)`
+          : "Catalog updated",
+      );
+      return;
+    }
+
+    console.error("Catalog sync stopped after too many pages");
+  }
+
+  private async catalogSnapshot(): Promise<{ count: number; stockSum: number }> {
+    const products = await db.products.toArray();
+    let stockSum = 0;
+    for (const product of products) {
+      if (product.infiniteStock) continue;
+      stockSum += Math.round(Number(product.stockQuantity) || 0);
+    }
+    return { count: products.length, stockSum };
   }
 
   private async markItemsAsSyncing(orders: any[], payments: any[]) {
@@ -651,17 +782,10 @@ export class SyncService {
         response.results.orders.map((result) => {
           const localOrder = orderMap.get(result.posLocalId);
           if (!localOrder?.id) return;
-          if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
-            return db.orders.update(localOrder.id, {
-              serverId: result.serverId,
-              syncStatus: "synced",
-              syncError: undefined,
-            });
-          }
-          return db.orders.update(localOrder.id, {
-            syncStatus: "error",
-            syncError: result.message || "Sync failed",
-          });
+          return db.orders.update(
+            localOrder.id,
+            this.localSyncUpdate(result),
+          );
         }),
       );
     }
@@ -681,20 +805,41 @@ export class SyncService {
         response.results.payments.map((result) => {
           const localPayment = paymentMap.get(result.posLocalId);
           if (!localPayment?.id) return;
-          if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
-            return db.payments.update(localPayment.id, {
-              serverId: result.serverId,
-              syncStatus: "synced",
-              syncError: undefined,
-            });
-          }
-          return db.payments.update(localPayment.id, {
-            syncStatus: "error",
-            syncError: result.message || "Sync failed",
-          });
+          return db.payments.update(
+            localPayment.id,
+            this.localSyncUpdate(result),
+          );
         }),
       );
     }
+  }
+
+  private localSyncUpdate(result: {
+    status: string;
+    serverId?: string;
+    message?: string;
+  }): {
+    serverId?: string;
+    syncStatus: "synced" | "pending" | "error";
+    syncError?: string;
+  } {
+    if (result.status === "SUCCESS" || result.status === "DUPLICATE") {
+      return {
+        serverId: result.serverId,
+        syncStatus: "synced",
+        syncError: undefined,
+      };
+    }
+    if (result.message?.startsWith("WAITING:")) {
+      return {
+        syncStatus: "pending",
+        syncError: result.message.slice("WAITING:".length).trim(),
+      };
+    }
+    return {
+      syncStatus: "error",
+      syncError: result.message || "Sync failed",
+    };
   }
 
   private async updateProductCatalog(catalog: any) {

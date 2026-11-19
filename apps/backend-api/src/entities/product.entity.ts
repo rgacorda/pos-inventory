@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 
 @Entity('products')
+@Index('IDX_products_org_updated', ['organizationId', 'updatedAt'])
 export class ProductEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

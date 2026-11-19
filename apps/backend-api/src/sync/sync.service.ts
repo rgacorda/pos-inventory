@@ -11,7 +11,9 @@ import {
   OrderStatus,
   PaymentStatus,
   ProductCatalogDto,
-  ProductStatus,
+  ProductCatalogPageDto,
+  ProductDto,
+  UserRole,
 } from '@pos/shared-types';
 import { OrderEntity } from '../entities/order.entity';
 import { OrderItemEntity } from '../entities/order-item.entity';
@@ -37,6 +39,15 @@ import {
   unitCostByProduct,
 } from '../common/sale-cost';
 import { exchangeShouldRestoreStock } from '../common/sale-status';
+import {
+  CatalogRow,
+  catalogSyncMode,
+  clampCatalogLimit,
+  finiteInteger,
+  parseOptionalCount,
+  parseOptionalDate,
+  toCatalogProduct,
+} from './catalog';
 
 @Injectable()
 export class SyncService {
@@ -106,9 +117,9 @@ export class SyncService {
     // Update terminal last sync time
     await this.updateTerminalSync(syncRequest.terminalId, syncedAt);
 
-    // Only fetch the product catalog when the POS is not uploading orders/payments.
-    // Fetching the full catalog on every order-sync batch is wasteful and adds
-    // significant latency during backlog recovery.
+    // Older POS builds still read the catalog from this response. Current builds
+    // download it from GET /pos/sync/catalog, including while orders are uploading.
+    // Skip the embedded copy during an upload so a backlog is not blocked on it.
     const hasPendingData =
       syncRequest.orders.length > 0 || syncRequest.payments.length > 0;
     const catalog = hasPendingData
@@ -279,7 +290,7 @@ export class SyncService {
 
         if (isExchangeOrder && !originalOrder) {
           throw new Error(
-            'Original sale is not on the server yet. This exchange will sync after that sale.',
+            'WAITING: Original sale is not on the server yet. This exchange will sync after that sale.',
           );
         }
 
@@ -535,9 +546,15 @@ export class SyncService {
       }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const retriable = this.isUniqueViolation(error) || this.isDeadlock(error);
-      this.logger.error(
-        `Failed to sync order ${orderDto.posLocalId}: ${errorMessage}`,
-      );
+      if (errorMessage.startsWith('WAITING:')) {
+        this.logger.warn(
+          `Order ${orderDto.posLocalId} is waiting: ${errorMessage}`,
+        );
+      } else {
+        this.logger.error(
+          `Failed to sync order ${orderDto.posLocalId}: ${errorMessage}`,
+        );
+      }
       return {
         posLocalId: orderDto.posLocalId,
         status: 'ERROR',
@@ -572,12 +589,14 @@ export class SyncService {
       });
 
       if (!order) {
-        this.logger.error(
-          `Order not found for payment ${paymentDto.posLocalId}. Looking for order with posLocalId: ${paymentDto.orderPosLocalId}`,
+        this.logger.warn(
+          `Payment ${paymentDto.posLocalId} is waiting for order ${paymentDto.orderPosLocalId}`,
         );
-        throw new Error(
-          `Order not found with posLocalId: ${paymentDto.orderPosLocalId}`,
-        );
+        return {
+          posLocalId: paymentDto.posLocalId,
+          status: 'ERROR',
+          message: `WAITING: Order not found with posLocalId: ${paymentDto.orderPosLocalId}`,
+        };
       }
 
       const orderId = order.id;
@@ -634,11 +653,14 @@ export class SyncService {
               };
             }
           }
-          if (attempt === 3 || !this.isUniqueViolation(error)) {
+          if (
+            attempt === 3 ||
+            (!this.isUniqueViolation(error) && !this.isDeadlock(error))
+          ) {
             throw error;
           }
           this.logger.warn(
-            `Retrying payment ${paymentDto.posLocalId} after payment number collision (attempt ${attempt})`,
+            `Retrying payment ${paymentDto.posLocalId} after ${this.isDeadlock(error) ? 'deadlock' : 'payment number collision'} (attempt ${attempt})`,
           );
         }
       }
@@ -676,53 +698,232 @@ export class SyncService {
     );
   }
 
-  private async getProductCatalog(
-    lastSyncAt?: Date,
-    user?: any,
-  ): Promise<ProductCatalogDto> {
-    const queryBuilder = this.productRepository
-      .createQueryBuilder('product')
-      .where('product.status = :status', { status: ProductStatus.ACTIVE })
-      .andWhere('product.deletedAt IS NULL');
+  /**
+   * Paged catalog for the POS. Matches the inventory product list: every
+   * product in the organization that has not been archived, any status.
+   * Columns are limited to what the register needs, so edit history and
+   * images are not loaded.
+   */
+  async getCatalogPage(
+    input: {
+      cursor?: string;
+      since?: string;
+      asOf?: string;
+      count?: string;
+      stockSum?: string;
+      limit?: string;
+      terminalId?: string;
+    },
+    user?: { role?: string; organizationId?: string | null },
+  ): Promise<ProductCatalogPageDto> {
+    const limit = clampCatalogLimit(input.limit);
+    const since = parseOptionalDate(input.since);
+    const asOf = parseOptionalDate(input.asOf) ?? (await this.databaseNow());
+    const cursor = input.cursor?.trim() || undefined;
+    const continuing = Boolean(cursor);
+    const stats = await this.catalogStats(user, since);
 
-    // Filter by organization for non-super-admins
-    if (user?.organizationId) {
-      queryBuilder.andWhere('product.organizationId = :orgId', {
-        orgId: user.organizationId,
-      });
+    let mode: 'unchanged' | 'changes' | 'full' = continuing
+      ? since
+        ? 'changes'
+        : 'full'
+      : catalogSyncMode({
+          since,
+          localCount: parseOptionalCount(input.count),
+          localStockSum: parseOptionalCount(input.stockSum),
+          sellableCount: stats.total,
+          stockSum: stats.stockSum,
+          changedCount: since ? stats.changedCount : 0,
+        });
+
+    if (mode === 'unchanged') {
+      await this.touchTerminal(input.terminalId);
+      return {
+        products: [],
+        removedIds: [],
+        nextCursor: null,
+        total: stats.total,
+        stockSum: stats.stockSum,
+        asOf: asOf.toISOString(),
+        unchanged: true,
+      };
     }
 
-    const products = await queryBuilder.getMany();
+    const { rows, hasMore } = await this.queryCatalogRows({
+      user,
+      cursor,
+      since: mode === 'changes' ? since ?? undefined : undefined,
+      asOf: mode === 'changes' ? asOf : undefined,
+      sellableOnly: mode === 'full',
+      limit,
+    });
+
+    const products: ProductDto[] = [];
+    const removedIds: string[] = [];
+    for (const row of rows) {
+      const mapped = toCatalogProduct(row);
+      if (mapped) products.push(mapped);
+      else if (row.id) removedIds.push(row.id);
+    }
+
+    await this.touchTerminal(input.terminalId);
 
     return {
-      products: products.map((p) => ({
-        id: p.id,
-        sku: p.sku,
-        name: p.name,
-        description: p.description,
-        category: p.category,
-        price: Number(p.price),
-        cost: p.cost ? Number(p.cost) : undefined,
-        packPrice: p.packPrice ? Number(p.packPrice) : undefined,
-        packQuantity: p.packQuantity,
-        packMarkupPercentage: p.packMarkupPercentage ? Number(p.packMarkupPercentage) : undefined,
-        packMarkupFixed: p.packMarkupFixed ? Number(p.packMarkupFixed) : undefined,
-        halfPackPrice: p.halfPackPrice ? Number(p.halfPackPrice) : undefined,
-        halfPackQuantity: p.halfPackQuantity ?? undefined,
-        halfPackMarkupPercentage: p.halfPackMarkupPercentage ? Number(p.halfPackMarkupPercentage) : undefined,
-        halfPackMarkupFixed: p.halfPackMarkupFixed ? Number(p.halfPackMarkupFixed) : undefined,
-        addonPrice: p.addonPrice ? Number(p.addonPrice) : undefined,
-        convenienceMarkupPercentage: p.convenienceMarkupPercentage ? Number(p.convenienceMarkupPercentage) : undefined,
-        convenienceMarkup: p.convenienceMarkup ? Number(p.convenienceMarkup) : undefined,
-        taxRate: Number(p.taxRate),
-        barcode: p.barcode,
-        imageUrl: p.imageUrl,
-        status: p.status,
-        stockQuantity: p.stockQuantity,
-        infiniteStock: p.infiniteStock === true,
-      })),
+      products,
+      removedIds,
+      nextCursor: hasMore ? (rows[rows.length - 1]?.id ?? null) : null,
+      total: stats.total,
+      stockSum: stats.stockSum,
+      asOf: asOf.toISOString(),
+      resync: mode === 'full' && Boolean(since) && !continuing,
+    };
+  }
+
+  private async getProductCatalog(
+    _lastSyncAt?: Date,
+    user?: { role?: string; organizationId?: string | null },
+  ): Promise<ProductCatalogDto> {
+    const products: ProductDto[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const { rows, hasMore } = await this.queryCatalogRows({
+        user,
+        cursor,
+        sellableOnly: true,
+        limit: 1000,
+      });
+      for (const row of rows) {
+        const mapped = toCatalogProduct(row);
+        if (mapped) products.push(mapped);
+      }
+      const lastId = rows[rows.length - 1]?.id;
+      cursor = hasMore && lastId ? lastId : undefined;
+    } while (cursor);
+
+    return {
+      products,
       lastUpdated: new Date(),
     };
+  }
+
+  private catalogScope(user?: { role?: string; organizationId?: string | null }) {
+    const query = this.productRepository.createQueryBuilder('product');
+    if (user?.role !== UserRole.SUPER_ADMIN) {
+      query.andWhere('product.organizationId = :orgId', {
+        orgId: user?.organizationId ?? null,
+      });
+    }
+    return query;
+  }
+
+  private async catalogStats(
+    user: { role?: string; organizationId?: string | null } | undefined,
+    since: Date | null,
+  ): Promise<{ total: number; stockSum: number; changedCount: number }> {
+    const params: unknown[] = [since ?? new Date(0)];
+    let orgSql = '';
+    if (user?.role !== UserRole.SUPER_ADMIN) {
+      orgSql = `AND "organizationId" = $${params.push(user?.organizationId ?? null)}`;
+    }
+
+    const [row] = await this.dataSource.query(
+      `
+      SELECT
+        COUNT(*) FILTER (WHERE "deletedAt" IS NULL)::int AS total,
+        COALESCE(SUM("stockQuantity") FILTER (
+          WHERE "deletedAt" IS NULL AND "infiniteStock" = false
+        ), 0) AS "stockSum",
+        COUNT(*) FILTER (WHERE "updatedAt" > $1)::int AS "changedCount"
+      FROM "products"
+      WHERE TRUE
+      ${orgSql}
+      `,
+      params,
+    );
+
+    return {
+      total: finiteInteger(row?.total),
+      stockSum: finiteInteger(row?.stockSum),
+      changedCount: since ? finiteInteger(row?.changedCount) : 0,
+    };
+  }
+
+  private async queryCatalogRows(options: {
+    user?: { role?: string; organizationId?: string | null };
+    cursor?: string;
+    since?: Date;
+    asOf?: Date;
+    sellableOnly: boolean;
+    limit: number;
+  }): Promise<{ rows: CatalogRow[]; hasMore: boolean }> {
+    const query = this.catalogScope(options.user).select([
+      'product.id',
+      'product.sku',
+      'product.name',
+      'product.description',
+      'product.category',
+      'product.price',
+      'product.cost',
+      'product.packPrice',
+      'product.packQuantity',
+      'product.packMarkupPercentage',
+      'product.packMarkupFixed',
+      'product.halfPackPrice',
+      'product.halfPackQuantity',
+      'product.halfPackMarkupPercentage',
+      'product.halfPackMarkupFixed',
+      'product.addonPrice',
+      'product.convenienceMarkupPercentage',
+      'product.convenienceMarkup',
+      'product.taxRate',
+      'product.barcode',
+      'product.status',
+      'product.stockQuantity',
+      'product.infiniteStock',
+      'product.deletedAt',
+    ]);
+
+    if (options.sellableOnly) {
+      query.andWhere('product.deletedAt IS NULL');
+    }
+    if (options.since) {
+      query.andWhere('product.updatedAt > :since', { since: options.since });
+    }
+    if (options.asOf) {
+      query.andWhere('product.updatedAt <= :asOf', { asOf: options.asOf });
+    }
+    if (options.cursor) {
+      query.andWhere('product.id > :cursor', { cursor: options.cursor });
+    }
+
+    query.orderBy('product.id', 'ASC').take(options.limit + 1);
+    const rows = await query.getMany();
+    const hasMore = rows.length > options.limit;
+    return {
+      rows: hasMore ? rows.slice(0, options.limit) : rows,
+      hasMore,
+    };
+  }
+
+  private async databaseNow(): Promise<Date> {
+    const [row] = await this.dataSource.query(
+      'SELECT CURRENT_TIMESTAMP AS "asOf"',
+    );
+    const parsed = new Date(row?.asOf);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  private async touchTerminal(terminalId?: string): Promise<void> {
+    if (!terminalId) return;
+    try {
+      await this.updateTerminalSync(terminalId, new Date());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Could not update last sync for terminal ${terminalId}: ${message}`,
+      );
+    }
   }
 
   private generateOrderNumber(): string {
