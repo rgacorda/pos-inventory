@@ -774,13 +774,13 @@ export default function Page() {
       return;
     }
     loyaltySearchTimerRef.current = setTimeout(async () => {
+      const query = value.trim();
       setLoyaltySearchLoading(true);
+      const cached = await dbHelpers.searchCachedCustomersByName(query);
+      setLoyaltySearchResults(cached);
       try {
-        let results: Array<{ id: string; name: string; phone: string; totalPoints: number }> = [];
         if (apiClient.isOnline() && apiClient.getAccessToken()) {
-          const data = await apiClient.searchCustomersByName(value.trim());
-          results = data;
-          // Refresh local cache with fresh server results
+          const data = await apiClient.searchCustomersByName(query);
           if (data.length > 0) {
             await dbHelpers.cacheCustomers(
               data.map((c: any) => ({
@@ -790,16 +790,26 @@ export default function Page() {
                 phone: c.phone,
                 totalPoints: c.totalPoints,
                 totalSpent: Number(c.totalSpent ?? 0),
-              }))
+              })),
             );
           }
-        } else {
-          results = await dbHelpers.searchCachedCustomersByName(value.trim());
+          const byId = new Map(cached.map((customer) => [customer.id, customer]));
+          for (const customer of data) {
+            byId.set(customer.id, customer);
+          }
+          const lower = query.toLowerCase();
+          setLoyaltySearchResults(
+            [...byId.values()]
+              .filter(
+                (customer) =>
+                  customer.name?.toLowerCase().includes(lower) ||
+                  String(customer.phone ?? "").toLowerCase().includes(lower),
+              )
+              .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+              .slice(0, 20),
+          );
         }
-        setLoyaltySearchResults(results);
       } catch {
-        // fall back to local cache silently
-        const cached = await dbHelpers.searchCachedCustomersByName(value.trim());
         setLoyaltySearchResults(cached);
       } finally {
         setLoyaltySearchLoading(false);

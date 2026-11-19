@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -298,6 +299,156 @@ export function BelowCostCard({
               />
             </div>
           ) : null}
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+const ACTION_CHECK_KEY = "inventory-product-action-checks";
+
+export interface ProductAction {
+  key: string;
+  name: string;
+  sku: string;
+  extraCost: number;
+  sales: number;
+  quantity: number;
+  action: string;
+}
+
+function pieceCostIfPackWasSaved(line: BelowCostLine): number | null {
+  const pack = line.packQuantity;
+  const cost = line.productCost ?? line.unitCost;
+  if (!pack || pack <= 1 || !(cost > 0) || !(line.unitPrice > 0)) return null;
+  const perPiece = Math.round((cost / pack) * 100) / 100;
+  if (Math.abs(line.unitPrice - perPiece) / line.unitPrice <= 0.2) return perPiece;
+  return null;
+}
+
+function actionForLine(line: BelowCostLine): string {
+  const perPiece = pieceCostIfPackWasSaved(line);
+  const cost = line.productCost ?? line.unitCost;
+  if (perPiece != null && line.packQuantity) {
+    return `Saved cost ${formatCurrency(cost)} is the pack price for ${formatCount(line.packQuantity)}. Set the product cost to ${formatCurrency(perPiece)} per piece.`;
+  }
+  if (line.packQuantity && line.packQuantity > 1) {
+    return `Sold at ${formatCurrency(line.unitPrice)} with a saved cost of ${formatCurrency(line.unitCost)}. Pack size ${formatCount(line.packQuantity)} does not explain the gap. Raise the price or correct the cost.`;
+  }
+  return `Sold at ${formatCurrency(line.unitPrice)} with a saved cost of ${formatCurrency(line.unitCost)}. Raise the price or correct the cost.`;
+}
+
+export function productActions(lines: BelowCostLine[]): ProductAction[] {
+  const groups = new Map<string, ProductAction & { sampleLoss: number }>();
+  for (const line of lines) {
+    const key = (line.sku || line.name || "item").trim();
+    const loss = Math.abs(Number(line.loss) || 0);
+    const current = groups.get(key);
+    if (!current) {
+      groups.set(key, {
+        key,
+        name: line.name,
+        sku: line.sku,
+        extraCost: loss,
+        sales: 1,
+        quantity: Number(line.quantity) || 0,
+        action: actionForLine(line),
+        sampleLoss: loss,
+      });
+      continue;
+    }
+    current.extraCost += loss;
+    current.sales += 1;
+    current.quantity += Number(line.quantity) || 0;
+    if (loss > current.sampleLoss) {
+      current.sampleLoss = loss;
+      current.action = actionForLine(line);
+      current.name = line.name;
+    }
+  }
+  return [...groups.values()]
+    .map(({ sampleLoss: _sampleLoss, ...action }) => action)
+    .sort((a, b) => b.extraCost - a.extraCost);
+}
+
+function readActionChecks(): Record<string, true> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTION_CHECK_KEY) || "{}");
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Record<string, true>;
+  } catch {
+    return {};
+  }
+}
+
+/** Products sold below the cost saved on the sale, with the change to make. */
+export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
+  const actions = useMemo(() => productActions(lines), [lines]);
+  const [checked, setChecked] = useState<Record<string, true>>({});
+
+  useEffect(() => {
+    setChecked(readActionChecks());
+  }, []);
+
+  const ordered = [...actions].sort((a, b) => {
+    const aDone = checked[a.key] ? 1 : 0;
+    const bDone = checked[b.key] ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
+    return b.extraCost - a.extraCost;
+  });
+  const openCount = actions.filter((action) => !checked[action.key]).length;
+
+  function toggle(key: string, value: boolean) {
+    setChecked((current) => {
+      const next = { ...current };
+      if (value) next[key] = true;
+      else delete next[key];
+      localStorage.setItem(ACTION_CHECK_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Products to fix</CardTitle>
+        <CardDescription>
+          {actions.length === 0
+            ? "No product in this period was sold below its saved cost."
+            : `${formatCount(openCount)} of ${formatCount(actions.length)} still need a price or cost change. Check one off after it is corrected. The check stays on this browser.`}
+        </CardDescription>
+      </CardHeader>
+      {ordered.length > 0 ? (
+        <CardContent className="space-y-3">
+          {ordered.map((action) => {
+            const done = Boolean(checked[action.key]);
+            return (
+              <label
+                key={action.key}
+                className={`flex items-start gap-3 rounded-md border p-3 ${done ? "opacity-60" : ""}`}
+              >
+                <Checkbox
+                  checked={done}
+                  onCheckedChange={(value) => toggle(action.key, value === true)}
+                  className="mt-0.5"
+                  aria-label={`Mark ${action.name} as done`}
+                />
+                <span className="min-w-0">
+                  <span className={`block font-medium ${done ? "line-through" : ""}`}>
+                    {action.name}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {action.sku ? `${action.sku} · ` : ""}
+                    {formatCount(action.sales)} {action.sales === 1 ? "sale" : "sales"}
+                    {" · "}
+                    extra cost {formatCurrency(action.extraCost)}
+                  </span>
+                  <span className="mt-1 block text-sm">{action.action}</span>
+                </span>
+              </label>
+            );
+          })}
         </CardContent>
       ) : null}
     </Card>

@@ -109,8 +109,8 @@ export const FROZEN_RETURN_UNIT_COST_SQL = `COALESCE(
 export function exchangedAtNaiveSql(storedTimeZoneSql: string): string {
   return `(CASE
     WHEN pg_typeof(o."exchangedAt") = 'timestamp with time zone'::regtype
-    THEN (o."exchangedAt" AT TIME ZONE ${storedTimeZoneSql})
-    ELSE o."exchangedAt"
+    THEN (o."exchangedAt" AT TIME ZONE ${storedTimeZoneSql})::timestamp
+    ELSE o."exchangedAt"::timestamp
   END)`;
 }
 

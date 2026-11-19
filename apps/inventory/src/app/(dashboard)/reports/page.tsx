@@ -51,11 +51,6 @@ import {
 } from "recharts";
 import { apiClient } from "@/lib/api-client";
 import {
-  BelowCostCard,
-  type BelowCostLine,
-  type LossOrder,
-} from "@/components/below-cost-lines";
-import {
   Download,
   Calendar,
   TrendingUp,
@@ -98,8 +93,6 @@ export default function ReportsPage() {
   const [terminalPerformance, setTerminalPerformance] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [hourlySales, setHourlySales] = useState<any[]>([]);
-  const [belowCost, setBelowCost] = useState<BelowCostLine[]>([]);
-  const [lossOrders, setLossOrders] = useState<LossOrder[]>([]);
 
   // Products tab UI state
   const [productSearch, setProductSearch] = useState("");
@@ -177,8 +170,6 @@ export default function ReportsPage() {
       setCashierPerformance(analyticsData.cashierPerformance);
       setTerminalPerformance(analyticsData.terminalPerformance);
       setHourlySales(analyticsData.hourlySales);
-      setBelowCost(analyticsData.summary?.belowCost ?? []);
-      setLossOrders(analyticsData.summary?.lossOrders ?? []);
 
       setPaymentMethods(
         paymentMethodsData.map((m: any) => ({
@@ -432,12 +423,6 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
-
-          <BelowCostCard
-            lines={belowCost}
-            orders={lossOrders}
-            periodLabel="in this period"
-          />
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <div className="overflow-x-auto">

@@ -513,6 +513,14 @@ export class SyncService {
               }),
             );
           }
+
+          if (pointsRedeemed > 0 || (pointsEarned && pointsEarned > 0)) {
+            await queryRunner.manager.update(
+              CustomerEntity,
+              { id: resolvedCustomerId },
+              { updatedAt: new Date() },
+            );
+          }
         }
 
         await queryRunner.commitTransaction();
@@ -696,6 +704,101 @@ export class SyncService {
       { terminalId },
       { lastSyncAt: syncedAt },
     );
+  }
+
+  /**
+   * Loyalty customers for this store. Every register downloads the same list,
+   * so a name saved on one terminal can be found on the others.
+   * A matching count and no edits returns nothing to apply.
+   */
+  async getCustomerDirectory(
+    input: { since?: string; count?: string },
+    user?: { organizationId?: string | null },
+  ) {
+    const asOf = new Date().toISOString();
+    if (!user?.organizationId) {
+      return {
+        customers: [],
+        complete: false,
+        unchanged: false,
+        total: 0,
+        asOf,
+      };
+    }
+
+    const orgId = user.organizationId;
+    const total = await this.customerRepository.count({
+      where: { organizationId: orgId },
+    });
+    const since = parseOptionalDate(input.since);
+    const localCount = parseOptionalCount(input.count);
+    const scope = () =>
+      this.customerRepository
+        .createQueryBuilder('customer')
+        .select([
+          'customer.id',
+          'customer.organizationId',
+          'customer.name',
+          'customer.phone',
+          'customer.totalPoints',
+          'customer.totalSpent',
+        ])
+        .where('customer.organizationId = :orgId', { orgId });
+
+    if (since && localCount === total) {
+      const changed = await this.customerRepository
+        .createQueryBuilder('customer')
+        .where('customer.organizationId = :orgId', { orgId })
+        .andWhere('customer.updatedAt > :since', { since })
+        .getCount();
+      if (changed === 0) {
+        return {
+          customers: [],
+          complete: true,
+          unchanged: true,
+          total,
+          asOf,
+        };
+      }
+      const rows = await scope()
+        .andWhere('customer.updatedAt > :since', { since })
+        .orderBy('customer.name', 'ASC')
+        .getMany();
+      return {
+        customers: rows.map((row) => this.toCustomerSync(row)),
+        complete: false,
+        unchanged: false,
+        total,
+        asOf,
+      };
+    }
+
+    const rows = await scope().orderBy('customer.name', 'ASC').getMany();
+    return {
+      customers: rows.map((row) => this.toCustomerSync(row)),
+      complete: true,
+      unchanged: false,
+      total,
+      asOf,
+    };
+  }
+
+  private toCustomerSync(row: {
+    id: string;
+    organizationId: string;
+    name: string;
+    phone: string;
+    totalPoints: number;
+    totalSpent: unknown;
+  }) {
+    return {
+      id: row.id,
+      organizationId: row.organizationId,
+      name: row.name,
+      phone: row.phone,
+      totalPoints: Number(row.totalPoints) || 0,
+      totalSpent: Number(row.totalSpent) || 0,
+    };
   }
 
   /**

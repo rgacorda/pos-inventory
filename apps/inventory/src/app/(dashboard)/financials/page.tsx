@@ -3,11 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
-import {
-  BelowCostCard,
-  type BelowCostLine,
-  type LossOrder,
-} from "@/components/below-cost-lines";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -109,8 +104,6 @@ interface ProfitLossData {
     grossMargin: number;
     netMargin: number;
   };
-  belowCost?: BelowCostLine[];
-  lossOrders?: LossOrder[];
   trend?: {
     bucket: "day" | "month";
     points: Array<{
@@ -678,12 +671,6 @@ export default function FinancialsPage() {
               </CardContent>
             </Card>
           </div>
-
-          <BelowCostCard
-            lines={data.belowCost ?? []}
-            orders={data.lossOrders ?? []}
-            periodLabel="in this period"
-          />
 
           <Card>
             <CardHeader>

@@ -1357,8 +1357,6 @@ export class OrdersService {
     const cashierSql = cashierId
       ? `AND o."cashierId" = $${params.push(cashierId)}`
       : '';
-    const storedAsTz = `$${params.push(this.getReportTimezones().storedAsTz)}`;
-    const exchangedAt = exchangedAtNaiveSql(storedAsTz);
     const [soldRow] = await this.dataSource.query(
       `
       SELECT COALESCE(SUM(i."quantity" * COALESCE(i."unitCost", 0)), 0) AS total
@@ -1373,6 +1371,9 @@ export class OrdersService {
       `,
       params,
     );
+    const returnParams = [...params];
+    const storedAsTz = `$${returnParams.push(this.getReportTimezones().storedAsTz)}`;
+    const exchangedAt = exchangedAtNaiveSql(storedAsTz);
     const [returnedRow] = await this.dataSource.query(
       `
       SELECT COALESCE(SUM(
@@ -1393,7 +1394,7 @@ export class OrdersService {
         ${orgSql}
         ${cashierSql}
       `,
-      params,
+      returnParams,
     );
     return roundMoney(
       roundMoney(soldRow?.total) - roundMoney(returnedRow?.total),

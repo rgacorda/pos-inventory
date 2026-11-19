@@ -98,12 +98,17 @@ export class CustomersService {
     organizationId: string,
     limit = 20,
   ): Promise<CustomerEntity[]> {
+    if (!organizationId || !q.trim()) return [];
+    const escaped = q.toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`);
     return this.customersRepository
       .createQueryBuilder('c')
-      .where('c."organizationId" = :orgId', { orgId: organizationId })
-      .andWhere('LOWER(c.name) LIKE :q', { q: `%${q.toLowerCase()}%` })
+      .where('c.organizationId = :orgId', { orgId: organizationId })
+      .andWhere(
+        "(LOWER(c.name) LIKE :q ESCAPE '\\' OR c.phone LIKE :q ESCAPE '\\')",
+        { q: `%${escaped}%` },
+      )
       .orderBy('c.name', 'ASC')
-      .limit(limit)
+      .take(limit)
       .getMany();
   }
 

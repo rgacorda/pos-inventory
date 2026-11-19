@@ -20,7 +20,6 @@ import {
   IconBuildingStore,
   IconStar,
   IconClipboardList,
-  IconArchive,
   IconListCheck,
 } from "@tabler/icons-react";
 
@@ -132,16 +131,10 @@ const data = {
           requiredRole: "ADMIN", // Only visible to ADMIN (for their own org)
         },
         {
-          title: "Edited",
-          url: "/edits",
+          title: "Review",
+          url: "/review",
           icon: IconListCheck,
-          requiredRole: "ADMIN",
-        },
-        {
-          title: "Archive",
-          url: "/archive",
-          icon: IconArchive,
-          requiredRole: "ADMIN",
+          excludedRoles: ["MANAGER"],
         },
         {
           title: "Terminals",

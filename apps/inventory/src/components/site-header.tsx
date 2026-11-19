@@ -11,6 +11,7 @@ const routeTitles: { [key: string]: string } = {
   "/variance": "Variance Inventory",
   "/users": "Users",
   "/orders": "Orders",
+  "/review": "Review",
   "/reports": "Reports",
   "/deliveries": "Deliveries",
   "/expenses": "Expenses",

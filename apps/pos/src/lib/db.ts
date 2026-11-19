@@ -391,6 +391,35 @@ export const dbHelpers = {
     return metadata ? new Date(metadata.value) : null;
   },
 
+  async getCustomersAsOf(): Promise<string | null> {
+    const metadata = await db.syncMetadata
+      .where("key")
+      .equals("customersAsOf")
+      .first();
+
+    return metadata?.value ?? null;
+  },
+
+  async setCustomersAsOf(asOf: string) {
+    const existing = await db.syncMetadata
+      .where("key")
+      .equals("customersAsOf")
+      .first();
+
+    if (existing) {
+      await db.syncMetadata.update(existing.id!, {
+        value: asOf,
+        updatedAt: new Date(),
+      });
+    } else {
+      await db.syncMetadata.add({
+        key: "customersAsOf",
+        value: asOf,
+        updatedAt: new Date(),
+      });
+    }
+  },
+
   // Server timestamp of the last complete product-catalog download.
   async getCatalogAsOf(): Promise<string | null> {
     const metadata = await db.syncMetadata
@@ -620,7 +649,7 @@ export const dbHelpers = {
     return db.customers.get(id);
   },
 
-  // Search cached customers by name (case-insensitive substring)
+  // Search cached customers by name or phone (case-insensitive substring)
   async searchCachedCustomersByName(
     q: string,
     limit = 20,
@@ -628,7 +657,11 @@ export const dbHelpers = {
     const lower = q.toLowerCase();
     const all = await db.customers.toArray();
     return all
-      .filter((c) => c.name.toLowerCase().includes(lower))
+      .filter(
+        (c) =>
+          c.name.toLowerCase().includes(lower) ||
+          (c.phone ?? "").toLowerCase().includes(lower),
+      )
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, limit);
   },

@@ -189,6 +189,30 @@ class APIClient {
     return response.data;
   }
 
+  async getCustomerDirectory(params: {
+    since?: string;
+    count?: number;
+  }): Promise<{
+    customers: Array<{
+      id: string;
+      organizationId: string;
+      name: string;
+      phone: string;
+      totalPoints: number;
+      totalSpent: number;
+    }>;
+    complete: boolean;
+    unchanged?: boolean;
+    total: number;
+    asOf: string;
+  }> {
+    const response = await this.client.get("/pos/sync/customers", {
+      params,
+      timeout: 30000,
+    });
+    return response.data;
+  }
+
   async searchCustomersByName(q: string): Promise<any[]> {
     const response = await this.client.get(`/customers/search`, {
       params: { q },
@@ -320,6 +344,7 @@ export class SyncService {
       const terminalId = await dbHelpers.getTerminalId();
       if (!terminalId) return;
       await this.syncProductCatalog(terminalId);
+      await this.syncCustomerDirectory();
     } catch (error) {
       console.error("Product catalog sync failed:", error);
     } finally {
@@ -655,6 +680,64 @@ export class SyncService {
 
     if (lastSyncedAt) {
       await dbHelpers.updateLastSyncTime(lastSyncedAt);
+    }
+  }
+
+  /**
+   * Copies this store's loyalty customers onto the register. A customer
+   * saved on one terminal is then found by name on the others, including
+   * when the live name search request fails.
+   */
+  private async syncCustomerDirectory() {
+    try {
+      const since = await dbHelpers.getCustomersAsOf();
+      const count = await db.customers.count();
+      const page = await apiClient.getCustomerDirectory({
+        since: since || undefined,
+        count,
+      });
+
+      if (!page.complete && !page.unchanged && (page.customers ?? []).length === 0) {
+        return;
+      }
+
+      if (page.unchanged) {
+        if (page.asOf) await dbHelpers.setCustomersAsOf(page.asOf);
+        return;
+      }
+
+      const now = new Date();
+      const customers = (page.customers ?? [])
+        .filter((customer) => customer?.id)
+        .map((customer) => ({
+          id: customer.id,
+          organizationId: customer.organizationId,
+          name: customer.name,
+          phone: customer.phone,
+          totalPoints: Number(customer.totalPoints) || 0,
+          totalSpent: Number(customer.totalSpent) || 0,
+          cachedAt: now,
+        }));
+
+      if (page.complete) {
+        await db.transaction("rw", db.customers, async () => {
+          if (customers.length > 0) await db.customers.bulkPut(customers);
+          const seen = new Set(customers.map((customer) => customer.id));
+          const localIds = await db.customers.toCollection().primaryKeys();
+          const stale = localIds.filter((id) => !seen.has(String(id)));
+          if (stale.length > 0) {
+            await db.customers.bulkDelete(stale as string[]);
+          }
+        });
+        console.log(`Loyalty customers synced (${customers.length})`);
+      } else if (customers.length > 0) {
+        await db.customers.bulkPut(customers);
+        console.log(`Loyalty customers updated (${customers.length})`);
+      }
+
+      if (page.asOf) await dbHelpers.setCustomersAsOf(page.asOf);
+    } catch (error) {
+      console.error("Failed to sync loyalty customers:", error);
     }
   }
 

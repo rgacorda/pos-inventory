@@ -34,6 +34,18 @@ export class SyncController {
     );
   }
 
+  @Get('customers')
+  async customers(
+    @Query('since') since?: string,
+    @Query('count') count?: string,
+    @CurrentUser() user?: any,
+  ) {
+    return this.syncService.getCustomerDirectory(
+      { since: firstQuery(since), count: firstQuery(count) },
+      user,
+    );
+  }
+
   @Post()
   @HttpCode(HttpStatus.OK)
   async sync(

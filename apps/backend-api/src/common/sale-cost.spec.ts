@@ -53,6 +53,7 @@ describe('sale unit cost', () => {
     expect(FROZEN_RETURN_UNIT_COST_SQL).not.toContain('p."cost"');
     expect(exchangedAtNaiveSql('$1')).toContain('timestamp with time zone');
     expect(exchangedAtNaiveSql('$1')).toContain('AT TIME ZONE $1');
+    expect(exchangedAtNaiveSql('$1')).toContain('::timestamp');
   });
 
   it('copies the original sale cost onto each returned line', () => {
