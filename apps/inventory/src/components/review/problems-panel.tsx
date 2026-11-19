@@ -150,7 +150,11 @@ export function ProblemsPanel() {
         <p className="text-sm text-muted-foreground">Loading problems…</p>
       ) : (
         <>
-          <ProductActionChecklist lines={lines} />
+          <ProductActionChecklist
+            lines={lines}
+            products={products}
+            productsReady={productsReady}
+          />
           <BelowCostCard
             lines={lines}
             orders={orders}

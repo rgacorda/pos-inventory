@@ -384,8 +384,38 @@ function readActionChecks(): Record<string, true> {
   }
 }
 
+function catalogMatchKey(sku?: string | null, name?: string | null) {
+  return (sku || name || "").trim().toLowerCase();
+}
+
+/**
+ * True when the current catalog price is no longer below cost.
+ * Null when this sale cannot be matched to a product yet.
+ */
+function catalogPriceCorrected(
+  action: ProductAction,
+  products: CatalogProductPrice[],
+  productsReady: boolean,
+): boolean | null {
+  if (!productsReady) return null;
+  const key = catalogMatchKey(action.sku, action.name);
+  const matches = products.filter(
+    (product) => catalogMatchKey(product.sku, product.name) === key,
+  );
+  if (matches.length === 0) return null;
+  return matches.every((product) => catalogPricingIssues(product).length === 0);
+}
+
 /** Products sold below the cost saved on the sale, with the change to make. */
-export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
+export function ProductActionChecklist({
+  lines,
+  products = [],
+  productsReady = false,
+}: {
+  lines: BelowCostLine[];
+  products?: CatalogProductPrice[];
+  productsReady?: boolean;
+}) {
   const actions = useMemo(() => productActions(lines), [lines]);
   const [checked, setChecked] = useState<Record<string, true>>({});
 
@@ -393,13 +423,21 @@ export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
     setChecked(readActionChecks());
   }, []);
 
+  const statusOf = (action: ProductAction) =>
+    catalogPriceCorrected(action, products, productsReady);
+
   const ordered = [...actions].sort((a, b) => {
-    const aDone = checked[a.key] ? 1 : 0;
-    const bDone = checked[b.key] ? 1 : 0;
+    const aDone = statusOf(a) === true || (statusOf(a) == null && checked[a.key]) ? 1 : 0;
+    const bDone = statusOf(b) === true || (statusOf(b) == null && checked[b.key]) ? 1 : 0;
     if (aDone !== bDone) return aDone - bDone;
     return b.extraCost - a.extraCost;
   });
-  const openCount = actions.filter((action) => !checked[action.key]).length;
+  const openCount = actions.filter((action) => {
+    const status = statusOf(action);
+    if (status === true) return false;
+    if (status === false) return true;
+    return !checked[action.key];
+  }).length;
 
   function toggle(key: string, value: boolean) {
     setChecked((current) => {
@@ -418,13 +456,15 @@ export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
         <CardDescription>
           {actions.length === 0
             ? "No product in this period was sold below its saved cost."
-            : `${formatCount(openCount)} of ${formatCount(actions.length)} still need a price or cost change. Check one off after it is corrected. The check stays on this browser.`}
+            : `${formatCount(openCount)} of ${formatCount(actions.length)} still need a price or cost change. Saving a price that is no longer below cost checks the product here.`}
         </CardDescription>
       </CardHeader>
       {ordered.length > 0 ? (
         <CardContent className="space-y-3">
           {ordered.map((action) => {
-            const done = Boolean(checked[action.key]);
+            const catalogStatus = statusOf(action);
+            const done = catalogStatus === true || (catalogStatus == null && Boolean(checked[action.key]));
+            const followsPrice = catalogStatus != null;
             return (
               <label
                 key={action.key}
@@ -432,9 +472,16 @@ export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
               >
                 <Checkbox
                   checked={done}
-                  onCheckedChange={(value) => toggle(action.key, value === true)}
+                  disabled={followsPrice}
+                  onCheckedChange={(value) => {
+                    if (!followsPrice) toggle(action.key, value === true);
+                  }}
                   className="mt-0.5"
-                  aria-label={`Mark ${action.name} as done`}
+                  aria-label={
+                    followsPrice
+                      ? `${action.name} follows its current price`
+                      : `Mark ${action.name} as done`
+                  }
                 />
                 <span className="min-w-0">
                   <span className={`block font-medium ${done ? "line-through" : ""}`}>
@@ -446,7 +493,11 @@ export function ProductActionChecklist({ lines }: { lines: BelowCostLine[] }) {
                     {" · "}
                     extra cost {formatCurrency(action.extraCost)}
                   </span>
-                  <span className="mt-1 block text-sm">{action.action}</span>
+                  <span className="mt-1 block text-sm">
+                    {catalogStatus === true
+                      ? "Current price is no longer below cost. The sales in this period already happened."
+                      : action.action}
+                  </span>
                 </span>
               </label>
             );
