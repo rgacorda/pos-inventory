@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { formatStockQuantity, isUnlimitedStock, stockSortValue } from "@pos/shared-utils";
+import {
+  formatStockQuantity,
+  isUnlimitedStock,
+  RECENT_PURCHASE_WINDOW,
+  stockSortValue,
+} from "@pos/shared-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -106,6 +111,16 @@ interface SupplierProduct {
 
 type QuantityType = "UNIT" | "PACK" | "HALF_PACK";
 
+interface PurchaseAverage {
+  productId: string;
+  averageQuantity: number;
+  deliveryCount: number;
+  lastQuantity: number;
+  lastDeliveryDate: string;
+  suggestedQuantity: number;
+  suggestedQuantityType: QuantityType;
+}
+
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,6 +134,9 @@ export default function SuppliersPage() {
   const [isProductsDialogOpen, setIsProductsDialogOpen] = useState(false);
   const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
+  const [purchaseAverages, setPurchaseAverages] = useState<
+    Record<string, PurchaseAverage>
+  >({});
   const [loadingSupplierProducts, setLoadingSupplierProducts] = useState(false);
   const [isSelectingForDelivery, setIsSelectingForDelivery] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
@@ -255,6 +273,17 @@ export default function SuppliersPage() {
   const getDefaultQuantityType = (product: SupplierProduct): QuantityType =>
     product.packQuantity ? "PACK" : "UNIT";
 
+  const orderDefaults = (product: SupplierProduct) => {
+    const average = purchaseAverages[product.id];
+    if (average && average.suggestedQuantity > 0) {
+      return {
+        quantity: String(average.suggestedQuantity),
+        quantityType: average.suggestedQuantityType,
+      };
+    }
+    return { quantity: "1", quantityType: getDefaultQuantityType(product) };
+  };
+
   const getUnitMultiplier = (type: QuantityType, product: SupplierProduct) => {
     if (type === "PACK") return product.packQuantity || 1;
     if (type === "HALF_PACK") return product.halfPackQuantity || 1;
@@ -262,11 +291,14 @@ export default function SuppliersPage() {
   };
 
   const ensureQuantityDefaults = (product: SupplierProduct) => {
+    const defaults = orderDefaults(product);
     setProductQuantities((prev) =>
-      prev[product.id] ? prev : { ...prev, [product.id]: "1" },
+      prev[product.id] ? prev : { ...prev, [product.id]: defaults.quantity },
     );
     setProductQuantityTypes((prev) =>
-      prev[product.id] ? prev : { ...prev, [product.id]: getDefaultQuantityType(product) },
+      prev[product.id]
+        ? prev
+        : { ...prev, [product.id]: defaults.quantityType },
     );
   };
 
@@ -274,16 +306,33 @@ export default function SuppliersPage() {
     setProductsSupplier(supplier);
     setIsProductsDialogOpen(true);
     resetDeliverySelection();
+    setSupplierProducts([]);
+    setPurchaseAverages({});
     setLoadingSupplierProducts(true);
     try {
-      const data = await apiClient.getProducts({ supplierId: supplier.id });
+      const averagesPromise = apiClient
+        .getSupplierPurchaseAverages(supplier.id)
+        .catch((error) => {
+          showErrorFromException(error, "Failed to load purchase averages");
+          return [] as PurchaseAverage[];
+        });
+      const [data, averages] = await Promise.all([
+        apiClient.getProducts({ supplierId: supplier.id }),
+        averagesPromise,
+      ]);
       const sorted = [...data].sort(
         (a: SupplierProduct, b: SupplierProduct) => stockSortValue(a) - stockSortValue(b)
       );
+      const averageByProduct: Record<string, PurchaseAverage> = {};
+      for (const average of averages as PurchaseAverage[]) {
+        averageByProduct[average.productId] = average;
+      }
       setSupplierProducts(sorted);
+      setPurchaseAverages(averageByProduct);
     } catch (error) {
       showErrorFromException(error, ERROR_MESSAGES.LOAD_FAILED("products"));
       setSupplierProducts([]);
+      setPurchaseAverages({});
     } finally {
       setLoadingSupplierProducts(false);
     }
@@ -313,14 +362,14 @@ export default function SuppliersPage() {
       setProductQuantities((prev) => {
         const next = { ...prev };
         for (const product of supplierProducts) {
-          if (!next[product.id]) next[product.id] = "1";
+          if (!next[product.id]) next[product.id] = orderDefaults(product).quantity;
         }
         return next;
       });
       setProductQuantityTypes((prev) => {
         const next = { ...prev };
         for (const product of supplierProducts) {
-          if (!next[product.id]) next[product.id] = getDefaultQuantityType(product);
+          if (!next[product.id]) next[product.id] = orderDefaults(product).quantityType;
         }
         return next;
       });
@@ -497,6 +546,23 @@ export default function SuppliersPage() {
       month: "short",
       day: "numeric",
     });
+
+  const formatAverage = (value: number) => {
+    const rounded = Math.round(Number(value) * 100) / 100;
+    if (!Number.isFinite(rounded)) return "0";
+    return rounded.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+  };
+
+  const suggestionLabel = (average: PurchaseAverage) => {
+    const count = average.suggestedQuantity;
+    if (average.suggestedQuantityType === "PACK") {
+      return `Suggest ${count} pack${count === 1 ? "" : "s"}`;
+    }
+    if (average.suggestedQuantityType === "HALF_PACK") {
+      return `Suggest ${count} half pack${count === 1 ? "" : "s"}`;
+    }
+    return `Suggest ${count} unit${count === 1 ? "" : "s"}`;
+  };
 
   // Filter suppliers by search query
   const filteredSuppliers = suppliers.filter((supplier) => {
@@ -906,13 +972,13 @@ export default function SuppliersPage() {
           if (!open) resetDeliverySelection();
         }}
       >
-        <DialogContent className="!max-w-5xl max-h-[90vh] !overflow-hidden">
+        <DialogContent className="!max-w-6xl max-h-[90vh] !overflow-hidden">
           <DialogHeader className="shrink-0">
             <DialogTitle className="text-xl">Products from {productsSupplier?.name}</DialogTitle>
             <DialogDescription>
               {isSelectingForDelivery
-                ? "Tick products and enter quantities in units or packs. Stock is not updated until the delivery is received."
-                : "Sorted by stock quantity, lowest first"}
+                ? "Tick products and enter quantities. Suggested amounts come from the recent average. Stock is not updated until the delivery is received."
+                : `Sorted by stock, lowest first. Avg purchase is the mean of the last ${RECENT_PURCHASE_WINDOW} received deliveries from this supplier. Products stay with their latest supplier.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -972,6 +1038,7 @@ export default function SuppliersPage() {
                       <TableHead className="text-right text-base py-3">Price</TableHead>
                       <TableHead className="text-right text-base py-3">Stock Quantity</TableHead>
                       <TableHead className="text-right text-base py-3">Packs Sellable</TableHead>
+                      <TableHead className="text-right text-base py-3">Avg Purchase</TableHead>
                       {isSelectingForDelivery && (
                         <TableHead className="text-right text-base py-3 w-56">
                           Quantity
@@ -990,9 +1057,21 @@ export default function SuppliersPage() {
                         : product.packQuantity
                           ? Math.floor((Number(product.stockQuantity) || 0) / Number(product.packQuantity))
                           : null;
+                      const average = purchaseAverages[product.id];
+                      const packSize = Number(product.packQuantity);
+                      const hasPack = Number.isFinite(packSize) && packSize > 0;
+                      const averagePacks =
+                        average && hasPack ? average.averageQuantity / packSize : null;
+                      const lastPacks =
+                        average && hasPack ? average.lastQuantity / packSize : null;
+                      const packText = (packs: number) => {
+                        const formatted = formatAverage(packs);
+                        return `${formatted} pack${formatted === "1" ? "" : "s"}`;
+                      };
                       const isSelected = selectedProductIds.includes(product.id);
+                      const defaults = orderDefaults(product);
                       const quantityType =
-                        productQuantityTypes[product.id] || getDefaultQuantityType(product);
+                        productQuantityTypes[product.id] || defaults.quantityType;
                       const enteredQuantity = parseFloat(productQuantities[product.id] || "0") || 0;
                       const unitMultiplier = getUnitMultiplier(quantityType, product);
                       const totalUnits = enteredQuantity * unitMultiplier;
@@ -1048,6 +1127,32 @@ export default function SuppliersPage() {
                               </span>
                             ) : (
                               <span className="text-gray-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right py-3">
+                            {average ? (
+                              <div
+                                title={
+                                  lastPacks != null
+                                    ? `Last received ${packText(lastPacks)} (${formatAverage(average.lastQuantity)} units) on ${formatDate(average.lastDeliveryDate)}`
+                                    : `Last received ${formatAverage(average.lastQuantity)} units on ${formatDate(average.lastDeliveryDate)}`
+                                }
+                              >
+                                <div className="font-medium">
+                                  {averagePacks != null
+                                    ? packText(averagePacks)
+                                    : `${formatAverage(average.averageQuantity)} units`}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {averagePacks != null
+                                    ? `${formatAverage(average.averageQuantity)} units · `
+                                    : ""}
+                                  {suggestionLabel(average)} · {average.deliveryCount}{" "}
+                                  {average.deliveryCount === 1 ? "delivery" : "deliveries"}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
                             )}
                           </TableCell>
                           {isSelectingForDelivery && (

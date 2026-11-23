@@ -13,3 +13,6 @@ export * from "./formatting";
 
 // Stock utilities
 export * from "./stock";
+
+// Supplier purchase averages
+export * from "./supplier-purchase";

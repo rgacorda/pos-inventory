@@ -28,6 +28,15 @@ export class SuppliersController {
     return this.suppliersService.findAll(req.user.organizationId);
   }
 
+  @Get(':id/purchase-averages')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async getPurchaseAverages(@Request() req, @Param('id') id: string) {
+    return this.suppliersService.getPurchaseAverages(
+      id,
+      req.user.organizationId,
+    );
+  }
+
   @Get(':id/incentives')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   async getIncentives(@Request() req, @Param('id') id: string) {

@@ -495,6 +495,13 @@ class APIClient {
     return response.data;
   }
 
+  async getSupplierPurchaseAverages(id: string) {
+    const response = await this.client.get(
+      `/suppliers/${id}/purchase-averages`,
+    );
+    return response.data;
+  }
+
   // Financials API
   async getProfitLoss(startDate: string, endDate: string) {
     const response = await this.client.get("/financials/profit-loss", {
