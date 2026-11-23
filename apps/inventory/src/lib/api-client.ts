@@ -567,6 +567,19 @@ class APIClient {
   }
 
   // Variance inventory
+  async getVarianceWindow() {
+    const response = await this.client.get("/inventory-variances/window");
+    return response.data;
+  }
+
+  async updateVarianceWindow(data: {
+    startDate: string | null;
+    endDate: string | null;
+  }) {
+    const response = await this.client.put("/inventory-variances/window", data);
+    return response.data;
+  }
+
   async getVarianceWorksheet() {
     const response = await this.client.get("/inventory-variances");
     return response.data;

@@ -36,6 +36,7 @@ import {
   showErrorToast,
 } from "@/lib/toast-utils";
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -88,6 +89,23 @@ const FILTERS: { id: VarianceFilter; label: string }[] = [
 ];
 
 const SAVE_DELAY_MS = 400;
+
+interface VarianceWindow {
+  startDate: string | null;
+  endDate: string | null;
+  today: string;
+  open: boolean;
+}
+
+function formatWindowDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 interface CountDraft {
   packs: string;
@@ -194,6 +212,10 @@ export default function VarianceInventoryPage() {
   const chainRef = useRef<Record<string, Promise<void>>>({});
   const savedValuesRef = useRef<Record<string, number | null>>({});
   const [isAdmin, setIsAdmin] = useState(false);
+  const [countingWindow, setCountingWindow] = useState<VarianceWindow | null>(null);
+  const [draftStart, setDraftStart] = useState("");
+  const [draftEnd, setDraftEnd] = useState("");
+  const [savingWindow, setSavingWindow] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<VarianceFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -216,8 +238,12 @@ export default function VarianceInventoryPage() {
     }
   }, []);
 
+  const countingOpen = countingWindow?.open === true;
+  const countingLocked = !isAdmin && !countingOpen;
+
   useEffect(() => {
     loadWorksheet();
+    loadWindow();
     return () => {
       Object.values(timersRef.current).forEach(clearTimeout);
     };
@@ -240,6 +266,67 @@ export default function VarianceInventoryPage() {
       next[row.productId] = row.count ? row.count.countedQuantity : null;
     }
     savedValuesRef.current = next;
+  }
+
+  function applyWindow(data: VarianceWindow) {
+    setCountingWindow(data);
+    setDraftStart(data.startDate ?? "");
+    setDraftEnd(data.endDate ?? "");
+  }
+
+  async function loadWindow() {
+    try {
+      const data: VarianceWindow = await apiClient.getVarianceWindow();
+      applyWindow(data);
+    } catch (error) {
+      showErrorFromException(error, "Failed to load the counting window");
+    }
+  }
+
+  async function saveWindow(clear = false) {
+    const startDate = clear ? null : draftStart || null;
+    const endDate = clear ? null : draftEnd || null;
+    if (!clear && (!startDate || !endDate)) {
+      showErrorToast("Choose both a start date and an end date");
+      return;
+    }
+    if (!clear && startDate && endDate && startDate > endDate) {
+      showErrorToast("Start date must be on or before the end date");
+      return;
+    }
+    try {
+      setSavingWindow(true);
+      const data: VarianceWindow = await apiClient.updateVarianceWindow({
+        startDate,
+        endDate,
+      });
+      applyWindow(data);
+      showSuccessToast(clear ? "Variance counting is closed" : "Counting window saved");
+    } catch (error) {
+      showErrorFromException(error, "Failed to save the counting window");
+    } finally {
+      setSavingWindow(false);
+    }
+  }
+
+  function windowStatus() {
+    const start = countingWindow?.startDate;
+    const end = countingWindow?.endDate;
+    if (!start || !end) {
+      return isAdmin
+        ? "Counting is closed until you set a start and end date."
+        : "Counting is closed. An admin has not opened a date range.";
+    }
+    const range = `${formatWindowDate(start)} through ${formatWindowDate(end)}`;
+    if (countingOpen) {
+      return isAdmin
+        ? `Open today. Employees can update counts through ${formatWindowDate(end)}.`
+        : `You can update counts through ${formatWindowDate(end)}.`;
+    }
+    if (countingWindow?.today && countingWindow.today < start) {
+      return `Closed. Counting opens ${range}.`;
+    }
+    return `Closed. The allowed days were ${range}.`;
   }
 
   async function loadWorksheet(options?: { quiet?: boolean; keepDrafts?: boolean }) {
@@ -480,6 +567,7 @@ export default function VarianceInventoryPage() {
   }
 
   function updateDraft(productId: string, part: keyof CountDraft, value: string) {
+    if (countingLocked) return;
     const current = draftsRef.current[productId] ?? emptyDraft();
     draftsRef.current = {
       ...draftsRef.current,
@@ -490,7 +578,7 @@ export default function VarianceInventoryPage() {
   }
 
   async function handleClear(row: VarianceRow) {
-    if (!row.count) return;
+    if (!row.count || countingLocked) return;
     const existing = timersRef.current[row.productId];
     if (existing) clearTimeout(existing);
     delete timersRef.current[row.productId];
@@ -547,6 +635,7 @@ export default function VarianceInventoryPage() {
           await apiClient.saveVarianceCounts({ items });
         }
         const check = await apiClient.checkVarianceCounts();
+        await loadWorksheet({ quiet: true, keepDrafts: true });
         if (check.errors?.length) {
           setApplyIssues(check.errors);
           setReadyToUpdate(check.readyCount ?? 0);
@@ -633,8 +722,11 @@ export default function VarianceInventoryPage() {
                 pattern="[0-9]*"
                 enterKeyHint="done"
                 value={draft[field.key]}
+                disabled={countingLocked}
                 onChange={(e) => updateDraft(row.productId, field.key, e.target.value)}
-                onBlur={() => queueCountSave(row.productId, 0)}
+                onBlur={() => {
+                  if (!countingLocked) queueCountSave(row.productId, 0);
+                }}
                 className={
                   prominent
                     ? fields.length > 1
@@ -737,13 +829,86 @@ export default function VarianceInventoryPage() {
     <div className="px-4 lg:px-6 space-y-6">
       <Card>
         <CardHeader className="px-4 md:px-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>Counting window</CardTitle>
+              <CardDescription>
+                {isAdmin
+                  ? "Choose the days employees can save variance counts. Outside that range, counting stays closed."
+                  : "Variance counts can be saved only during the days an admin opens."}
+              </CardDescription>
+            </div>
+            <Badge variant={countingOpen ? "default" : "secondary"}>
+              {countingOpen ? "Open" : "Closed"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 px-4 md:px-6">
+          <p className="text-sm">{windowStatus()}</p>
+          {isAdmin && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="variance-window-start">Start date</Label>
+                <Input
+                  id="variance-window-start"
+                  type="date"
+                  value={draftStart}
+                  onChange={(event) => setDraftStart(event.target.value)}
+                  className="w-full sm:w-44"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="variance-window-end">End date</Label>
+                <Input
+                  id="variance-window-end"
+                  type="date"
+                  value={draftEnd}
+                  min={draftStart || undefined}
+                  onChange={(event) => setDraftEnd(event.target.value)}
+                  className="w-full sm:w-44"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => saveWindow(false)}
+                  disabled={savingWindow}
+                >
+                  {savingWindow ? "Saving..." : "Save range"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => saveWindow(true)}
+                  disabled={
+                    savingWindow ||
+                    (!countingWindow?.startDate && !countingWindow?.endDate)
+                  }
+                >
+                  Close counting
+                </Button>
+              </div>
+            </div>
+          )}
+          {isAdmin && (
+            <p className="text-xs text-muted-foreground">
+              Admins can still enter counts outside this window. Managers and cashiers cannot.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="px-4 md:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
             <div>
               <CardTitle>Variance Inventory</CardTitle>
               <CardDescription>
-                {isAdmin
-                  ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference. Products set to unlimited stock are not listed."
-                  : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock. Products set to unlimited stock are not listed."}
+                {countingLocked
+                  ? "Counting is closed, so quantities cannot be changed. Products set to unlimited stock are not listed."
+                  : isAdmin
+                    ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference. Products set to unlimited stock are not listed."
+                    : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock. Products set to unlimited stock are not listed."}
               </CardDescription>
             </div>
             {isAdmin && (
@@ -896,7 +1061,7 @@ export default function VarianceInventoryPage() {
                             variant="outline"
                             className="h-11 flex-1"
                             onClick={() => handleClear(row)}
-                            disabled={applying}
+                            disabled={applying || countingLocked}
                           >
                             Clear
                           </Button>
@@ -982,7 +1147,7 @@ export default function VarianceInventoryPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleClear(row)}
-                                disabled={applying}
+                                disabled={applying || countingLocked}
                               >
                                 Clear
                               </Button>

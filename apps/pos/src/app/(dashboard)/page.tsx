@@ -41,28 +41,14 @@ import { useCart, OrderItem } from "@/contexts/cart-context";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { OrderStatus, PaymentMethod, PaymentStatus, ProductStatus } from "@pos/shared-types";
-import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, formatStockQuantity, hasAvailableStock, pieceSurcharge, PriceBreakdown, stockSortValue, withPieceSurcharge } from "@pos/shared-utils";
+import { applyAmountDueRounding, calculateEffectivePrice, calculatePriceBreakdown, calculateTotalSoldItemCount, formatPriceBreakdownLabel, formatStockQuantity, hasAvailableStock, pieceSurcharge, stockSortValue, withPieceSurcharge } from "@pos/shared-utils";
 import { Receipt } from "@/components/receipt";
 import { ProductSearchDialog } from "@/components/product-search-dialog";
+import { SaleQuantityPicker, saleQuantityStep } from "@/components/sale-quantity";
 import {
   buildSearchIndex,
   searchIndexedProducts,
 } from "@/lib/product-search";
-
-// Formats a price breakdown into a readable label, e.g. "1 pack + 1 pc" or "2 packs + 3 pcs"
-function formatPriceBreakdownLabel(breakdown: PriceBreakdown): string | null {
-  const parts: string[] = [];
-  if (breakdown.packs > 0) {
-    parts.push(`${breakdown.packs} pack${breakdown.packs > 1 ? "s" : ""}`);
-  }
-  if (breakdown.halfPacks > 0) {
-    parts.push(`${breakdown.halfPacks} half-pack${breakdown.halfPacks > 1 ? "s" : ""}`);
-  }
-  if (breakdown.units > 0) {
-    parts.push(`${breakdown.units} pc${breakdown.units > 1 ? "s" : ""}`);
-  }
-  return parts.length > 0 ? parts.join(" + ") : null;
-}
 
 export default function Page() {
   const router = useRouter();
@@ -113,7 +99,6 @@ export default function Page() {
   const [manualItemQuantity, setManualItemQuantity] = useState<string>("1");
   const [manualItemSearch, setManualItemSearch] = useState<string>("");
   const [debouncedManualSearch, setDebouncedManualSearch] = useState("");
-  const [manualItemBarcode, setManualItemBarcode] = useState<string>("");
   const [manualItemBarcodeError, setManualItemBarcodeError] = useState<string>("");
   const [showItemCounts, setShowItemCounts] = useState(false);
   const [showVoidPinDialog, setShowVoidPinDialog] = useState(false);
@@ -160,7 +145,6 @@ export default function Page() {
 
   const cartEndRef = useRef<HTMLDivElement>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
-  const quantityInputRef = useRef<HTMLInputElement>(null);
   const manualItemNameRef = useRef<HTMLInputElement>(null);
   const manualItemBarcodeRef = useRef<HTMLInputElement>(null);
   const barcodeBufferRef = useRef<string>("");
@@ -284,10 +268,9 @@ export default function Page() {
     }
   }, [orderItems]);
 
-  // Keyboard shortcuts + rescan handling while the "Add Product" quantity dialog is open.
-  // Arrow keys adjust quantity / jump to half-box or box presets, Space/C toggle the
-  // add-on checkboxes, and scanning another barcode auto-confirms the current product
-  // before opening the dialog for the newly scanned one.
+  // Keyboard shortcuts + rescan handling while the "Add Product" dialog is open.
+  // Arrows change pieces, half-packs, and packs. Space/C toggle the add-on
+  // checkboxes. Scanning another barcode confirms this product, then opens the next.
   useEffect(() => {
     if (!showQuantityDialog || !productToAdd) return;
 
@@ -298,37 +281,22 @@ export default function Page() {
     );
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isQuantityInputFocused = e.target === quantityInputRef.current;
-
-      if (e.key === "ArrowUp") {
+      if (
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight"
+      ) {
         e.preventDefault();
-        setQuantityToAdd((prev) => String((parseInt(prev) || 0) + 1));
-        return;
-      }
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setQuantityToAdd((prev) => String(Math.max(1, (parseInt(prev) || 0) - 1)));
-        return;
-      }
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        if (productToAdd.halfPackQuantity) {
-          setQuantityToAdd(productToAdd.halfPackQuantity.toString());
-        }
-        return;
-      }
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        const packQty = productToAdd.packQuantity || 10;
-        setQuantityToAdd((prev) => {
-          const current = parseInt(prev) || 0;
-          // Already a whole number of boxes: stack another one on top so repeated
-          // presses let the cashier ring up multiple boxes (2x, 3x, ...).
-          if (current > 0 && current % packQty === 0) {
-            return String(current + packQty);
-          }
-          return String(packQty);
-        });
+        const direction =
+          e.key === "ArrowUp"
+            ? "up"
+            : e.key === "ArrowDown"
+              ? "down"
+              : e.key === "ArrowLeft"
+                ? "left"
+                : "right";
+        setQuantityToAdd((prev) => saleQuantityStep(prev, direction, productToAdd));
         return;
       }
       if (e.key === " ") {
@@ -346,17 +314,8 @@ export default function Page() {
         return;
       }
 
-      // Let manual typing/backspace/Enter in the quantity field behave normally,
-      // except Enter is routed through confirmAddToOrder for consistency.
-      if (isQuantityInputFocused) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          confirmAddToOrder();
-        }
-        return;
-      }
-
-      // Not typing into the quantity field: treat keystrokes as a barcode scan.
+      // Treat keystrokes as a barcode scan. There is no quantity text field,
+      // so a scan can confirm this item and open the next one.
       if (e.key === "Enter" && barcodeBufferRef.current.length > 0) {
         e.preventDefault();
         const barcode = barcodeBufferRef.current;
@@ -489,6 +448,7 @@ export default function Page() {
     // reports; only synthetic entries (fees with no product reference) keep
     // the placeholder id and are excluded from stock updates.
     const refProduct = manualItemRefProduct;
+    const sellByPack = manualItemPriceType === "selling" && Boolean(refProduct);
     const manualProduct: LocalProduct = {
       id: refProduct ? refProduct.id : `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: itemName,
@@ -499,6 +459,10 @@ export default function Page() {
       stockQuantity: refProduct ? refProduct.stockQuantity : 999999,
       infiniteStock: refProduct?.infiniteStock,
       barcode: refProduct?.barcode,
+      packPrice: sellByPack ? refProduct?.packPrice : undefined,
+      packQuantity: sellByPack ? refProduct?.packQuantity : undefined,
+      halfPackPrice: sellByPack ? refProduct?.halfPackPrice : undefined,
+      halfPackQuantity: sellByPack ? refProduct?.halfPackQuantity : undefined,
       status: ProductStatus.ACTIVE,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -515,7 +479,6 @@ export default function Page() {
     setManualItemRefCostPrice(null);
     setManualItemRefProduct(null);
     setManualItemQuantity("1");
-    setManualItemBarcode("");
     setManualItemBarcodeError("");
     setShowManualItemDialog(false);
 
@@ -533,7 +496,6 @@ export default function Page() {
     setManualItemRefProduct(null);
     setManualItemQuantity("1");
     setManualItemSearch("");
-    setManualItemBarcode("");
     setManualItemBarcodeError("");
     setShowManualItemDialog(true);
     setTimeout(() => manualItemBarcodeRef.current?.focus(), 100);
@@ -565,20 +527,29 @@ export default function Page() {
     setManualItemRefProduct(product);
     setManualItemPriceType("selling");
     setManualItemPrice("");
+    setManualItemQuantity("1");
     setManualItemSearch("");
-    setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
   };
 
   // Use product as price reference
   const useProductReference = (product: LocalProduct) => {
-    setManualItemName(product.name + " (Individual)");
+    setManualItemName(product.name);
     setManualItemRefSellingPrice(product.price);
     setManualItemRefCostPrice(product.cost ?? null);
     setManualItemRefProduct(product);
     setManualItemPriceType("selling");
     setManualItemPrice("");
+    setManualItemQuantity("1");
     setManualItemSearch("");
-    setTimeout(() => document.getElementById("manual-quantity-input")?.focus(), 100);
+    setManualItemBarcodeError("");
+  };
+
+  const clearManualProductLink = () => {
+    setManualItemRefProduct(null);
+    setManualItemRefSellingPrice(null);
+    setManualItemRefCostPrice(null);
+    setManualItemPriceType("custom");
+    setManualItemBarcodeError("");
   };
 
   const manualItemSearchResults = useMemo(() => {
@@ -590,6 +561,19 @@ export default function Page() {
       5,
     ).results;
   }, [debouncedManualSearch, searchIndex]);
+
+  const submitManualLookup = () => {
+    const trimmed = manualItemSearch.trim();
+    if (!trimmed) return;
+    const matched = productsByBarcode.get(trimmed);
+    if ((matched && matched.length > 0) || /^\d{4,}$/.test(trimmed)) {
+      void handleManualItemBarcodeScan(trimmed);
+      return;
+    }
+    if (manualItemSearchResults.length === 1) {
+      useProductReference(manualItemSearchResults[0]);
+    }
+  };
 
   // Handle barcode scan
   const handleBarcodeScan = (barcode: string) => {
@@ -1622,234 +1606,84 @@ export default function Page() {
           <DialogHeader className="flex-shrink-0 pr-6">
             <DialogTitle>Add Product</DialogTitle>
             <DialogDescription>
-              Use the arrow keys to adjust, or scan the next item to add this one and continue.
+              Count packs, half packs, or pieces. Scan the next item to add this one and continue.
             </DialogDescription>
           </DialogHeader>
-          {productToAdd && (
+          {productToAdd && (() => {
+            const priced = withPieceSurcharge(
+              productToAdd,
+              pieceSurcharge(productToAdd, includeConvenience, includeAddon),
+            );
+            const hasPack = Boolean(priced.packPrice && priced.packQuantity);
+            const hasHalf = Boolean(priced.halfPackPrice && priced.halfPackQuantity);
+            const hasConvenience = Boolean(
+              (productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) ||
+              (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)
+            );
+            const convenienceText = [
+              productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0
+                ? `${productToAdd.convenienceMarkupPercentage}%`
+                : "",
+              productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0
+                ? `₱${productToAdd.convenienceMarkup.toFixed(2)}`
+                : "",
+            ].filter(Boolean).join(" + ");
+            return (
             <div className="min-h-0 flex-1 overflow-y-auto space-y-3 pr-1">
-              <div className="bg-gray-50 border rounded-lg p-3">
-                <div className="font-semibold text-gray-900">
-                  {productToAdd.name}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  SKU: {productToAdd.sku}
-                </div>
-                <div className="mt-2 space-y-1">
-                  <div className="text-sm text-gray-700">
-                    Per piece: <span className="font-semibold">₱{productToAdd.price.toFixed(2)}</span>
-                  </div>
-                  {productToAdd.packPrice && productToAdd.packQuantity && (
-                    <div className="text-sm text-green-600">
-                      Pack price: <span className="font-semibold">₱{productToAdd.packPrice.toFixed(2)}</span> ({productToAdd.packQuantity} pcs)
-                    </div>
-                  )}
-                  {productToAdd.halfPackPrice && productToAdd.halfPackQuantity && (
-                    <div className="text-sm text-indigo-600">
-                      Half-pack price: <span className="font-semibold">₱{productToAdd.halfPackPrice.toFixed(2)}</span> ({productToAdd.halfPackQuantity} pcs)
-                    </div>
-                  )}
-                  {((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
-                    (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
-                    <div className="text-sm text-purple-600">
-                      Convenience markup: <span className="font-semibold">
-                        {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 
-                          ? `${productToAdd.convenienceMarkupPercentage}%` 
-                          : ''}
-                        {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 && 
-                         productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
-                          ? ' + ' : ''}
-                        {productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
-                          ? `₱${productToAdd.convenienceMarkup.toFixed(2)}` 
-                          : ''}
-                      </span>
-                    </div>
-                  )}
-                  {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
-                    <div className="text-sm text-blue-600">
-                      Refrigeration fee: <span className="font-semibold">₱{productToAdd.addonPrice.toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
-                {(() => {
-                  const qty = parseInt(quantityToAdd) || 0;
-                  const priced = withPieceSurcharge(
-                    productToAdd,
-                    pieceSurcharge(productToAdd, includeConvenience, includeAddon),
-                  );
-                  const breakdown = calculatePriceBreakdown(
-                    qty,
-                    priced.price,
-                    priced.packPrice,
-                    priced.packQuantity,
-                    priced.halfPackPrice,
-                    priced.halfPackQuantity,
-                  );
-                  const lineTotal = breakdown.total;
-                  const effectivePrice = qty > 0 ? lineTotal / qty : priced.price;
-                  const breakdownLabel = formatPriceBreakdownLabel(breakdown);
-                  
-                  return qty > 0 ? (
-                    <div className="mt-3 pt-3 border-t border-gray-300">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="text-sm text-gray-600">
-                            Effective price: ₱{effectivePrice.toFixed(2)}
-                          </div>
-                          {(breakdown.packs > 0 || breakdown.halfPacks > 0) && breakdownLabel && (
-                            <div className="text-xs text-green-600 font-medium">
-                              {breakdownLabel}
-                            </div>
-                          )}
-                          {includeConvenience && ((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) || 
-                                                   (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
-                            <div className="text-xs text-purple-600 font-medium">
-                              + Convenience markup
-                            </div>
-                          )}
-                          {includeAddon && productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
-                            <div className="text-xs text-blue-600 font-medium">
-                              + Refrigeration fee
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-gray-900">
-                            ₱{lineTotal.toFixed(2)}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Total
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
+              <div>
+                <div className="font-semibold text-gray-900">{productToAdd.name}</div>
+                <div className="text-sm text-gray-500">SKU: {productToAdd.sku}</div>
               </div>
 
-              {/* CONVENIENCE MARKUP CHECKBOX */}
-              {((productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0) ||
-                (productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0)) && (
-                <div className="flex items-start space-x-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+              {hasConvenience && (
+                <label className="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
-                    id="include-convenience"
                     checked={includeConvenience}
                     onChange={(e) => setIncludeConvenience(e.target.checked)}
-                    className="mt-1 h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                    className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                   />
-                  <label 
-                    htmlFor="include-convenience" 
-                    className="text-sm text-gray-700 cursor-pointer flex-1"
-                  >
-                    <span className="font-medium">
-                      Add Convenience Markup (
-                      {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 
-                        ? `${productToAdd.convenienceMarkupPercentage}%` 
-                        : ''}
-                      {productToAdd.convenienceMarkupPercentage && productToAdd.convenienceMarkupPercentage > 0 && 
-                       productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
-                        ? ' + ' : ''}
-                      {productToAdd.convenienceMarkup && productToAdd.convenienceMarkup > 0 
-                        ? `+₱${productToAdd.convenienceMarkup.toFixed(2)}` 
-                        : ''}
-                      )
-                    </span>
-                    <p className="text-xs text-gray-500 mt-1">
-                      For convenience store markup · press <kbd className="px-1 py-0.5 bg-white border rounded text-[10px]">C</kbd> to toggle
-                    </p>
-                  </label>
-                </div>
+                  <span className="font-medium text-gray-800">
+                    Convenience markup ({convenienceText})
+                  </span>
+                  <kbd className="ml-auto px-1.5 py-0.5 bg-white border rounded text-[10px] text-gray-500">C</kbd>
+                </label>
               )}
 
-              {/* ADD-ON CHECKBOX SECTION */}
               {productToAdd.addonPrice && productToAdd.addonPrice > 0 && (
-                <div className="flex items-start space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <label className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
-                    id="include-addon"
                     checked={includeAddon}
                     onChange={(e) => setIncludeAddon(e.target.checked)}
-                    className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <label 
-                    htmlFor="include-addon" 
-                    className="text-sm text-gray-700 cursor-pointer flex-1"
-                  >
-                    <span className="font-medium">Add Refrigeration Fee (+₱{productToAdd.addonPrice.toFixed(2)})</span>
-                    <p className="text-xs text-gray-500 mt-1">
-                      For refrigerated/chilled products · press <kbd className="px-1 py-0.5 bg-white border rounded text-[10px]">Space</kbd> to toggle
-                    </p>
-                  </label>
-                </div>
+                  <span className="font-medium text-gray-800">
+                    Refrigeration (+₱{productToAdd.addonPrice.toFixed(2)})
+                  </span>
+                  <kbd className="ml-auto px-1.5 py-0.5 bg-white border rounded text-[10px] text-gray-500">Space</kbd>
+                </label>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Quantity</label>
-                <Input
-                  ref={quantityInputRef}
-                  type="number"
-                  value={quantityToAdd}
-                  onChange={(e) => setQuantityToAdd(e.target.value)}
-                  placeholder="1"
-                  className="text-lg h-12 text-center"
-                  min="1"
-                />
-              </div>
+              <SaleQuantityPicker
+                quantity={quantityToAdd}
+                onChange={setQuantityToAdd}
+                unitPrice={priced.price}
+                packPrice={priced.packPrice}
+                packQuantity={priced.packQuantity}
+                halfPackPrice={priced.halfPackPrice}
+                halfPackQuantity={priced.halfPackQuantity}
+              />
 
-              <div className={`grid gap-2 ${productToAdd.halfPackQuantity && productToAdd.packQuantity ? "grid-cols-5" : "grid-cols-4"}`}>
-                <Button variant="outline" onClick={() => setQuantityToAdd("1")} className="h-10">1</Button>
-                <Button variant="outline" onClick={() => setQuantityToAdd("2")} className="h-10">2</Button>
-                <Button variant="outline" onClick={() => setQuantityToAdd("5")} className="h-10">5</Button>
-                {productToAdd.halfPackQuantity && productToAdd.halfPackPrice && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setQuantityToAdd(productToAdd.halfPackQuantity!.toString())}
-                    className="h-10 border-indigo-400 text-indigo-700 hover:bg-indigo-50"
-                    title={`Half-pack: ${productToAdd.halfPackQuantity} pcs`}
-                  >
-                    {productToAdd.halfPackQuantity}
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  onClick={() => setQuantityToAdd(
-                    productToAdd.packQuantity ? productToAdd.packQuantity.toString() : "10"
-                  )}
-                  className={`h-10 ${
-                    productToAdd.packQuantity && productToAdd.packPrice
-                      ? "border-green-500 text-green-700 hover:bg-green-50"
-                      : ""
-                  }`}
-                  title={productToAdd.packQuantity ? `Pack: ${productToAdd.packQuantity} pcs` : undefined}
-                >
-                  {productToAdd.packQuantity || "10"}
-                </Button>
-              </div>
-
-              {/* Keyboard shortcut legend */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-gray-500 border-t pt-3">
-                <span className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">↑</kbd>
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">↓</kbd>
-                  Qty ±1
-                </span>
-                {productToAdd.halfPackQuantity && productToAdd.halfPackPrice && (
-                  <span className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">←</kbd>
-                    Half-box ({productToAdd.halfPackQuantity})
-                  </span>
-                )}
-                <span className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded text-[10px]">→</kbd>
-                  +1 Box ({productToAdd.packQuantity || 10} each, stacks)
-                </span>
-                <span className="flex items-center gap-1 text-blue-600">
-                  <QrCode className="h-3 w-3" />
-                  Scan next item to add &amp; continue
-                </span>
-              </div>
+              <p className="text-xs text-gray-500">
+                ↑↓ pieces
+                {hasHalf ? " · ← half pack" : ""}
+                {hasPack ? " · → pack" : ""}
+                {" · Enter adds · scan continues"}
+              </p>
             </div>
-          )}
+            );
+          })()}
           <DialogFooter className="flex-shrink-0">
             <Button
               variant="outline"
@@ -2365,94 +2199,75 @@ export default function Page() {
 
       {/* Manual Item Dialog */}
       <Dialog open={showManualItemDialog} onOpenChange={setShowManualItemDialog}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-md max-h-[min(90dvh,90vh)] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Manual Item</DialogTitle>
+            <DialogTitle>Manual item</DialogTitle>
             <DialogDescription>
-              Add custom item with manual pricing for refrigeration fees, individual sales, etc.
+              Scan or search a product, or enter a fee that does not touch stock.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Barcode Input */}
+          <div className="space-y-3">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                </svg>
-                Scan Barcode to Identify Product <span className="text-red-500">*</span>
-              </label>
-              <Input
-                ref={manualItemBarcodeRef}
-                type="text"
-                value={manualItemBarcode}
-                onChange={(e) => {
-                  setManualItemBarcode(e.target.value);
-                  setManualItemBarcodeError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleManualItemBarcodeScan(manualItemBarcode);
-                  }
-                }}
-                placeholder="Scan or type barcode, then press Enter..."
-                className={`h-11 font-mono ${manualItemBarcodeError ? "border-red-400 bg-red-50 focus-visible:ring-red-400" : "border-gray-300"}`}
-              />
-              {manualItemBarcodeError && (
-                <p className="text-xs text-red-600 flex items-center gap-1">
-                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                  {manualItemBarcodeError}
-                </p>
-              )}
-              {manualItemName && !manualItemBarcodeError && manualItemBarcode && (
-                <p className="text-xs text-green-700 flex items-center gap-1 font-medium">
-                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                  Product identified: {manualItemName} (stock will be reduced)
-                </p>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* Product Price Reference Search */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-blue-700">Or Search Product for Price Reference</label>
-              <p className="text-xs text-gray-500">Selecting a product below will also reduce its stock quantity.</p>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
+                  ref={manualItemBarcodeRef}
                   type="text"
                   value={manualItemSearch}
-                  onChange={(e) => setManualItemSearch(e.target.value)}
-                  placeholder="Search products to see prices..."
-                  className="pl-9 border-blue-200 bg-blue-50"
+                  onChange={(e) => {
+                    setManualItemSearch(e.target.value);
+                    setManualItemBarcodeError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitManualLookup();
+                    }
+                  }}
+                  placeholder="Scan barcode or search name"
+                  className={`h-11 pl-9 ${manualItemBarcodeError ? "border-red-400 bg-red-50 focus-visible:ring-red-400" : ""}`}
                 />
               </div>
+              {manualItemBarcodeError && (
+                <p className="text-xs text-red-600">{manualItemBarcodeError}</p>
+              )}
+              {manualItemRefProduct && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-gray-900">
+                      {manualItemRefProduct.name}
+                    </div>
+                    <div className="text-xs text-green-700">
+                      {manualItemQuantity || "1"} pc will come off stock
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={clearManualProductLink}
+                    aria-label="Unlink product"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               {manualItemSearchResults.length > 0 && (
-                <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto">
+                <div className="max-h-40 overflow-y-auto rounded-lg border divide-y">
                   {manualItemSearchResults.map((product) => (
                     <button
                       key={product.id}
                       type="button"
                       onClick={() => useProductReference(product)}
-                      className="w-full px-3 py-2 text-left hover:bg-gray-50 flex justify-between items-center gap-2"
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{product.name}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{product.name}</div>
                         <div className="text-xs text-gray-500">{product.sku}</div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-green-600">₱{product.price.toFixed(2)}</div>
-                        {product.packPrice && product.packQuantity && (
-                          <div className="text-xs text-green-600">
-                            ₱{product.packPrice.toFixed(2)}/{product.packQuantity}pcs
-                          </div>
-                        )}
-                        {product.halfPackPrice && product.halfPackQuantity && (
-                          <div className="text-xs text-indigo-500">
-                            ₱{product.halfPackPrice.toFixed(2)}/{product.halfPackQuantity}pcs
-                          </div>
-                        )}
+                      <div className="text-right text-sm font-semibold text-gray-900">
+                        ₱{product.price.toFixed(2)}
                       </div>
                     </button>
                   ))}
@@ -2460,67 +2275,53 @@ export default function Page() {
               )}
             </div>
 
-            <Separator />
-
             <div className="space-y-2">
-              <label className="text-sm font-medium">Item Name *</label>
+              <label className="text-sm font-medium">Name</label>
               <Input
                 ref={manualItemNameRef}
                 type="text"
                 value={manualItemName}
                 onChange={(e) => setManualItemName(e.target.value)}
-                placeholder="e.g., Refrigeration Fee, Individual Item"
+                placeholder="Item or fee name"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === "Enter") {
                     e.preventDefault();
-                    document.getElementById('manual-price-input')?.focus();
+                    document.getElementById("manual-price-input")?.focus();
                   }
                 }}
               />
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setManualItemName("Refrigeration Fee")}
-                >
-                  Refrigeration Fee
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setManualItemName("Additional Item")}
-                >
-                  Additional Item
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setManualItemName("Service Fee")}
-                >
-                  Service Fee
-                </Button>
-              </div>
+              {!manualItemRefProduct && (
+                <div className="flex flex-wrap gap-2">
+                  {["Refrigeration fee", "Service fee"].map((preset) => (
+                    <Button
+                      key={preset}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setManualItemName(preset)}
+                    >
+                      {preset}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
+
             <div className="space-y-2">
-              <label className="text-sm font-medium">Price *</label>
+              <label className="text-sm font-medium">Price</label>
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setManualItemPriceType("selling")}
                   disabled={manualItemRefSellingPrice === null}
-                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-2 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     manualItemPriceType === "selling"
                       ? "border-green-500 bg-green-50 text-green-800"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Selling</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide">Selling</span>
                   <span className="font-bold">
                     {manualItemRefSellingPrice !== null ? `₱${manualItemRefSellingPrice.toFixed(2)}` : "—"}
                   </span>
@@ -2529,13 +2330,13 @@ export default function Page() {
                   type="button"
                   onClick={() => setManualItemPriceType("cost")}
                   disabled={manualItemRefCostPrice === null}
-                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-2 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                     manualItemPriceType === "cost"
                       ? "border-orange-500 bg-orange-50 text-orange-800"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Cost</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide">Cost</span>
                   <span className="font-bold">
                     {manualItemRefCostPrice !== null ? `₱${manualItemRefCostPrice.toFixed(2)}` : "—"}
                   </span>
@@ -2546,18 +2347,18 @@ export default function Page() {
                     setManualItemPriceType("custom");
                     setTimeout(() => document.getElementById("manual-price-input")?.focus(), 50);
                   }}
-                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-3 py-2 text-sm transition-colors ${
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 px-2 py-2 text-sm transition-colors ${
                     manualItemPriceType === "custom"
                       ? "border-blue-500 bg-blue-50 text-blue-800"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  <span className="font-semibold text-xs uppercase tracking-wide mb-0.5">Custom</span>
-                  <span className="font-bold">Input</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide">Custom</span>
+                  <span className="font-bold">Amount</span>
                 </button>
               </div>
               {manualItemPriceType === "custom" && (
-                <div className="relative mt-1">
+                <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₱</span>
                   <Input
                     id="manual-price-input"
@@ -2570,50 +2371,40 @@ export default function Page() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        document.getElementById("manual-quantity-input")?.focus();
+                        addManualItem();
                       }
                     }}
                   />
                 </div>
               )}
-              {manualItemPriceType !== "custom" && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {manualItemPriceType === "selling" ? "Using the product's selling price." : "Using the product's cost price."}
-                  {" "}Switch to <button type="button" className="underline text-blue-600" onClick={() => { setManualItemPriceType("custom"); setTimeout(() => document.getElementById("manual-price-input")?.focus(), 50); }}>Custom</button> to enter a different amount.
-                </p>
-              )}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Quantity</label>
-              <Input
-                id="manual-quantity-input"
-                type="number"
-                value={manualItemQuantity}
-                onChange={(e) => setManualItemQuantity(e.target.value)}
-                placeholder="1"
-                min="1"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addManualItem();
-                  }
-                }}
-              />
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-blue-800 text-sm">
-                {manualItemRefProduct ? (
-                  <>
-                    <span className="font-semibold">Stock will be reduced:</span> This item is linked to{" "}
-                    <span className="font-medium">{manualItemRefProduct.name}</span>, so {manualItemQuantity || "1"} unit(s) will be deducted from its inventory when checked out.
-                  </>
-                ) : (
-                  <>
-                    <span className="font-semibold">Quick Tip:</span> Manual items without a linked product (e.g. custom fees) don&apos;t affect inventory. Scan a barcode or search for a product above to link this item and reduce its stock.
-                  </>
-                )}
-              </p>
-            </div>
+
+            {(() => {
+              const manualUnitPrice =
+                manualItemPriceType === "selling"
+                  ? manualItemRefSellingPrice ?? 0
+                  : manualItemPriceType === "cost"
+                    ? manualItemRefCostPrice ?? 0
+                    : parseFloat(manualItemPrice) || 0;
+              const sellByPack = manualItemPriceType === "selling" && manualItemRefProduct;
+              return (
+                <SaleQuantityPicker
+                  quantity={manualItemQuantity}
+                  onChange={setManualItemQuantity}
+                  unitPrice={manualUnitPrice}
+                  packPrice={sellByPack ? manualItemRefProduct?.packPrice : undefined}
+                  packQuantity={sellByPack ? manualItemRefProduct?.packQuantity : undefined}
+                  halfPackPrice={sellByPack ? manualItemRefProduct?.halfPackPrice : undefined}
+                  halfPackQuantity={sellByPack ? manualItemRefProduct?.halfPackQuantity : undefined}
+                />
+              );
+            })()}
+
+            <p className="text-xs text-gray-500">
+              {manualItemRefProduct
+                ? "Linked products reduce stock at checkout."
+                : "A fee with no product does not change inventory."}
+            </p>
           </div>
           <DialogFooter>
             <Button
@@ -2628,7 +2419,6 @@ export default function Page() {
                 setManualItemRefProduct(null);
                 setManualItemQuantity("1");
                 setManualItemSearch("");
-                setManualItemBarcode("");
                 setManualItemBarcodeError("");
               }}
             >

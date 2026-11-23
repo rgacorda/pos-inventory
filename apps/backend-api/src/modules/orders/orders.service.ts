@@ -1418,6 +1418,8 @@ export class OrdersService {
     const query = this.orderItemsRepository
       .createQueryBuilder('item')
       .leftJoinAndSelect('item.order', 'order')
+      .leftJoin('order.cashier', 'cashier')
+      .addSelect(['cashier.id', 'cashier.name'])
       .where('item.sku = :sku', { sku: 'MANUAL' })
       .andWhere('order.status != :voidStatus', { voidStatus: OrderStatus.VOID })
       .orderBy('COALESCE(order.completedAt, order.createdAt)', 'DESC');

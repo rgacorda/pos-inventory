@@ -34,6 +34,8 @@ interface ManualItem {
     orderNumber: string;
     createdAt: string;
     customerName?: string;
+    cashierName?: string;
+    cashier?: { name?: string } | null;
   };
 }
 
@@ -65,7 +67,9 @@ export default function ManualItemsPage() {
     return (
       item.name?.toLowerCase().includes(search) ||
       item.order?.orderNumber?.toLowerCase().includes(search) ||
-      item.order?.customerName?.toLowerCase().includes(search)
+      item.order?.customerName?.toLowerCase().includes(search) ||
+      item.order?.cashier?.name?.toLowerCase().includes(search) ||
+      item.order?.cashierName?.toLowerCase().includes(search)
     );
   });
 
@@ -133,7 +137,7 @@ export default function ManualItemsPage() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Search by item name, order number, or customer..."
+                placeholder="Search by item name, order number, customer, or cashier..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-8"
@@ -160,6 +164,7 @@ export default function ManualItemsPage() {
                     <TableHead>Item Name</TableHead>
                     <TableHead>Order Number</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Cashier</TableHead>
                     <TableHead className="text-right">Quantity</TableHead>
                     <TableHead className="text-right">Unit Price</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -174,6 +179,9 @@ export default function ManualItemsPage() {
                         <Badge variant="outline">{item.order.orderNumber}</Badge>
                       </TableCell>
                       <TableCell>{item.order.customerName || "-"}</TableCell>
+                      <TableCell>
+                        {item.order.cashier?.name || item.order.cashierName || "-"}
+                      </TableCell>
                       <TableCell className="text-right">{item.quantity}</TableCell>
                       <TableCell className="text-right">
                         {formatCurrency(item.unitPrice)}

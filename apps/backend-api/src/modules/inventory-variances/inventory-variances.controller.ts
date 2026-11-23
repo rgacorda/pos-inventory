@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -18,12 +19,29 @@ import { InventoryVariancesService } from './inventory-variances.service';
 import {
   ApplyInventoryVarianceDto,
   SaveInventoryVarianceDto,
+  UpdateVarianceWindowDto,
 } from './dto/inventory-variance.dto';
 
 @Controller('inventory-variances')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class InventoryVariancesController {
   constructor(private readonly inventoryVariancesService: InventoryVariancesService) {}
+
+  @Get('window')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  getWindow(@CurrentUser() user: any) {
+    return this.inventoryVariancesService.getWindow(user);
+  }
+
+  @Put('window')
+  @Roles(UserRole.ADMIN)
+  updateWindow(@CurrentUser() user: any, @Body() dto: UpdateVarianceWindowDto) {
+    return this.inventoryVariancesService.updateWindow(
+      user,
+      dto.startDate,
+      dto.endDate,
+    );
+  }
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)

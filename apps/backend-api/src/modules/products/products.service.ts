@@ -233,6 +233,10 @@ export class ProductsService {
     delete (product as any).supplier;
     this.stampArchived(product, requestingUser);
     await this.saveProductKeepingStock(product);
+    await this.productsRepository.manager.delete(InventoryVarianceCount, {
+      productId: product.id,
+      status: 'PENDING',
+    });
   }
 
   async restore(id: string, requestingUser: any) {

@@ -7,18 +7,37 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { InventoryVarianceCount } from '../../entities/inventory-variance-count.entity';
+import { OrganizationEntity } from '../../entities/organization.entity';
 import { ProductEntity } from '../../entities/product.entity';
 import { UserEntity } from '../../entities/user.entity';
 import {
   adjustTrackedStock,
   toStockUnits,
 } from '../../common/stock-quantity';
+import {
+  businessCalendarDay,
+  businessTimeZone,
+} from '../financials/financials.range';
+import { UserRole } from '@pos/shared-types';
+
+const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isVarianceWindowOpen(
+  today: string,
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+) {
+  if (!startDate || !endDate) return false;
+  return today >= startDate && today <= endDate;
+}
 
 @Injectable()
 export class InventoryVariancesService {
   constructor(
     @InjectRepository(InventoryVarianceCount)
     private countsRepository: Repository<InventoryVarianceCount>,
+    @InjectRepository(OrganizationEntity)
+    private organizationsRepository: Repository<OrganizationEntity>,
     @InjectRepository(ProductEntity)
     private productsRepository: Repository<ProductEntity>,
     @InjectRepository(UserEntity)
@@ -31,6 +50,96 @@ export class InventoryVariancesService {
       throw new ForbiddenException('Organization is required');
     }
     return user.organizationId;
+  }
+
+  private isCalendarDate(value: string) {
+    if (!CALENDAR_DATE.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const probe = new Date(Date.UTC(year, month - 1, day));
+    return (
+      probe.getUTCFullYear() === year &&
+      probe.getUTCMonth() === month - 1 &&
+      probe.getUTCDate() === day
+    );
+  }
+
+  async getWindow(user: { organizationId?: string }) {
+    const organizationId = this.requireOrganization(user);
+    const organization = await this.organizationsRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+    const startDate = organization.settings?.varianceCountStart ?? null;
+    const endDate = organization.settings?.varianceCountEnd ?? null;
+    const today = businessCalendarDay(new Date(), 0, businessTimeZone()).date;
+    return {
+      startDate,
+      endDate,
+      today,
+      open: isVarianceWindowOpen(today, startDate, endDate),
+    };
+  }
+
+  async updateWindow(
+    user: { organizationId?: string },
+    startDate: string | null | undefined,
+    endDate: string | null | undefined,
+  ) {
+    if (startDate === undefined || endDate === undefined) {
+      throw new BadRequestException('Start date and end date are required');
+    }
+    if ((startDate === null) !== (endDate === null)) {
+      throw new BadRequestException(
+        'Set both a start date and an end date, or clear both to close counting',
+      );
+    }
+    if (startDate && endDate) {
+      if (!this.isCalendarDate(startDate) || !this.isCalendarDate(endDate)) {
+        throw new BadRequestException('Use a real calendar date');
+      }
+      if (startDate > endDate) {
+        throw new BadRequestException(
+          'Start date must be on or before the end date',
+        );
+      }
+    }
+
+    const organizationId = this.requireOrganization(user);
+    const organization = await this.organizationsRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+    organization.settings = {
+      ...(organization.settings ?? {}),
+      varianceCountStart: startDate,
+      varianceCountEnd: endDate,
+    };
+    await this.organizationsRepository.save(organization);
+    return this.getWindow(user);
+  }
+
+  /** Admins can always count. Everyone else needs the shop window to be open. */
+  private async assertCountingOpen(user: {
+    organizationId?: string;
+    role?: string;
+  }) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN) {
+      return;
+    }
+    const window = await this.getWindow(user);
+    if (window.open) return;
+    if (window.startDate && window.endDate) {
+      throw new ForbiddenException(
+        `Variance counting is closed. Employees can update counts from ${window.startDate} through ${window.endDate}.`,
+      );
+    }
+    throw new ForbiddenException(
+      'Variance counting is closed. An admin must open a date range first.',
+    );
   }
 
   /** Pending counts cannot change an unlimited product, so drop them. */
@@ -47,9 +156,38 @@ export class InventoryVariancesService {
     });
   }
 
+  /**
+   * An archived or permanently deleted product is already gone. Its pending
+   * count cannot update stock, so drop it instead of asking anyone to skip it.
+   */
+  private async clearPendingGoneProductCounts(organizationId: string) {
+    const pending = await this.countsRepository.find({
+      where: { organizationId, status: 'PENDING' },
+      select: { id: true, productId: true },
+    });
+    if (pending.length === 0) return;
+
+    const products = await this.productsRepository.find({
+      where: {
+        organizationId,
+        id: In([...new Set(pending.map((count) => count.productId))]),
+      },
+      select: { id: true, deletedAt: true },
+    });
+    const activeIds = new Set(
+      products.filter((product) => !product.deletedAt).map((product) => product.id),
+    );
+    const dropIds = pending
+      .filter((count) => !activeIds.has(count.productId))
+      .map((count) => count.id);
+    if (dropIds.length === 0) return;
+    await this.countsRepository.delete({ id: In(dropIds) });
+  }
+
   async getWorksheet(user: { organizationId?: string }) {
     const organizationId = this.requireOrganization(user);
     await this.clearPendingUnlimitedCounts(organizationId);
+    await this.clearPendingGoneProductCounts(organizationId);
 
     const products = await this.productsRepository.find({
       where: { organizationId, deletedAt: IsNull(), infiniteStock: false },
@@ -99,9 +237,10 @@ export class InventoryVariancesService {
   }
 
   async saveCounts(
-    user: { organizationId?: string; id: string },
+    user: { organizationId?: string; id: string; role?: string },
     items: { productId: string; countedQuantity: number }[],
   ) {
+    await this.assertCountingOpen(user);
     const organizationId = this.requireOrganization(user);
     const productIds = items.map((item) => item.productId);
     if (new Set(productIds).size !== productIds.length) {
@@ -111,25 +250,38 @@ export class InventoryVariancesService {
     const products = await this.productsRepository.find({
       where: { organizationId, id: In(productIds) },
     });
-    if (products.length !== productIds.length) {
-      throw new BadRequestException('One or more products were not found');
+    const foundIds = new Set(products.map((product) => product.id));
+    const goneIds = [
+      ...productIds.filter((id) => !foundIds.has(id)),
+      ...products.filter((product) => product.deletedAt).map((product) => product.id),
+    ];
+    if (goneIds.length > 0) {
+      await this.countsRepository.delete({
+        organizationId,
+        status: 'PENDING',
+        productId: In(goneIds),
+      });
     }
-    if (products.some((product) => product.deletedAt)) {
-      throw new BadRequestException('Archived products cannot be counted');
-    }
-    if (products.some((product) => product.infiniteStock)) {
+
+    const activeProducts = products.filter((product) => !product.deletedAt);
+    if (activeProducts.some((product) => product.infiniteStock)) {
       throw new BadRequestException(
         'Unlimited stock products are not counted',
       );
     }
+    const activeIds = new Set(activeProducts.map((product) => product.id));
+    const activeItems = items.filter((item) => activeIds.has(item.productId));
+    if (activeItems.length === 0) {
+      return this.getWorksheet(user);
+    }
 
-    const productMap = new Map(products.map((product) => [product.id, product]));
+    const productMap = new Map(activeProducts.map((product) => [product.id, product]));
     const existing = await this.countsRepository.find({
-      where: { organizationId, status: 'PENDING', productId: In(productIds) },
+      where: { organizationId, status: 'PENDING', productId: In([...activeIds]) },
     });
     const existingMap = new Map(existing.map((count) => [count.productId, count]));
 
-    const toSave = items.map((item) => {
+    const toSave = activeItems.map((item) => {
       const product = productMap.get(item.productId);
       const systemQuantity = Number(product?.stockQuantity) || 0;
       const current = existingMap.get(item.productId);
@@ -154,6 +306,7 @@ export class InventoryVariancesService {
 
   async check(user: { organizationId?: string }, productIds?: string[]) {
     const organizationId = this.requireOrganization(user);
+    await this.clearPendingGoneProductCounts(organizationId);
     const counts = await this.countsRepository.find({
       where: {
         organizationId,
@@ -172,27 +325,8 @@ export class InventoryVariancesService {
     const productsById = new Map(products.map((product) => [product.id, product]));
     const errors = counts.flatMap((count) => {
       const product = productsById.get(count.productId);
-      if (!product) {
-        return [
-          {
-            productId: count.productId,
-            countId: count.id,
-            name: 'Deleted product',
-            sku: '',
-            reason: 'This product no longer exists, so its stock cannot be updated.',
-          },
-        ];
-      }
-      if (product.deletedAt) {
-        return [
-          {
-            productId: count.productId,
-            countId: count.id,
-            name: product.name,
-            sku: product.sku,
-            reason: 'This product is archived, so its stock cannot be updated.',
-          },
-        ];
+      if (!product || product.deletedAt) {
+        return [];
       }
       if (product.infiniteStock) {
         return [
@@ -209,7 +343,13 @@ export class InventoryVariancesService {
       return [];
     });
 
-    return { errors, readyCount: counts.length - errors.length };
+    const blocked = new Set(errors.map((error) => error.productId));
+    const readyCount = counts.filter((count) => {
+      const product = productsById.get(count.productId);
+      if (!product || product.deletedAt || blocked.has(count.productId)) return false;
+      return true;
+    }).length;
+    return { errors, readyCount };
   }
 
   async apply(
@@ -218,6 +358,7 @@ export class InventoryVariancesService {
     skipProductIds?: string[],
   ) {
     const organizationId = this.requireOrganization(user);
+    await this.clearPendingGoneProductCounts(organizationId);
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -258,36 +399,38 @@ export class InventoryVariancesService {
 
       const existingProducts = await queryRunner.manager
         .createQueryBuilder(ProductEntity, 'product')
-        .select('product.id')
+        .select(['product.id', 'product.deletedAt'])
         .where('product.organizationId = :organizationId', { organizationId })
         .andWhere('product.id IN (:...ids)', {
           ids: counts.map((count) => count.productId),
         })
         .getMany();
-      const existingIds = new Set(existingProducts.map((product) => product.id));
-      const missing = counts.filter((count) => !existingIds.has(count.productId));
-      if (missing.length > 0) {
-        throw new BadRequestException(
-          missing.length === 1
-            ? 'Product not found'
-            : `${missing.length} products were not found`,
-        );
+      const activeIds = new Set(
+        existingProducts
+          .filter((product) => !product.deletedAt)
+          .map((product) => product.id),
+      );
+      const gone = counts.filter((count) => !activeIds.has(count.productId));
+      if (gone.length > 0) {
+        await queryRunner.manager.delete(InventoryVarianceCount, {
+          id: In(gone.map((count) => count.id)),
+        });
+      }
+      const applicable = counts.filter((count) => activeIds.has(count.productId));
+      if (applicable.length === 0) {
+        throw new BadRequestException('No saved counts to apply');
       }
 
-      for (const count of counts) {
+      for (const count of applicable) {
         const product = await queryRunner.manager
           .createQueryBuilder(ProductEntity, 'product')
           .setLock('pessimistic_write')
           .where('product.id = :id', { id: count.productId })
           .andWhere('product.organizationId = :organizationId', { organizationId })
           .getOne();
-        if (!product) {
-          throw new NotFoundException('Product not found');
-        }
-        if (product.deletedAt) {
-          throw new BadRequestException(
-            `${product.name} is archived, so its stock cannot be updated`,
-          );
+        if (!product || product.deletedAt) {
+          await queryRunner.manager.delete(InventoryVarianceCount, { id: count.id });
+          continue;
         }
         if (product.infiniteStock) {
           throw new BadRequestException(
@@ -330,7 +473,7 @@ export class InventoryVariancesService {
 
       await queryRunner.commitTransaction();
       return {
-        applied: counts.length,
+        applied: items.length,
         updated: items.filter((item) => item.previousQuantity !== item.nextQuantity).length,
         items,
       };
@@ -342,7 +485,8 @@ export class InventoryVariancesService {
     }
   }
 
-  async remove(id: string, user: { organizationId?: string }) {
+  async remove(id: string, user: { organizationId?: string; role?: string }) {
+    await this.assertCountingOpen(user);
     const organizationId = this.requireOrganization(user);
     const count = await this.countsRepository.findOne({
       where: { id, organizationId },

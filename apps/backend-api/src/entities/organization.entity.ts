@@ -70,6 +70,12 @@ export class OrganizationEntity {
     };
     /** Loyalty: days after which earned points expire. Null/undefined = never. */
     loyaltyExpiryDays?: number | null;
+    /**
+     * Inclusive shop calendar days (YYYY-MM-DD) when managers and cashiers
+     * may save variance counts. Missing either date keeps counting closed.
+     */
+    varianceCountStart?: string | null;
+    varianceCountEnd?: string | null;
   };
 
   @Column({ default: true })

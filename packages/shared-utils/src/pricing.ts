@@ -81,6 +81,23 @@ export function calculatePriceBreakdown(
   return { packs, halfPacks, units, packSubtotal, halfPackSubtotal, unitSubtotal, total };
 }
 
+/** Short cart label such as "2 packs + 1 half-pack + 3 pcs". Empty when the line is only loose pieces. */
+export function formatPriceBreakdownLabel(breakdown: PriceBreakdown): string {
+  const parts: string[] = [];
+  if (breakdown.packs > 0) {
+    parts.push(`${breakdown.packs} pack${breakdown.packs === 1 ? "" : "s"}`);
+  }
+  if (breakdown.halfPacks > 0) {
+    parts.push(
+      `${breakdown.halfPacks} half-pack${breakdown.halfPacks === 1 ? "" : "s"}`,
+    );
+  }
+  if (breakdown.units > 0 && parts.length > 0) {
+    parts.push(`${breakdown.units} pc${breakdown.units === 1 ? "" : "s"}`);
+  }
+  return parts.join(" + ");
+}
+
 /**
  * Fields needed to count how many pieces a line represents.
  * Pack fields are accepted so existing call sites can pass a full line,
