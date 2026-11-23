@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatCurrency, formatDateTime } from "@pos/shared-utils";
 import { OrderStatus } from "@pos/shared-types";
 import { ExchangedItem, useCart } from "@/contexts/cart-context";
-import { dbHelpers } from "@/lib/db";
+import { dbHelpers, LocalProduct } from "@/lib/db";
+import { useProducts } from "@/hooks/useDatabase";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   canExchangeReceipt,
@@ -66,10 +67,24 @@ function asDate(value: Date | string | undefined) {
   return new Date();
 }
 
+function packFieldsForItem(
+  item: LocatedReceipt["order"]["items"][number],
+  productsById?: Map<string, LocalProduct>,
+) {
+  const product = productsById?.get(item.productId);
+  return {
+    packPrice: item.packPrice ?? product?.packPrice,
+    packQuantity: item.packQuantity ?? product?.packQuantity,
+    halfPackPrice: item.halfPackPrice ?? product?.halfPackPrice,
+    halfPackQuantity: item.halfPackQuantity ?? product?.halfPackQuantity,
+  };
+}
+
 function ScanReceipt() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const online = useOnlineStatus();
+  const products = useProducts();
   const { startExchange } = useCart();
   const inputRef = useRef<HTMLInputElement>(null);
   const autoLookup = useRef<string | null>(null);
@@ -87,6 +102,14 @@ function ScanReceipt() {
   const [selectedReturnItems, setSelectedReturnItems] = useState<Set<number>>(
     new Set(),
   );
+
+  const productsById = useMemo(() => {
+    const map = new Map<string, LocalProduct>();
+    (products ?? []).forEach((product) => {
+      if (product.id) map.set(product.id, product);
+    });
+    return map;
+  }, [products]);
 
   const focusInput = () => {
     requestAnimationFrame(() => {
@@ -574,6 +597,7 @@ function ScanReceipt() {
                   quantity: item.quantity,
                   unitPrice: Number(item.unitPrice),
                   total: Number(item.total),
+                  ...packFieldsForItem(item, productsById),
                 }))}
                 subtotal={Number(receipt.order.subtotal)}
                 taxAmount={Number(receipt.order.taxAmount)}

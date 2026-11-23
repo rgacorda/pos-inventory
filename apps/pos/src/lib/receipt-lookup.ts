@@ -105,6 +105,11 @@ function mapServerOrder(remote: {
       discountAmount: asNumber(item.discountAmount),
       subtotal: asNumber(item.subtotal),
       total: asNumber(item.total),
+      packPrice: item.packPrice != null ? asNumber(item.packPrice) : undefined,
+      packQuantity: item.packQuantity != null ? asNumber(item.packQuantity) : undefined,
+      halfPackPrice: item.halfPackPrice != null ? asNumber(item.halfPackPrice) : undefined,
+      halfPackQuantity:
+        item.halfPackQuantity != null ? asNumber(item.halfPackQuantity) : undefined,
     })),
     syncStatus: "synced",
     localCreatedAt: createdAt,

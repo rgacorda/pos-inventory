@@ -783,6 +783,16 @@ export class OrdersService {
       select: { id: true, orderNumber: true, returnedItems: true },
     });
 
+    const packPricing = await this.packPricingFor(order.organizationId, [
+      ...(order.items ?? []).map((item) => item.productId),
+      ...(order.returnedItems ?? []).map((item) => item.productId),
+      ...(exchangeChild?.returnedItems ?? []).map((item) => item.productId),
+    ]);
+    const withPacks = <T extends { productId?: string }>(item: T) => ({
+      ...item,
+      ...(item.productId ? packPricing.get(item.productId) : undefined),
+    });
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -800,20 +810,36 @@ export class OrdersService {
       createdAt: order.createdAt,
       exchangeRef: order.exchangeRef,
       exchangedAt: order.exchangedAt,
-      returnedItems: order.returnedItems,
+      returnedItems: (order.returnedItems ?? []).map((item) => withPacks(item)),
       originalOrderId,
       exchangeChild: exchangeChild
         ? {
             id: exchangeChild.id,
             orderNumber: exchangeChild.orderNumber,
-            returnedItems: exchangeChild.returnedItems,
+            returnedItems: (exchangeChild.returnedItems ?? []).map((item) =>
+              withPacks(item),
+            ),
           }
         : null,
       terminal: order.terminal
         ? { id: order.terminal.id, name: order.terminal.name }
         : null,
       cashier: cashier ? { id: cashier.id, name: cashier.name } : null,
-      items: order.items ?? [],
+      items: (order.items ?? []).map((item) =>
+        withPacks({
+          id: item.id,
+          productId: item.productId,
+          sku: item.sku,
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          unitCost: item.unitCost,
+          taxRate: item.taxRate,
+          discountAmount: item.discountAmount,
+          subtotal: item.subtotal,
+          total: item.total,
+        }),
+      ),
       payments: (order.payments ?? []).map((payment) => ({
         id: payment.id,
         method: payment.method,
@@ -822,6 +848,63 @@ export class OrdersService {
         status: payment.status,
       })),
     };
+  }
+
+  /**
+   * Current catalog pack sizes for the products on an order. Sales store a
+   * piece count, so the order view uses these sizes to describe that count
+   * as packs and half packs.
+   */
+  private async packPricingFor(
+    organizationId: string,
+    productIds: Array<string | undefined>,
+  ) {
+    const ids = [
+      ...new Set(
+        productIds.filter(
+          (id): id is string =>
+            !!id &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+              id,
+            ),
+        ),
+      ),
+    ];
+    const pricing = new Map<
+      string,
+      {
+        packPrice?: number;
+        packQuantity?: number;
+        halfPackPrice?: number;
+        halfPackQuantity?: number;
+      }
+    >();
+    if (ids.length === 0) return pricing;
+
+    const products = await this.productsRepository.find({
+      where: { id: In(ids), organizationId },
+      select: {
+        id: true,
+        packPrice: true,
+        packQuantity: true,
+        halfPackPrice: true,
+        halfPackQuantity: true,
+      },
+    });
+
+    for (const product of products) {
+      const packPrice = Number(product.packPrice);
+      const packQuantity = Number(product.packQuantity);
+      const halfPackPrice = Number(product.halfPackPrice);
+      const halfPackQuantity = Number(product.halfPackQuantity);
+      pricing.set(product.id, {
+        ...(packPrice > 0 && packQuantity > 0 ? { packPrice, packQuantity } : {}),
+        ...(halfPackPrice > 0 && halfPackQuantity > 0
+          ? { halfPackPrice, halfPackQuantity }
+          : {}),
+      });
+    }
+    return pricing;
   }
 
   async update(

@@ -8,7 +8,13 @@ import {
   usePaymentsByOrder,
   useProducts,
 } from "@/hooks/useDatabase";
-import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
+import {
+  calculatePriceBreakdown,
+  calculateTotalSoldItemCount,
+  formatCurrency,
+  formatDateTime,
+  formatPriceBreakdownLabel,
+} from "@pos/shared-utils";
 import { LocalOrder, LocalPayment, LocalProduct, dbHelpers } from "@/lib/db";
 import {
   Dialog,
@@ -81,16 +87,54 @@ function getOrderPaymentMethods(
 }
 
 function packFieldsForItem(
-  item: LocalOrder["items"][number],
+  item: {
+    productId?: string;
+    packPrice?: number | null;
+    packQuantity?: number | null;
+    halfPackPrice?: number | null;
+    halfPackQuantity?: number | null;
+  },
   productsById?: Map<string, LocalProduct>,
 ) {
-  const product = productsById?.get(item.productId);
+  const product = item.productId ? productsById?.get(item.productId) : undefined;
   return {
     packPrice: item.packPrice ?? product?.packPrice,
     packQuantity: item.packQuantity ?? product?.packQuantity,
     halfPackPrice: item.halfPackPrice ?? product?.halfPackPrice,
     halfPackQuantity: item.halfPackQuantity ?? product?.halfPackQuantity,
   };
+}
+
+function quantityBreakdownLabel(
+  item: {
+    quantity?: number;
+    productId?: string;
+    packPrice?: number | null;
+    packQuantity?: number | null;
+    halfPackPrice?: number | null;
+    halfPackQuantity?: number | null;
+  },
+  productsById?: Map<string, LocalProduct>,
+) {
+  const fields = packFieldsForItem(item, productsById);
+  const packPrice = Number(fields.packPrice) || 0;
+  const packQuantity = Number(fields.packQuantity) || 0;
+  const halfPackPrice = Number(fields.halfPackPrice) || 0;
+  const halfPackQuantity = Number(fields.halfPackQuantity) || 0;
+  const hasPack = packPrice > 0 && packQuantity > 0;
+  const hasHalf = halfPackPrice > 0 && halfPackQuantity > 0;
+  if (!hasPack && !hasHalf) return "";
+
+  return formatPriceBreakdownLabel(
+    calculatePriceBreakdown(
+      Number(item.quantity) || 0,
+      0,
+      hasPack ? packPrice : undefined,
+      hasPack ? packQuantity : undefined,
+      hasHalf ? halfPackPrice : undefined,
+      hasHalf ? halfPackQuantity : undefined,
+    ),
+  );
 }
 
 function getItemsBought(
@@ -848,7 +892,9 @@ export default function OrdersPage() {
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {returnedItems.map((item, index) => (
+                            {returnedItems.map((item, index) => {
+                              const breakdown = quantityBreakdownLabel(item, productsById);
+                              return (
                               <TableRow key={`returned-${item.productId}-${index}`}>
                                 <TableCell>
                                   <div>
@@ -863,7 +909,12 @@ export default function OrdersPage() {
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  {item.quantity}
+                                  <div>{item.quantity}</div>
+                                  {breakdown ? (
+                                    <div className="text-xs font-medium text-green-700">
+                                      {breakdown}
+                                    </div>
+                                  ) : null}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {formatCurrency(item.unitPrice ?? 0)}
@@ -875,7 +926,8 @@ export default function OrdersPage() {
                                   )}
                                 </TableCell>
                               </TableRow>
-                            ))}
+                              );
+                            })}
                           </TableBody>
                         </Table>
                       </div>
@@ -899,7 +951,9 @@ export default function OrdersPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {selectedOrder.items?.map((item, index) => (
+                        {selectedOrder.items?.map((item, index) => {
+                          const breakdown = quantityBreakdownLabel(item, productsById);
+                          return (
                           <TableRow key={`${item.productId}-${index}`}>
                             <TableCell>
                               <div>
@@ -917,7 +971,12 @@ export default function OrdersPage() {
                               </div>
                             </TableCell>
                             <TableCell className="text-right">
-                              {item.quantity}
+                              <div>{item.quantity}</div>
+                              {breakdown ? (
+                                <div className="text-xs font-medium text-green-700">
+                                  {breakdown}
+                                </div>
+                              ) : null}
                             </TableCell>
                             <TableCell className="text-right">
                               {formatCurrency(item.unitPrice)}
@@ -926,7 +985,8 @@ export default function OrdersPage() {
                               {formatCurrency(item.total)}
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>

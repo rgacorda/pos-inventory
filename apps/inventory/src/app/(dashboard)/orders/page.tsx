@@ -80,6 +80,10 @@ import {
 } from "@/lib/toast-utils";
 import { endOfDay, format, startOfDay } from "date-fns";
 import type { DateRange } from "react-day-picker";
+import {
+  calculatePriceBreakdown,
+  formatPriceBreakdownLabel,
+} from "@pos/shared-utils";
 
 function todayRange(): DateRange {
   const today = startOfDay(new Date());
@@ -107,6 +111,45 @@ function formatUnitCost(value: unknown) {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return "—";
   return formatPeso(amount);
+}
+
+function orderQuantityLabel(item: {
+  quantity?: number | string;
+  packPrice?: number | string | null;
+  packQuantity?: number | string | null;
+  halfPackPrice?: number | string | null;
+  halfPackQuantity?: number | string | null;
+}) {
+  const packPrice = Number(item.packPrice) || 0;
+  const packQuantity = Number(item.packQuantity) || 0;
+  const halfPackPrice = Number(item.halfPackPrice) || 0;
+  const halfPackQuantity = Number(item.halfPackQuantity) || 0;
+  const hasPack = packPrice > 0 && packQuantity > 0;
+  const hasHalf = halfPackPrice > 0 && halfPackQuantity > 0;
+  if (!hasPack && !hasHalf) return "";
+
+  return formatPriceBreakdownLabel(
+    calculatePriceBreakdown(
+      Number(item.quantity) || 0,
+      0,
+      hasPack ? packPrice : undefined,
+      hasPack ? packQuantity : undefined,
+      hasHalf ? halfPackPrice : undefined,
+      hasHalf ? halfPackQuantity : undefined,
+    ),
+  );
+}
+
+function QuantityCell({ item }: { item: Parameters<typeof orderQuantityLabel>[0] }) {
+  const label = orderQuantityLabel(item);
+  return (
+    <TableCell className="text-right">
+      <div>{item.quantity}</div>
+      {label ? (
+        <div className="text-xs font-medium text-green-700">{label}</div>
+      ) : null}
+    </TableCell>
+  );
 }
 
 function getOrderPaymentMethods(order: any) {
@@ -754,9 +797,7 @@ export default function OrdersPage() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-right">
-                                {item.quantity}
-                              </TableCell>
+                              <QuantityCell item={item} />
                               <TableCell className="text-right">
                                 {formatPeso(item.unitPrice)}
                               </TableCell>
@@ -805,9 +846,7 @@ export default function OrdersPage() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          {item.quantity}
-                        </TableCell>
+                        <QuantityCell item={item} />
                         <TableCell className="text-right">
                           {formatPeso(item.unitPrice)}
                         </TableCell>

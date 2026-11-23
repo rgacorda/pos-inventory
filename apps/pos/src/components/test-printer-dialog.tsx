@@ -108,9 +108,8 @@ export function TestPrinterDialog({ children }: TestPrinterDialogProps) {
   }, [open]);
 
   const generateTestReceipt = (productCount: 5 | 10 | 20) => {
-    // Generate test items
     const items = sampleProducts.slice(0, productCount).map((product) => {
-      const quantity = Math.floor(Math.random() * 3) + 1; // Random quantity 1-3
+      const quantity = Math.floor(Math.random() * 3) + 1;
       return {
         name: product.name,
         quantity,
