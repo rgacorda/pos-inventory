@@ -19,6 +19,15 @@ export class VarianceCountItemDto {
   @IsInt()
   @Min(0)
   countedQuantity: number;
+
+  /**
+   * Stock on screen when this count was entered. Stored only for a new count.
+   * A product that already has a pending count keeps its original baseline.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  systemQuantity?: number;
 }
 
 export class SaveInventoryVarianceDto {

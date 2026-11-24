@@ -585,8 +585,19 @@ class APIClient {
     return response.data;
   }
 
+  async getVarianceStock(productId: string) {
+    const response = await this.client.get(
+      `/inventory-variances/stock/${productId}`,
+    );
+    return response.data as { productId: string; stockQuantity: number };
+  }
+
   async saveVarianceCounts(data: {
-    items: { productId: string; countedQuantity: number }[];
+    items: {
+      productId: string;
+      countedQuantity: number;
+      systemQuantity?: number;
+    }[];
   }) {
     const response = await this.client.post("/inventory-variances", data);
     return response.data;

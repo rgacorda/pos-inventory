@@ -2,10 +2,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { InventoryVarianceCount } from '../../entities/inventory-variance-count.entity';
 import { OrganizationEntity } from '../../entities/organization.entity';
 import { ProductEntity } from '../../entities/product.entity';
@@ -31,8 +33,36 @@ export function isVarianceWindowOpen(
   return today >= startDate && today <= endDate;
 }
 
+/**
+ * The baseline is the stock the counter was looking at. A later save of the
+ * same count must keep that number, so sales and deliveries after the count
+ * are still in the shelf when quantities are updated after close.
+ */
+export function resolvePendingBaseline(
+  existingBaseline: number | null,
+  reportedBaseline: number | null | undefined,
+  liveStock: number,
+) {
+  if (existingBaseline !== null) return toStockUnits(existingBaseline);
+  if (
+    reportedBaseline !== undefined &&
+    reportedBaseline !== null &&
+    Number.isFinite(Number(reportedBaseline))
+  ) {
+    return Math.max(0, toStockUnits(reportedBaseline));
+  }
+  return Math.max(0, toStockUnits(liveStock));
+}
+
+function isUniqueViolation(error: unknown) {
+  const candidate = error as { code?: string; driverError?: { code?: string } };
+  return candidate?.code === '23505' || candidate?.driverError?.code === '23505';
+}
+
 @Injectable()
-export class InventoryVariancesService {
+export class InventoryVariancesService implements OnModuleInit {
+  private readonly logger = new Logger(InventoryVariancesService.name);
+
   constructor(
     @InjectRepository(InventoryVarianceCount)
     private countsRepository: Repository<InventoryVarianceCount>,
@@ -44,6 +74,39 @@ export class InventoryVariancesService {
     private usersRepository: Repository<UserEntity>,
     private dataSource: DataSource,
   ) {}
+
+  /**
+   * One pending count per product. A second row would be applied again
+   * after close and the difference would be counted twice.
+   */
+  async onModuleInit() {
+    try {
+      await this.dataSource.query(`
+        DELETE FROM inventory_variance_counts AS extra
+        WHERE extra.status = 'PENDING'
+          AND extra.id IN (
+            SELECT id FROM (
+              SELECT id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY "organizationId", "productId"
+                       ORDER BY "createdAt" ASC, id ASC
+                     ) AS rn
+              FROM inventory_variance_counts
+              WHERE status = 'PENDING'
+            ) ranked
+            WHERE ranked.rn > 1
+          )
+      `);
+      await this.dataSource.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "UQ_variance_one_pending_count"
+        ON inventory_variance_counts ("organizationId", "productId")
+        WHERE status = 'PENDING'
+      `);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Could not enforce one pending variance count: ${message}`);
+    }
+  }
 
   private requireOrganization(user: { organizationId?: string }) {
     if (!user.organizationId) {
@@ -206,7 +269,13 @@ export class InventoryVariancesService {
         })
       : [];
     const userNames = new Map(users.map((entry) => [entry.id, entry.name]));
-    const pendingByProduct = new Map(pending.map((count) => [count.productId, count]));
+    const pendingByProduct = new Map<string, InventoryVarianceCount>();
+    for (const count of pending) {
+      const current = pendingByProduct.get(count.productId);
+      if (!current || count.createdAt < current.createdAt) {
+        pendingByProduct.set(count.productId, count);
+      }
+    }
 
     return products.map((product) => {
       const stockQuantity = Number(product.stockQuantity) || 0;
@@ -236,9 +305,28 @@ export class InventoryVariancesService {
     });
   }
 
+  async liveStock(user: { organizationId?: string }, productId: string) {
+    const organizationId = this.requireOrganization(user);
+    const product = await this.productsRepository.findOne({
+      where: { id: productId, organizationId, deletedAt: IsNull() },
+      select: { id: true, stockQuantity: true, infiniteStock: true },
+    });
+    if (!product || product.infiniteStock) {
+      throw new NotFoundException('Product not found');
+    }
+    return {
+      productId: product.id,
+      stockQuantity: Math.max(0, toStockUnits(product.stockQuantity)),
+    };
+  }
+
   async saveCounts(
     user: { organizationId?: string; id: string; role?: string },
-    items: { productId: string; countedQuantity: number }[],
+    items: {
+      productId: string;
+      countedQuantity: number;
+      systemQuantity?: number;
+    }[],
   ) {
     await this.assertCountingOpen(user);
     const organizationId = this.requireOrganization(user);
@@ -276,31 +364,64 @@ export class InventoryVariancesService {
     }
 
     const productMap = new Map(activeProducts.map((product) => [product.id, product]));
-    const existing = await this.countsRepository.find({
-      where: { organizationId, status: 'PENDING', productId: In([...activeIds]) },
-    });
-    const existingMap = new Map(existing.map((count) => [count.productId, count]));
+    const orderedIds = [...activeIds].sort();
 
-    const toSave = activeItems.map((item) => {
-      const product = productMap.get(item.productId);
-      const systemQuantity = Number(product?.stockQuantity) || 0;
-      const current = existingMap.get(item.productId);
-      if (current) {
-        current.countedQuantity = item.countedQuantity;
-        current.countedByUserId = user.id;
-        return current;
+    const writePending = async (manager: EntityManager) => {
+      // Lock pending counts in product id order, the same order used when
+      // quantities are updated after close. Product rows are not locked here,
+      // so a sale or a delivery does not wait on someone saving a count.
+      for (const productId of orderedIds) {
+        await manager.find(InventoryVarianceCount, {
+          where: { organizationId, status: 'PENDING', productId },
+          order: { createdAt: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
+        });
       }
-      return this.countsRepository.create({
-        organizationId,
-        productId: item.productId,
-        countedQuantity: item.countedQuantity,
-        systemQuantity,
-        status: 'PENDING' as const,
-        countedByUserId: user.id,
-      });
-    });
 
-    await this.countsRepository.save(toSave);
+      for (const productId of orderedIds) {
+        const item = activeItems.find((entry) => entry.productId === productId);
+        if (!item) continue;
+        const existingRows = await manager.find(InventoryVarianceCount, {
+          where: { organizationId, status: 'PENDING', productId },
+          order: { createdAt: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const [current, ...extras] = existingRows;
+        if (extras.length > 0) {
+          await manager.delete(InventoryVarianceCount, {
+            id: In(extras.map((count) => count.id)),
+          });
+        }
+        if (current) {
+          current.countedQuantity = item.countedQuantity;
+          current.countedByUserId = user.id;
+          await manager.save(current);
+          continue;
+        }
+        const product = productMap.get(productId);
+        await manager.save(
+          manager.create(InventoryVarianceCount, {
+            organizationId,
+            productId,
+            countedQuantity: item.countedQuantity,
+            systemQuantity: resolvePendingBaseline(
+              null,
+              item.systemQuantity,
+              Number(product?.stockQuantity) || 0,
+            ),
+            status: 'PENDING' as const,
+            countedByUserId: user.id,
+          }),
+        );
+      }
+    };
+
+    try {
+      await this.dataSource.transaction(writePending);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      await this.dataSource.transaction(writePending);
+    }
     return this.getWorksheet(user);
   }
 
@@ -352,6 +473,29 @@ export class InventoryVariancesService {
     return { errors, readyCount };
   }
 
+  /** One count per product. Extras are dropped so after-close update applies the difference once. */
+  private keepOldestPending(counts: InventoryVarianceCount[]) {
+    const grouped = new Map<string, InventoryVarianceCount[]>();
+    for (const count of counts) {
+      const list = grouped.get(count.productId) ?? [];
+      list.push(count);
+      grouped.set(count.productId, list);
+    }
+    const kept: InventoryVarianceCount[] = [];
+    const extraIds: string[] = [];
+    for (const list of grouped.values()) {
+      list.sort(
+        (a, b) =>
+          +new Date(a.createdAt) - +new Date(b.createdAt) ||
+          a.id.localeCompare(b.id),
+      );
+      kept.push(list[0]);
+      for (const extra of list.slice(1)) extraIds.push(extra.id);
+    }
+    kept.sort((a, b) => a.productId.localeCompare(b.productId));
+    return { counts: kept, extraIds };
+  }
+
   async apply(
     user: { organizationId?: string; id: string },
     productIds?: string[],
@@ -365,7 +509,7 @@ export class InventoryVariancesService {
 
     try {
       const skip = new Set(skipProductIds ?? []);
-      const counts = (
+      const lockedCounts = (
         await queryRunner.manager.find(InventoryVarianceCount, {
           where: {
             organizationId,
@@ -378,11 +522,18 @@ export class InventoryVariancesService {
       ).filter((count) => !skip.has(count.productId));
 
       if (productIds?.length) {
-        const found = new Set(counts.map((count) => count.productId));
+        const found = new Set(lockedCounts.map((count) => count.productId));
         const missing = productIds.filter((id) => !found.has(id));
         if (missing.length > 0) {
           throw new BadRequestException('Save the count before updating stock');
         }
+      }
+
+      const { counts, extraIds } = this.keepOldestPending(lockedCounts);
+      if (extraIds.length > 0) {
+        await queryRunner.manager.delete(InventoryVarianceCount, {
+          id: In(extraIds),
+        });
       }
 
       if (counts.length === 0) {
@@ -440,10 +591,11 @@ export class InventoryVariancesService {
 
         const liveQuantity = Number(product.stockQuantity);
         const previousQuantity = Number.isFinite(liveQuantity) ? liveQuantity : 0;
-        // systemQuantity is the stock when the shelf was counted. Sales and
+        // systemQuantity is the stock the counter was looking at. Sales and
         // deliveries after that stay in the live quantity; only the original
-        // difference (counted - snapshot) is applied. A negative difference
-        // subtracts, a positive one adds.
+        // difference (counted - snapshot) is applied after close. A negative
+        // difference subtracts, a positive one adds. The saved count is not
+        // replaced by later stock movement.
         const snapshot = toStockUnits(count.systemQuantity);
         const counted = toStockUnits(count.countedQuantity);
         const adjustment = counted - snapshot;

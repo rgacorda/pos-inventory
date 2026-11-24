@@ -37,7 +37,10 @@ export class InventoryVarianceCount {
   @Column({ type: 'int' })
   countedQuantity: number;
 
-  /** System stock frozen when the count was first saved. Later sales do not change it. */
+  /**
+   * System stock the counter was looking at when the count was first saved.
+   * Later sales, deliveries, and edits of the counted quantity do not change it.
+   */
   @Column({ type: 'int' })
   systemQuantity: number;
 

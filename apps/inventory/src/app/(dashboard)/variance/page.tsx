@@ -211,6 +211,10 @@ export default function VarianceInventoryPage() {
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const chainRef = useRef<Record<string, Promise<void>>>({});
   const savedValuesRef = useRef<Record<string, number | null>>({});
+  const baselinesRef = useRef<Record<string, number>>({});
+  const dirtyRef = useRef<Set<string>>(new Set());
+  const applyingRef = useRef(false);
+  const [baselines, setBaselines] = useState<Record<string, number>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [countingWindow, setCountingWindow] = useState<VarianceWindow | null>(null);
   const [draftStart, setDraftStart] = useState("");
@@ -246,6 +250,19 @@ export default function VarianceInventoryPage() {
     loadWindow();
     return () => {
       Object.values(timersRef.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      void refreshLiveStock();
+    };
+    const interval = setInterval(refresh, 10000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
 
@@ -353,6 +370,63 @@ export default function VarianceInventoryPage() {
     }
   }
 
+  async function refreshLiveStock() {
+    if (applyingRef.current) return;
+    let data: VarianceRow[];
+    try {
+      data = await apiClient.getVarianceWorksheet();
+    } catch {
+      return;
+    }
+    const dirty = dirtyRef.current;
+    setRows((current) =>
+      data.map((incoming) => {
+        if (!dirty.has(incoming.productId)) return incoming;
+        const existing = current.find((row) => row.productId === incoming.productId);
+        if (!existing) return incoming;
+        return { ...existing, stockQuantity: incoming.stockQuantity };
+      }),
+    );
+    const nextBaselines = { ...baselinesRef.current };
+    let baselinesChanged = false;
+    const nextDrafts = { ...draftsRef.current };
+    for (const row of data) {
+      if (dirty.has(row.productId)) continue;
+      nextDrafts[row.productId] = draftFromRow(row);
+      savedValuesRef.current[row.productId] = row.count ? row.count.countedQuantity : null;
+      if (row.count && nextBaselines[row.productId] !== undefined) {
+        delete nextBaselines[row.productId];
+        baselinesChanged = true;
+      }
+    }
+    setDrafts(nextDrafts);
+    if (baselinesChanged) {
+      baselinesRef.current = nextBaselines;
+      setBaselines(nextBaselines);
+    }
+  }
+
+  async function refreshProductStock(productId: string) {
+    if (baselinesRef.current[productId] !== undefined) return;
+    if (dirtyRef.current.has(productId)) return;
+    const row = rowsRef.current.find((entry) => entry.productId === productId);
+    if (!row || row.count) return;
+    try {
+      const stock = await apiClient.getVarianceStock(productId);
+      if (baselinesRef.current[productId] !== undefined) return;
+      if (dirtyRef.current.has(productId)) return;
+      setRows((current) =>
+        current.map((entry) =>
+          entry.productId === productId
+            ? { ...entry, stockQuantity: stock.stockQuantity }
+            : entry,
+        ),
+      );
+    } catch {
+      return;
+    }
+  }
+
   function isDirty(row: VarianceRow) {
     const draft = drafts[row.productId];
     const saved = row.count ? row.count.countedQuantity : null;
@@ -379,7 +453,42 @@ export default function VarianceInventoryPage() {
   }
 
   function stockAtCount(row: VarianceRow) {
-    return row.count ? Number(row.count.systemQuantity) : row.stockQuantity;
+    if (row.count) return Number(row.count.systemQuantity);
+    const frozen = baselines[row.productId];
+    if (frozen !== undefined) return frozen;
+    return Number(row.stockQuantity) || 0;
+  }
+
+  function stockMoved(row: VarianceRow) {
+    if (displayedCount(row) === null) return false;
+    return Number(row.stockQuantity) !== stockAtCount(row);
+  }
+
+  function rememberBaseline(productId: string, stock: number) {
+    if (baselinesRef.current[productId] !== undefined) return;
+    baselinesRef.current = { ...baselinesRef.current, [productId]: stock };
+    setBaselines(baselinesRef.current);
+  }
+
+  function forgetBaseline(productId: string) {
+    if (baselinesRef.current[productId] === undefined) return;
+    const next = { ...baselinesRef.current };
+    delete next[productId];
+    baselinesRef.current = next;
+    setBaselines(next);
+  }
+
+  function withBaseline(
+    items: { productId: string; countedQuantity: number }[],
+  ) {
+    return items.map((item) => {
+      const row = rowsRef.current.find((entry) => entry.productId === item.productId);
+      if (row?.count) return item;
+      if (baselinesRef.current[item.productId] === undefined) {
+        rememberBaseline(item.productId, Number(row?.stockQuantity) || 0);
+      }
+      return { ...item, systemQuantity: baselinesRef.current[item.productId] };
+    });
   }
 
   function difference(row: VarianceRow) {
@@ -404,7 +513,7 @@ export default function VarianceInventoryPage() {
       else matches += 1;
     }
     return { counted, shortages, overages, matches, netUnits };
-  }, [rows, drafts]);
+  }, [rows, drafts, baselines]);
 
   const filteredRows = useMemo(() => {
     const terms = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -424,7 +533,7 @@ export default function VarianceInventoryPage() {
           row.category?.toLowerCase().includes(term),
       );
     });
-  }, [rows, drafts, searchQuery, filter, showIssuesOnly, applyIssues]);
+  }, [rows, drafts, baselines, searchQuery, filter, showIssuesOnly, applyIssues]);
 
   const sortedRows = useMemo(() => {
     if (!sortColumn) return filteredRows;
@@ -447,7 +556,7 @@ export default function VarianceInventoryPage() {
       if (aValue > bValue) return 1 * direction;
       return 0;
     });
-  }, [filteredRows, sortColumn, sortDirection, drafts, rows]);
+  }, [filteredRows, sortColumn, sortDirection, drafts, rows, baselines]);
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / itemsPerPage));
   const page = Math.min(currentPage, totalPages);
@@ -462,13 +571,14 @@ export default function VarianceInventoryPage() {
     if (invalid.length > 0) {
       throw new Error(draftError(invalid[0]) || "Enter a valid count");
     }
-    return rows.flatMap((row) => {
+    const items = rows.flatMap((row) => {
       if (allowed && !allowed.has(row.productId)) return [];
       if (!isDirty(row)) return [];
       const countedQuantity = countFromDraft(drafts[row.productId], row);
       if (countedQuantity === null) return [];
       return [{ productId: row.productId, countedQuantity }];
     });
+    return withBaseline(items);
   }
 
   function markSaving(productId: string, isSaving: boolean) {
@@ -506,7 +616,7 @@ export default function VarianceInventoryPage() {
     markSaving(productId, true);
     try {
       const data: VarianceRow[] = await apiClient.saveVarianceCounts({
-        items: [{ productId, countedQuantity }],
+        items: withBaseline([{ productId, countedQuantity }]),
       });
       const latest = draftTotal(productId);
       if (latest !== countedQuantity) {
@@ -514,6 +624,8 @@ export default function VarianceInventoryPage() {
         if (saved?.count && latest === null && isBlankDraft(draftsRef.current[productId])) {
           await apiClient.clearVarianceCount(saved.count.id);
           savedValuesRef.current[productId] = null;
+          forgetBaseline(productId);
+          dirtyRef.current.delete(productId);
           replaceRow(productId, { ...saved, count: null });
         }
         return;
@@ -523,6 +635,8 @@ export default function VarianceInventoryPage() {
       savedValuesRef.current[productId] = saved.count
         ? saved.count.countedQuantity
         : countedQuantity;
+      forgetBaseline(productId);
+      dirtyRef.current.delete(productId);
       replaceRow(productId, saved);
     } catch (error) {
       showErrorFromException(error, "Failed to save count");
@@ -540,6 +654,8 @@ export default function VarianceInventoryPage() {
     try {
       await apiClient.clearVarianceCount(currentRow.count.id);
       savedValuesRef.current[productId] = null;
+      forgetBaseline(productId);
+      dirtyRef.current.delete(productId);
       replaceRow(productId, { ...currentRow, count: null });
     } catch (error) {
       showErrorFromException(error, "Failed to clear count");
@@ -568,6 +684,11 @@ export default function VarianceInventoryPage() {
 
   function updateDraft(productId: string, part: keyof CountDraft, value: string) {
     if (countingLocked) return;
+    const row = rowsRef.current.find((entry) => entry.productId === productId);
+    if (row && !row.count) {
+      rememberBaseline(productId, Number(row.stockQuantity) || 0);
+    }
+    dirtyRef.current.add(productId);
     const current = draftsRef.current[productId] ?? emptyDraft();
     draftsRef.current = {
       ...draftsRef.current,
@@ -582,6 +703,7 @@ export default function VarianceInventoryPage() {
     const existing = timersRef.current[row.productId];
     if (existing) clearTimeout(existing);
     delete timersRef.current[row.productId];
+    dirtyRef.current.add(row.productId);
     draftsRef.current = { ...draftsRef.current, [row.productId]: emptyDraft() };
     setDrafts(draftsRef.current);
     enqueue(row.productId, async () => {
@@ -636,6 +758,12 @@ export default function VarianceInventoryPage() {
         }
         const check = await apiClient.checkVarianceCounts();
         await loadWorksheet({ quiet: true, keepDrafts: true });
+        for (const item of items) {
+          if (draftTotal(item.productId) === item.countedQuantity) {
+            dirtyRef.current.delete(item.productId);
+            forgetBaseline(item.productId);
+          }
+        }
         if (check.errors?.length) {
           setApplyIssues(check.errors);
           setReadyToUpdate(check.readyCount ?? 0);
@@ -645,6 +773,17 @@ export default function VarianceInventoryPage() {
       } catch (error) {
         showErrorFromException(error, "Failed to check counts");
         return;
+      }
+    } else {
+      try {
+        const stock = await apiClient.getVarianceStock(target);
+        setRows((current) =>
+          current.map((row) =>
+            row.productId === target ? { ...row, stockQuantity: stock.stockQuantity } : row,
+          ),
+        );
+      } catch {
+        // The dialog still uses the stock already on screen.
       }
     }
 
@@ -658,9 +797,16 @@ export default function VarianceInventoryPage() {
     setIssueDialogOpen(false);
     try {
       setApplying(true);
+      applyingRef.current = true;
       const items = collectDirty(target === "all" ? undefined : [target]);
       if (items.length > 0) {
         await apiClient.saveVarianceCounts({ items });
+        for (const item of items) {
+          if (draftTotal(item.productId) === item.countedQuantity) {
+            dirtyRef.current.delete(item.productId);
+            forgetBaseline(item.productId);
+          }
+        }
       }
       const result = await apiClient.applyVarianceCounts(
         target === "all" ? { skipProductIds } : { productIds: [target] },
@@ -669,6 +815,14 @@ export default function VarianceInventoryPage() {
         setDrafts((current) => ({ ...current, [target]: emptyDraft() }));
       }
       if (skipProductIds.length > 0) setShowIssuesOnly(false);
+      if (target === "all") {
+        for (const productId of [...dirtyRef.current]) {
+          if (!skipProductIds.includes(productId)) dirtyRef.current.delete(productId);
+        }
+      } else {
+        dirtyRef.current.delete(target);
+        forgetBaseline(target);
+      }
       await loadWorksheet({ quiet: true, keepDrafts: target !== "all" });
       showSuccessToast(
         result.updated === 1
@@ -682,6 +836,7 @@ export default function VarianceInventoryPage() {
         showErrorFromException(error, "Failed to update stock");
       }
     } finally {
+      applyingRef.current = false;
       setApplying(false);
     }
   }
@@ -723,6 +878,9 @@ export default function VarianceInventoryPage() {
                 enterKeyHint="done"
                 value={draft[field.key]}
                 disabled={countingLocked}
+                onFocus={() => {
+                  void refreshProductStock(row.productId);
+                }}
                 onChange={(e) => updateDraft(row.productId, field.key, e.target.value)}
                 onBlur={() => {
                   if (!countingLocked) queueCountSave(row.productId, 0);
@@ -907,8 +1065,8 @@ export default function VarianceInventoryPage() {
                 {countingLocked
                   ? "Counting is closed, so quantities cannot be changed. Products set to unlimited stock are not listed."
                   : isAdmin
-                    ? "Counts save as you type, in pieces or by pack and half pack. Updating stock keeps sales made after the count and applies only the original difference. Products set to unlimited stock are not listed."
-                    : "Enter the quantity on the shelf in pieces, packs, or half packs. Each count saves automatically, and an admin updates stock. Products set to unlimited stock are not listed."}
+                    ? "Counts save as you type and stay on the product. Sales and deliveries during the day stay in stock. Update all quantities after close applies only the original difference, so a counted product does not need to be counted again. Unlimited stock products are not listed."
+                    : "Enter the quantity on the shelf. A saved count stays put while the register and deliveries keep moving stock, so you do not count that product again. An admin updates quantities after close. Unlimited stock products are not listed."}
               </CardDescription>
             </div>
             {isAdmin && (
@@ -1040,8 +1198,8 @@ export default function VarianceInventoryPage() {
                             ? ` (${quantityPartsLabel(stockAtCount(row), row)})`
                             : ""}
                         </span>
-                        {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
-                          <span>Now {row.stockQuantity}</span>
+                        {stockMoved(row) && (
+                          <span>Now {row.stockQuantity}. Count kept</span>
                         )}
                         {differenceLabel(delta)}
                       </div>
@@ -1124,9 +1282,9 @@ export default function VarianceInventoryPage() {
                               {quantityPartsLabel(stockAtCount(row), row)}
                             </div>
                           )}
-                          {row.count && row.stockQuantity !== Number(row.count.systemQuantity) && (
+                          {stockMoved(row) && (
                             <div className="text-xs font-normal text-muted-foreground">
-                              Now {row.stockQuantity}
+                              Now {row.stockQuantity}. Count kept
                             </div>
                           )}
                         </TableCell>
@@ -1212,9 +1370,9 @@ export default function VarianceInventoryPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {applyTarget === "all"
-                ? `This applies the original difference to the current stock for ${pendingApplyCount} product${pendingApplyCount === 1 ? "" : "s"}. ${changingCount} will change. Sales after a product was counted stay in the quantity.`
+                ? `This applies each saved difference to the stock on hand now for ${pendingApplyCount} product${pendingApplyCount === 1 ? "" : "s"}. ${changingCount} will change. Sales and deliveries since each count stay in the quantity, so counted products do not need to be counted again.`
                 : applyRow && applyCount !== null
-                  ? `Stock was ${stockAtCount(applyRow)} when ${applyRow.name} was counted. The count is ${applyCount}${quantityPartsLabel(applyCount, applyRow) ? ` (${quantityPartsLabel(applyCount, applyRow)})` : ""}. Current stock is ${applyRow.stockQuantity}, so it will become ${applyRow.stockQuantity + (applyCount - stockAtCount(applyRow))}.`
+                  ? `Stock was ${stockAtCount(applyRow)} when ${applyRow.name} was counted. The count is ${applyCount}${quantityPartsLabel(applyCount, applyRow) ? ` (${quantityPartsLabel(applyCount, applyRow)})` : ""}. Stock now is ${applyRow.stockQuantity}, including sales and deliveries since the count, so it will become ${applyRow.stockQuantity + (applyCount - stockAtCount(applyRow))}. This count does not need to be entered again.`
                   : "Save a count before updating stock."}
             </AlertDialogDescription>
           </AlertDialogHeader>

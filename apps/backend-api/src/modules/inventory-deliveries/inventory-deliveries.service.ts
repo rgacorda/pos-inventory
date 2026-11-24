@@ -203,10 +203,9 @@ export class InventoryDeliveriesService {
         'Archived deliveries cannot be edited. Restore the delivery first.',
       );
     }
-    const oldStatus = delivery.status;
-    // Snapshot the items as they were before this update, since stock was
-    // already applied based on this exact list (if the delivery was
-    // RECEIVED). We need it to compute what changed.
+    // Used for the edit log. Stock uses the row locked inside the
+    // transaction, so a second save of this delivery cannot add the same
+    // units again.
     const oldItems = delivery.items || [];
 
     await this.resolveSupplierLink(updateDto, organizationId);
@@ -261,6 +260,23 @@ export class InventoryDeliveriesService {
     Object.assign(delivery, updateDto);
 
     return this.deliveryRepository.manager.transaction(async (manager) => {
+      // Lock this delivery before reading the quantities stock was based on.
+      // Otherwise two people saving it can each add stock from the same old quantity.
+      const locked = await manager.findOne(InventoryDelivery, {
+        where: { id, organizationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) {
+        throw new NotFoundException('Delivery not found');
+      }
+      if (locked.deletedAt) {
+        throw new BadRequestException(
+          'Archived deliveries cannot be edited. Restore the delivery first.',
+        );
+      }
+      const previousItems = locked.items || [];
+      const previousStatus = locked.status;
+
       const updatedDelivery = (await manager.save(
         delivery,
       )) as unknown as InventoryDelivery;
@@ -269,6 +285,7 @@ export class InventoryDeliveriesService {
         where: { organizationId, resolvedDeliveryId: updatedDelivery.id },
       });
       await this.lockProductsInOrder(manager, organizationId, [
+        ...previousItems.map((item) => item.productId),
         ...oldItems.map((item) => item.productId),
         ...(updatedDelivery.items || []).map((item) => item.productId),
         ...this.resolutionProductIds(preparedResolutions),
@@ -277,7 +294,7 @@ export class InventoryDeliveriesService {
         ),
       ]);
 
-      const wasReceived = oldStatus === 'RECEIVED';
+      const wasReceived = previousStatus === 'RECEIVED';
       const isReceived = updatedDelivery.status === 'RECEIVED';
       const newItems = updatedDelivery.items || [];
 
@@ -285,7 +302,7 @@ export class InventoryDeliveriesService {
         // Already received: move stock by the quantity difference only.
         await this.applyStockChange(
           manager,
-          oldItems,
+          previousItems,
           newItems,
           updatedDelivery.organizationId,
           updatedDelivery.supplierId,
@@ -303,7 +320,7 @@ export class InventoryDeliveriesService {
       } else if (wasReceived && !isReceived) {
         await this.applyStockChange(
           manager,
-          oldItems,
+          previousItems,
           [],
           updatedDelivery.organizationId,
           null,
@@ -817,11 +834,17 @@ export class InventoryDeliveriesService {
     }
 
     await this.deliveryRepository.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(InventoryDelivery, {
+        where: { id, organizationId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) return;
+
       const linkedReturns = await manager.find(InventoryReturn, {
-        where: { organizationId, resolvedDeliveryId: delivery.id },
+        where: { organizationId, resolvedDeliveryId: locked.id },
       });
       await this.lockProductsInOrder(manager, organizationId, [
-        ...(delivery.items || []).map((item) => item.productId),
+        ...(locked.items || []).map((item) => item.productId),
         ...linkedReturns.flatMap((record) =>
           (record.replacementItems || []).map((item) => item.productId),
         ),
@@ -829,24 +852,24 @@ export class InventoryDeliveriesService {
 
       // Deleting a delivery that already added stock should reverse it,
       // otherwise the stock it contributed would be left behind permanently.
-      if (delivery.status === 'RECEIVED' && delivery.items?.length > 0) {
+      if (locked.status === 'RECEIVED' && locked.items?.length > 0) {
         await this.applyStockChange(
           manager,
-          delivery.items,
+          locked.items,
           [],
           organizationId,
           null,
-          delivery,
+          locked,
         );
       }
 
       await this.inventoryReturnsService.unlinkDeliveryResolutions(
         organizationId,
-        delivery.id,
+        locked.id,
         manager,
       );
 
-      await manager.remove(delivery);
+      await manager.remove(locked);
     });
     return { message: 'Delivery deleted successfully' };
   }

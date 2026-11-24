@@ -43,6 +43,12 @@ export class InventoryVariancesController {
     );
   }
 
+  @Get('stock/:productId')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
+  liveStock(@CurrentUser() user: any, @Param('productId') productId: string) {
+    return this.inventoryVariancesService.liveStock(user, productId);
+  }
+
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER)
   getWorksheet(@CurrentUser() user: any) {
