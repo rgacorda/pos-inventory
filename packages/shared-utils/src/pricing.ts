@@ -99,35 +99,57 @@ export function formatPriceBreakdownLabel(breakdown: PriceBreakdown): string {
 }
 
 /**
- * Fields needed to count how many pieces a line represents.
- * Pack fields are accepted so existing call sites can pass a full line,
- * but they do not change the count: a pack is still the pieces inside it.
+ * Fields needed to count how many items a line represents.
+ * Quantity is stored in pieces. Pack fields turn full packs and half-packs
+ * into single items.
  */
 export interface SoldItemCountInput {
   quantity: number;
-  packPrice?: number;
-  packQuantity?: number;
-  halfPackPrice?: number;
-  halfPackQuantity?: number;
+  packPrice?: number | null;
+  packQuantity?: number | null;
+  halfPackPrice?: number | null;
+  halfPackQuantity?: number | null;
+}
+
+function positiveAmount(value?: number | null): number | undefined {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : undefined;
 }
 
 /**
- * Count the pieces on one line.
+ * Count the sold items on one line.
  *
- * Pack and half-pack deals change the price, not how many items were sold.
- * A line of 12 pieces is 12 items even when those 12 pieces are priced as
- * one pack.
+ * A pack counts as one item, and a half-pack counts as one item. Pieces that
+ * do not fill a pack or half-pack still count one each. A line of 12 pieces
+ * priced as one pack is 1 item, not 12.
  */
-export function calculateSoldItemCount({ quantity }: SoldItemCountInput): number {
-  const count = Number(quantity);
-  if (!Number.isFinite(count) || count <= 0) return 0;
-  return count;
+export function calculateSoldItemCount(item: SoldItemCountInput): number {
+  const quantity = Number(item.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+
+  const packPrice = positiveAmount(item.packPrice);
+  const packQuantity = positiveAmount(item.packQuantity);
+  const halfPackPrice = positiveAmount(item.halfPackPrice);
+  const halfPackQuantity = positiveAmount(item.halfPackQuantity);
+  const hasPack = packPrice != null && packQuantity != null;
+  const hasHalf = halfPackPrice != null && halfPackQuantity != null;
+  if (!hasPack && !hasHalf) return quantity;
+
+  const breakdown = calculatePriceBreakdown(
+    quantity,
+    0,
+    hasPack ? packPrice : undefined,
+    hasPack ? packQuantity : undefined,
+    hasHalf ? halfPackPrice : undefined,
+    hasHalf ? halfPackQuantity : undefined,
+  );
+  return breakdown.packs + breakdown.halfPacks + breakdown.units;
 }
 
 /**
- * Sum piece quantities across a list of lines.
- * This is the order's Total Items: every piece added, including pieces
- * that were priced as a pack or half-pack.
+ * Sum sold items across a list of lines.
+ * This is the order's Total Items: each pack or half-pack counts as one,
+ * and loose pieces count individually.
  */
 export function calculateTotalSoldItemCount(items: SoldItemCountInput[]): number {
   return items.reduce((sum, item) => sum + calculateSoldItemCount(item), 0);
