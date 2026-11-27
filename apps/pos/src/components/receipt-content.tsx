@@ -2,7 +2,11 @@
 
 import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
-import { receiptStoreName, type ReceiptData } from "@/lib/receipt-template";
+import {
+  receiptItemNote,
+  receiptStoreName,
+  type ReceiptData,
+} from "@/lib/receipt-template";
 import { ReceiptBarcode } from "@/components/receipt-barcode";
 
 export type { ReceiptItem, ReceiptOrganization, ReceiptData } from "@/lib/receipt-template";
@@ -103,29 +107,43 @@ export function ReceiptContent({
               <span className="min-w-[38px]">Total</span>
             </span>
           </div>
-          {items.map((item, index) => (
-            <div key={index} className="flex gap-1 mb-0.5 tabular-nums items-start">
-              <span className="flex-1 min-w-0 break-words">{item.name}</span>
-              <span className="flex gap-1 shrink-0 whitespace-nowrap text-right">
-                <span className="w-5 text-right">{item.quantity}</span>
-                <span>{formatCurrency(item.unitPrice)}</span>
-                <span className="min-w-[38px]">{formatCurrency(item.total)}</span>
-              </span>
-            </div>
-          ))}
+          {items.map((item, index) => {
+            const note = receiptItemNote(item);
+            return (
+              <div key={index} className="mb-1">
+                <div className="flex gap-1 tabular-nums items-start">
+                  <span className="flex-1 min-w-0 break-words">{item.name}</span>
+                  <span className="flex gap-1 shrink-0 whitespace-nowrap text-right">
+                    <span className="w-5 text-right">{item.quantity}</span>
+                    <span>{formatCurrency(item.unitPrice)}</span>
+                    <span className="min-w-[38px]">{formatCurrency(item.total)}</span>
+                  </span>
+                </div>
+                {note ? (
+                  <div className="text-[6.5pt] leading-tight break-words">{note}</div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div>
-          {items.map((item, index) => (
-            <div key={index} className="mb-0.5">
-              <div className="break-words w-full">{item.name}</div>
-              <div className="flex justify-end gap-1.5 whitespace-nowrap tabular-nums text-[7pt]">
-                <span>{formatCurrency(item.unitPrice)}</span>
-                <span className="w-4 text-right">{item.quantity}</span>
-                <span className="min-w-[38px] text-right">{formatCurrency(item.total)}</span>
+          {items.map((item, index) => {
+            const note = receiptItemNote(item);
+            return (
+              <div key={index} className="mb-1">
+                <div className="break-words w-full">{item.name}</div>
+                <div className="flex justify-end gap-1.5 whitespace-nowrap tabular-nums text-[7pt]">
+                  <span>{formatCurrency(item.unitPrice)}</span>
+                  <span className="w-4 text-right">{item.quantity}</span>
+                  <span className="min-w-[38px] text-right">{formatCurrency(item.total)}</span>
+                </div>
+                {note ? (
+                  <div className="text-[6.5pt] leading-tight break-words">{note}</div>
+                ) : null}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

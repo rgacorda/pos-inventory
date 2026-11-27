@@ -1,4 +1,10 @@
-import { calculateTotalSoldItemCount, formatCurrency, formatDateTime } from "@pos/shared-utils";
+import {
+  calculatePriceBreakdown,
+  calculateTotalSoldItemCount,
+  formatCurrency,
+  formatDateTime,
+  formatPriceBreakdownLabel,
+} from "@pos/shared-utils";
 import type { ReceiptPaperSize } from "@/lib/db";
 import { renderBarcodeSvg } from "@/lib/code128";
 
@@ -98,6 +104,39 @@ function esc(value: string | number | undefined | null): string {
   return escapeHtml(String(value));
 }
 
+function positiveAmount(value?: number | null): number | undefined {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : undefined;
+}
+
+/**
+ * Short line under an item, such as "1 pack + 1 half-pack + 2 pcs".
+ * Empty when the line is only loose pieces, so a normal sale stays one row.
+ */
+export function receiptItemNote(item: ReceiptItem): string {
+  const quantity = Number(item.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return "";
+
+  const packPrice = positiveAmount(item.packPrice);
+  const packQuantity = positiveAmount(item.packQuantity);
+  const halfPackPrice = positiveAmount(item.halfPackPrice);
+  const halfPackQuantity = positiveAmount(item.halfPackQuantity);
+  const hasPack = packPrice != null && packQuantity != null;
+  const hasHalf = halfPackPrice != null && halfPackQuantity != null;
+  if (!hasPack && !hasHalf) return "";
+
+  return formatPriceBreakdownLabel(
+    calculatePriceBreakdown(
+      quantity,
+      0,
+      hasPack ? packPrice : undefined,
+      hasPack ? packQuantity : undefined,
+      hasHalf ? halfPackPrice : undefined,
+      hasHalf ? halfPackQuantity : undefined,
+    ),
+  );
+}
+
 function line(): string {
   return `<div class="line"></div>`;
 }
@@ -156,23 +195,28 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
         </span>
       </div>
       ${data.items
-        .map(
-          (item) => `
-        <div class="item-row">
-          <span class="col-name">${esc(item.name)}</span>
-          <span class="col-amounts">
-            <span class="col-qty">${esc(item.quantity)}</span>
-            <span class="col-price">${esc(formatCurrency(item.unitPrice))}</span>
-            <span class="col-total">${esc(formatCurrency(item.total))}</span>
-          </span>
+        .map((item) => {
+          const note = receiptItemNote(item);
+          return `
+        <div class="item-block">
+          <div class="item-row">
+            <span class="col-name">${esc(item.name)}</span>
+            <span class="col-amounts">
+              <span class="col-qty">${esc(item.quantity)}</span>
+              <span class="col-price">${esc(formatCurrency(item.unitPrice))}</span>
+              <span class="col-total">${esc(formatCurrency(item.total))}</span>
+            </span>
+          </div>
+          ${note ? `<div class="item-detail">${esc(note)}</div>` : ""}
         </div>
-      `,
-        )
+      `;
+        })
         .join("")}
     `
     : data.items
-        .map(
-          (item) => `
+        .map((item) => {
+          const note = receiptItemNote(item);
+          return `
         <div class="item-narrow">
           <div class="item-name">${esc(item.name)}</div>
           <div class="item-amounts">
@@ -180,9 +224,10 @@ function buildReceiptBodyHtml(data: ReceiptData, paperSize: ReceiptPaperSize): s
             <span class="col-qty">${esc(item.quantity)}</span>
             <span class="col-total">${esc(formatCurrency(item.total))}</span>
           </div>
+          ${note ? `<div class="item-detail">${esc(note)}</div>` : ""}
         </div>
-      `,
-        )
+      `;
+        })
         .join("");
 
   const totals = `
@@ -279,14 +324,16 @@ function buildReceiptCss(paperSize: ReceiptPaperSize): string {
     .store-name { font-size: ${isWide ? "9pt" : "10pt"}; }
     .total-row { border-top: 0.5px dashed #ccc; padding-top: 5px; margin-top: 5px; }
     .item-header { display: flex; gap: 4px; font-size: 6.5pt; margin-bottom: 1px; align-items: baseline; }
-    .item-row { display: flex; gap: 4px; margin-bottom: 1px; align-items: flex-start; }
+    .item-block { margin-bottom: 2px; }
+    .item-row { display: flex; gap: 4px; align-items: flex-start; }
+    .item-detail { font-size: ${isWide ? "6.5pt" : "7pt"}; line-height: 1.2; }
     .col-name { flex: 1; min-width: 0; word-break: break-word; }
     .col-amounts { display: flex; gap: 4px; flex-shrink: 0; white-space: nowrap; text-align: right; margin-left: auto; }
     .col-qty { width: 14px; text-align: right; flex-shrink: 0; }
     .col-price { flex-shrink: 0; }
     .col-total { flex-shrink: 0; min-width: 38px; }
     .item-name { width: 100%; word-break: break-word; margin-bottom: 0; }
-    .item-narrow { margin-bottom: 1px; }
+    .item-narrow { margin-bottom: 2px; }
     .item-amounts { display: flex; justify-content: flex-end; gap: 6px; align-items: baseline; white-space: nowrap; }
     .barcode-wrap { margin: 1mm 0 0; }
     .barcode-wrap svg { display: block; width: 100%; height: 12mm; }
