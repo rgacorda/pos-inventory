@@ -1,6 +1,18 @@
 import axios, { AxiosInstance } from "axios";
 import type { AuthResponseDto, LoginDto } from "@pos/shared-types";
 
+const AUTH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
+
+type SessionUser = {
+  id?: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  organizationId?: string | null;
+  organizationName?: string;
+  mustChangePassword?: boolean;
+};
+
 class APIClient {
   private client: AxiosInstance;
   private accessToken: string | null = null;
@@ -17,8 +29,10 @@ class APIClient {
     // Request interceptor to add auth token
     this.client.interceptors.request.use(
       (config) => {
+        this.syncTokenFromStorage();
         if (this.accessToken) {
           config.headers.Authorization = `Bearer ${this.accessToken}`;
+          (config as { sessionToken?: string }).sessionToken = this.accessToken;
         }
         return config;
       },
@@ -29,8 +43,7 @@ class APIClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401 && this.isCurrentSession(error)) {
-          // Unauthorized - clear token and redirect to login
+        if (this.shouldEndSession(error)) {
           this.logout();
           if (
             typeof window !== "undefined" &&
@@ -49,44 +62,150 @@ class APIClient {
       },
     );
 
-    // Load token from localStorage on initialization
-    if (typeof window !== "undefined") {
-      this.accessToken = localStorage.getItem("accessToken");
-    }
+    this.syncTokenFromStorage();
   }
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
-    if (typeof window !== "undefined") {
-      if (token) {
-        localStorage.setItem("accessToken", token);
-        // Set cookie for middleware access
-        document.cookie = `accessToken=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
-      } else {
-        localStorage.removeItem("accessToken");
-        // Remove cookie
-        document.cookie =
-          "accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      }
-    }
+    this.writeStoredToken(token);
   }
 
   getAccessToken() {
+    this.syncTokenFromStorage();
     return this.accessToken;
   }
 
-  private isCurrentSession(error: { config?: { headers?: Record<string, unknown> } }) {
-    const headers = error.config?.headers;
-    const raw = headers?.Authorization ?? headers?.authorization;
-    const failedToken = typeof raw === "string" ? raw : "";
-    if (!failedToken || !this.accessToken) {
-      return true;
+  /** Rewrite the middleware cookie from the current token. */
+  persistAuthCookie() {
+    if (this.accessToken) {
+      this.writeAuthCookie(this.accessToken);
     }
-    return failedToken === `Bearer ${this.accessToken}`;
+  }
+
+  private readCookie(name: string) {
+    if (typeof document === "undefined") return null;
+    const match = document.cookie.match(
+      new RegExp(`(?:^|; )${name}=([^;]*)`),
+    );
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  private writeAuthCookie(token: string | null) {
+    if (typeof document === "undefined") return;
+    if (!token) {
+      document.cookie =
+        "accessToken=; path=/; max-age=0; SameSite=Lax";
+      return;
+    }
+    const secure =
+      window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `accessToken=${encodeURIComponent(token)}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
+  }
+
+  private writeStoredToken(token: string | null) {
+    if (typeof window === "undefined") return;
+    try {
+      if (token) localStorage.setItem("accessToken", token);
+      else localStorage.removeItem("accessToken");
+    } catch {
+      // The cookie still lets middleware recognize the session.
+    }
+    this.writeAuthCookie(token);
+  }
+
+  /**
+   * Keep memory, localStorage, and the cookie on the same token.
+   * Browsers drop one of those stores during a work day; either remaining
+   * copy is enough to stay signed in.
+   */
+  private syncTokenFromStorage() {
+    if (typeof window === "undefined") return;
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("accessToken");
+    } catch {
+      stored = null;
+    }
+    if (!stored) stored = this.readCookie("accessToken");
+    if (!stored) return;
+    const cookie = this.readCookie("accessToken");
+    if (stored !== this.accessToken || cookie !== stored) {
+      this.accessToken = stored;
+      this.writeStoredToken(stored);
+    }
+  }
+
+  private requestPath(error: { config?: { url?: string } }) {
+    return String(error.config?.url || "").split("?")[0];
+  }
+
+  private isCredentialChallenge(error: {
+    response?: { data?: { message?: unknown } };
+  }) {
+    const message = error.response?.data?.message;
+    const text = (
+      Array.isArray(message) ? message.join(" ") : String(message || "")
+    ).toLowerCase();
+    return text.includes("password") || text.includes("reset token");
+  }
+
+  /**
+   * End the session only when this browser's current token was rejected.
+   * A wrong confirmation password is also a 401, and so is a response that
+   * belongs to a token we already replaced.
+   */
+  private shouldEndSession(error: {
+    response?: { status?: number; data?: { message?: unknown } };
+    config?: { url?: string; sessionToken?: string };
+  }) {
+    if (error.response?.status !== 401) return false;
+    const path = this.requestPath(error);
+    if (
+      path.endsWith("/auth/login") ||
+      path.endsWith("/auth/request-password-reset") ||
+      path.endsWith("/auth/reset-password")
+    ) {
+      return false;
+    }
+    if (this.isCredentialChallenge(error)) return false;
+    const sent = error.config?.sessionToken;
+    if (typeof sent !== "string" || !sent || !this.accessToken) return false;
+    return sent === this.accessToken;
+  }
+
+  private rememberUser(user: SessionUser | undefined) {
+    if (!user || typeof window === "undefined") return;
+    try {
+      localStorage.setItem("user", JSON.stringify(user));
+      if (user.organizationId) {
+        localStorage.setItem("organizationId", user.organizationId);
+      }
+      if (user.organizationName) {
+        localStorage.setItem("organizationName", user.organizationName);
+      }
+    } catch {
+      // Profile cache is optional. The token is what keeps them signed in.
+    }
   }
 
   async checkSession() {
-    await this.client.get("/auth/session");
+    const response = await this.client.get<{
+      active: boolean;
+      accessToken?: string;
+      user?: SessionUser;
+    }>("/auth/session");
+    if (response.data.accessToken) {
+      this.setAccessToken(response.data.accessToken);
+    } else {
+      this.persistAuthCookie();
+    }
+    this.rememberUser(response.data.user);
+    return response.data;
   }
 
   async logoutAllUsers() {
@@ -108,14 +227,16 @@ class APIClient {
   }
 
   logout() {
-    this.setAccessToken(null);
+    this.accessToken = null;
+    this.writeStoredToken(null);
     if (typeof window !== "undefined") {
-      localStorage.removeItem("user");
-      localStorage.removeItem("organizationId");
-      localStorage.removeItem("organizationName");
-      // Clear cookie
-      document.cookie =
-        "accessToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      try {
+        localStorage.removeItem("user");
+        localStorage.removeItem("organizationId");
+        localStorage.removeItem("organizationName");
+      } catch {
+        // Cookie clear below is what the middleware checks.
+      }
     }
   }
 

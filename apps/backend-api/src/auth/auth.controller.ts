@@ -38,8 +38,8 @@ export class AuthController {
   @Get('session')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  session() {
-    return { active: true };
+  session(@CurrentUser() user: { id?: string; userId?: string }) {
+    return this.authService.issueSession(user?.id || user?.userId || '');
   }
 
   @Post('logout-all')

@@ -70,9 +70,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials or subscription expired');
     }
 
-    // Update last login timestamp
-    user.lastLoginAt = new Date();
-    await this.userRepository.save(user);
+    // Update last login only so the session version on this row stays as it is.
+    await this.userRepository.update(user.id, { lastLoginAt: new Date() });
 
     const accessToken = this.signAccessToken(
       user,
@@ -109,7 +108,7 @@ export class AuthService {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    if ((user.tokenVersion ?? 0) !== tokenVersion) {
+    if (this.sessionVersion(user.tokenVersion) !== this.sessionVersion(tokenVersion)) {
       throw new UnauthorizedException('Session ended');
     }
 
@@ -181,6 +180,53 @@ export class AuthService {
     };
   }
 
+  /**
+   * Issues a fresh token for a session the guard already accepted.
+   * Open Inventory tabs call this on a timer so a work day does not
+   * end when the original token reaches its expiry.
+   */
+  async issueSession(userId: string): Promise<{
+    active: true;
+    accessToken: string;
+    user: {
+      id: string;
+      email: string;
+      name: string;
+      role: UserEntity['role'];
+      organizationId: string | null;
+      organizationName?: string;
+      mustChangePassword: boolean;
+    };
+  }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId, isActive: true },
+      relations: ['organization'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    return {
+      active: true,
+      accessToken: this.signAccessToken(user, user.terminalId),
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        organizationId: user.organizationId,
+        organizationName: user.organization?.name,
+        mustChangePassword: user.mustChangePassword,
+      },
+    };
+  }
+
+  private sessionVersion(value: unknown): number {
+    const version = Number(value ?? 0);
+    return Number.isFinite(version) ? version : 0;
+  }
+
   private signAccessToken(user: UserEntity, terminalId?: string) {
     return this.jwtService.sign({
       sub: user.id,
@@ -188,7 +234,7 @@ export class AuthService {
       role: user.role,
       organizationId: user.organizationId,
       terminalId,
-      tokenVersion: user.tokenVersion ?? 0,
+      tokenVersion: this.sessionVersion(user.tokenVersion),
     });
   }
 
